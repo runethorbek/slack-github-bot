@@ -11,7 +11,7 @@ response_url = os.environ["SLACK_RESPONSE_URL"]
 client = genai.Client()
 
 response = client.interactions.create(
-    model="gemini-3.7-flash",
+    model="gemini-3.5-flash-lite",
     input=text,
 )
 
