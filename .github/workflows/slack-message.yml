@@ -23,6 +23,7 @@ jobs:
           SLACK_TEXT: ${{ github.event.client_payload.text }}
           SLACK_CHANNEL_ID: ${{ github.event.client_payload.channel_id }}
           SLACK_THREAD_TS: ${{ github.event.client_payload.thread_ts }}
+          SLACK_EVENT_TYPE: ${{ github.event.client_payload.slack_event_type }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python main.py
