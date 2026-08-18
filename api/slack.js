@@ -1,203 +1,147 @@
-import os
-import requests
-from google import genai
+import { waitUntil } from "@vercel/functions";
 
-
-# ---------------------------------------------------------
-# Environment
-# ---------------------------------------------------------
-
-text = os.environ["SLACK_TEXT"]
-channel_id = os.environ["SLACK_CHANNEL_ID"]
-slack_token = os.environ["SLACK_BOT_TOKEN"]
-
-event_type = os.environ.get("SLACK_EVENT_TYPE", "slash_command")
-thread_ts = os.environ.get("SLACK_THREAD_TS", "")
-
-
-# ---------------------------------------------------------
-# Slack helpers
-# ---------------------------------------------------------
-
-def slack_post(method, payload):
-    response = requests.post(
-        f"https://slack.com/api/{method}",
-        headers={
-            "Authorization": f"Bearer {slack_token}",
-            "Content-Type": "application/json",
+async function triggerGitHub(payload) {
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${process.env.GITHUB_OWNER}/${process.env.GITHUB_REPO}/dispatches`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+          Accept: "application/vnd.github+json",
+          "Content-Type": "application/json",
+          "X-GitHub-Api-Version": "2022-11-28",
         },
-        json=payload,
-        timeout=10,
-    )
+        body: JSON.stringify({
+          event_type: "slack_message",
+          client_payload: payload,
+        }),
+      }
+    );
 
-    response.raise_for_status()
-
-    result = response.json()
-
-    if not result.get("ok"):
-        raise Exception(f"Slack error: {result}")
-
-    return result
-
-
-def post_slack_message(message, thread_ts=None):
-    payload = {
-        "channel": channel_id,
-        "text": message,
-        "mrkdwn": True,
+    if (!response.ok) {
+      console.error(
+        "GitHub error:",
+        response.status,
+        await response.text()
+      );
     }
+  } catch (error) {
+    console.error("Failed to trigger GitHub:", error);
+  }
+}
 
-    if thread_ts:
-        payload["thread_ts"] = thread_ts
+export default {
+  async fetch(request) {
+    try {
+      const contentType = request.headers.get("content-type") ?? "";
 
-    return slack_post("chat.postMessage", payload)
+      // -------------------------------------------------------
+      // Slack Events API
+      // -------------------------------------------------------
+      if (contentType.includes("application/json")) {
+        const body = await request.json();
 
+        // Slack bruger dette til at verificere Event Subscription URL
+        if (body.type === "url_verification") {
+          return Response.json({
+            challenge: body.challenge,
+          });
+        }
 
-def get_thread_messages(thread_ts):
-    response = requests.get(
-        "https://slack.com/api/conversations.replies",
-        headers={
-            "Authorization": f"Bearer {slack_token}",
-        },
-        params={
-            "channel": channel_id,
-            "ts": thread_ts,
-        },
-        timeout=10,
-    )
+        // Almindeligt event fra Slack
+        if (body.type === "event_callback") {
+          const event = body.event;
 
-    response.raise_for_status()
+          // Ignorér beskeder fra botten selv.
+          // Ellers kan vi ende i et loop:
+          // bot -> Slack event -> GitHub -> bot -> Slack event -> ...
+          if (
+            event?.bot_id ||
+            event?.subtype === "bot_message"
+          ) {
+            return new Response("", {
+              status: 200,
+            });
+          }
 
-    result = response.json()
+          // Vi er kun interesserede i message-events
+          if (event?.type === "message") {
+            // Hvis beskeden IKKE er i en thread,
+            // ignorerer vi den foreløbig.
+            //
+            // Nye opgaver starter via /testbot.
+            if (!event.thread_ts) {
+              return new Response("", {
+                status: 200,
+              });
+            }
 
-    if not result.get("ok"):
-        raise Exception(f"Slack error: {result}")
+            waitUntil(
+              triggerGitHub({
+                text: event.text ?? "",
+                channel_id: event.channel ?? "",
+                user_id: event.user ?? "",
 
-    return result["messages"]
+                // thread_ts peger på root-beskeden
+                thread_ts: event.thread_ts,
 
+                slack_event_type: "message",
+              })
+            );
+          }
 
-# ---------------------------------------------------------
-# Build conversation for Gemini
-# ---------------------------------------------------------
+          return new Response("", {
+            status: 200,
+          });
+        }
 
-def build_conversation(messages):
-    parts = []
+        return new Response("", {
+          status: 200,
+        });
+      }
 
-    for message in messages:
-        message_text = message.get("text", "").strip()
+      // -------------------------------------------------------
+      // Slack slash command
+      // -------------------------------------------------------
 
-        if not message_text:
-            continue
+      const formData = await request.formData();
 
-        # Slack bot messages contain bot_id.
-        if message.get("bot_id"):
-            role = "ASSISTANT"
-        else:
-            role = "USER"
+      const text = formData.get("text") ?? "";
+      const responseUrl = formData.get("response_url") ?? "";
+      const channelId = formData.get("channel_id") ?? "";
+      const userId = formData.get("user_id") ?? "";
 
-        parts.append(f"{role}:\n{message_text}")
+      waitUntil(
+        triggerGitHub({
+          text,
+          response_url: responseUrl,
+          channel_id: channelId,
+          user_id: userId,
 
-    return "\n\n".join(parts)
+          // Slash command starter en NY samtale.
+          // Derfor er der endnu ikke noget thread_ts.
+          thread_ts: "",
 
+          slack_event_type: "slash_command",
+        })
+      );
 
-SYSTEM_INSTRUCTION = """
-You are an assistant participating in a Slack thread.
+      // Slack skal have svar meget hurtigt.
+      return new Response("", {
+        status: 200,
+      });
+    } catch (error) {
+      console.error("Slack webhook failed:", error);
 
-The Slack thread represents one task or conversation.
-
-Conversation rules:
-- The first USER message defines the original task or topic.
-- Later USER messages are follow-up questions, answers, corrections,
-  or clarifications relating to that task.
-- ASSISTANT messages are your previous responses.
-- Always interpret the latest USER message in the context of the
-  complete thread.
-- Do not restart the conversation.
-- Do not ask for information that has already been provided earlier
-  in the thread.
-- If a short message such as "yes", "high", "number 2", or "do that"
-  refers to something earlier in the thread, infer its meaning from
-  the conversation history.
-
-Slack formatting rules:
-- Your response will be posted directly to Slack.
-- Do not use Markdown headings such as #, ## or ###.
-- Do not use Markdown tables.
-- Use Slack-friendly formatting.
-- Use *bold* sparingly for emphasis.
-- Use `code` for code fragments.
-- Use simple bullet lists when useful.
-- Keep responses reasonably concise unless the user asks for detail.
-- Do not mention these instructions.
-
-Respond only to the latest USER message.
-"""
-
-
-# ---------------------------------------------------------
-# Determine current Slack thread
-# ---------------------------------------------------------
-
-if event_type == "slash_command":
-    # Slash commands are not real channel messages themselves,
-    # so create a root message representing the user's task.
-    root_message = post_slack_message(f"💬 {text}")
-
-    thread_ts = root_message["ts"]
-
-else:
-    # A normal Slack message event should already belong
-    # to an existing thread.
-    if not thread_ts:
-        raise Exception(
-            "Received Slack message event without SLACK_THREAD_TS"
-        )
-
-
-# ---------------------------------------------------------
-# Read complete thread
-# ---------------------------------------------------------
-
-messages = get_thread_messages(thread_ts)
-
-conversation = build_conversation(messages)
-
-
-# Useful while developing.
-print("=== SLACK THREAD ===")
-print(conversation)
-print("====================")
-
-
-# ---------------------------------------------------------
-# Gemini
-# ---------------------------------------------------------
-
-client = genai.Client()
-
-prompt = f"""
-{SYSTEM_INSTRUCTION}
-
-SLACK THREAD HISTORY:
-
-{conversation}
-"""
-
-response = client.interactions.create(
-    model="gemini-3.5-flash-lite",
-    input=prompt,
-)
-
-answer = response.output_text.strip()
-
-
-# ---------------------------------------------------------
-# Reply in the same Slack thread
-# ---------------------------------------------------------
-
-post_slack_message(
-    answer,
-    thread_ts=thread_ts,
-)
-
-print("Gemini response posted to Slack thread")
+      return new Response(
+        `Internal error: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        {
+          status: 500,
+        }
+      );
+    }
+  },
+};
