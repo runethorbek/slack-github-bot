@@ -35,3 +35,32 @@ def post_slack_message(text, thread_ts=None):
         raise Exception(f"Slack error: {result}")
 
     return result
+
+
+# 1. Opret en rigtig Slack-besked
+root_message = post_slack_message(
+    f"💬 {text}"
+)
+
+# 2. Gem timestampet på root-beskeden
+thread_ts = root_message["ts"]
+
+
+# 3. Spørg Gemini
+client = genai.Client()
+
+response = client.interactions.create(
+    model="gemini-3.5-flash-lite",
+    input=text,
+)
+
+answer = response.output_text
+
+
+# 4. Svar i tråden
+post_slack_message(
+    answer,
+    thread_ts=thread_ts,
+)
+
+print("Gemini-svar sendt i Slack-thread")
