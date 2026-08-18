@@ -16,10 +16,11 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install requests google-genai
 
       - name: Run Python bot
         env:
           SLACK_TEXT: ${{ github.event.client_payload.text }}
           SLACK_RESPONSE_URL: ${{ github.event.client_payload.response_url }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python main.py
