@@ -1,0 +1,21 @@
+name: Slack Message
+
+on:
+  repository_dispatch:
+    types: [slack_message]
+
+jobs:
+  handle-message:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run Python
+        env:
+          SLACK_TEXT: ${{ github.event.client_payload.text }}
+        run: python main.py
