@@ -4,31 +4,34 @@ from google import genai
 
 
 text = os.environ["SLACK_TEXT"]
-response_url = os.environ["SLACK_RESPONSE_URL"]
+channel_id = os.environ["SLACK_CHANNEL_ID"]
+slack_token = os.environ["SLACK_BOT_TOKEN"]
 
 
-# Gemini
-client = genai.Client()
+def post_slack_message(text, thread_ts=None):
+    payload = {
+        "channel": channel_id,
+        "text": text,
+    }
 
-response = client.interactions.create(
-    model="gemini-3.5-flash-lite",
-    input=text,
-)
+    if thread_ts:
+        payload["thread_ts"] = thread_ts
 
-answer = response.output_text
+    response = requests.post(
+        "https://slack.com/api/chat.postMessage",
+        headers={
+            "Authorization": f"Bearer {slack_token}",
+            "Content-Type": "application/json",
+        },
+        json=payload,
+        timeout=10,
+    )
 
-print("Gemini svarede")
+    response.raise_for_status()
 
+    result = response.json()
 
-# Slack
-slack_response = requests.post(
-    response_url,
-    json={
-        "text": answer
-    },
-    timeout=10,
-)
+    if not result.get("ok"):
+        raise Exception(f"Slack error: {result}")
 
-slack_response.raise_for_status()
-
-print("Svar sendt tilbage til Slack")
+    return result
