@@ -7,18 +7,13 @@ text = os.environ["SLACK_TEXT"]
 channel_id = os.environ["SLACK_CHANNEL_ID"]
 slack_token = os.environ["SLACK_BOT_TOKEN"]
 
+event_type = os.environ.get("SLACK_EVENT_TYPE", "slash_command")
+thread_ts = os.environ.get("SLACK_THREAD_TS", "")
 
-def post_slack_message(text, thread_ts=None):
-    payload = {
-        "channel": channel_id,
-        "text": text,
-    }
 
-    if thread_ts:
-        payload["thread_ts"] = thread_ts
-
+def slack_request(method, payload):
     response = requests.post(
-        "https://slack.com/api/chat.postMessage",
+        f"https://slack.com/api/{method}",
         headers={
             "Authorization": f"Bearer {slack_token}",
             "Content-Type": "application/json",
@@ -37,27 +32,88 @@ def post_slack_message(text, thread_ts=None):
     return result
 
 
-# 1. Opret en rigtig Slack-besked
-root_message = post_slack_message(
-    f"💬 {text}"
-)
+def post_slack_message(message, thread_ts=None):
+    payload = {
+        "channel": channel_id,
+        "text": message,
+    }
 
-# 2. Gem timestampet på root-beskeden
-thread_ts = root_message["ts"]
+    if thread_ts:
+        payload["thread_ts"] = thread_ts
+
+    return slack_request("chat.postMessage", payload)
 
 
-# 3. Spørg Gemini
+def get_thread_messages(thread_ts):
+    response = requests.get(
+        "https://slack.com/api/conversations.replies",
+        headers={
+            "Authorization": f"Bearer {slack_token}",
+        },
+        params={
+            "channel": channel_id,
+            "ts": thread_ts,
+        },
+        timeout=10,
+    )
+
+    response.raise_for_status()
+
+    result = response.json()
+
+    if not result.get("ok"):
+        raise Exception(f"Slack error: {result}")
+
+    return result["messages"]
+
+
 client = genai.Client()
+
+
+if event_type == "slash_command":
+
+    # Start en NY samtale
+    root_message = post_slack_message(f"💬 {text}")
+
+    thread_ts = root_message["ts"]
+
+    conversation = text
+
+else:
+
+    # Fortsæt en EKSISTERENDE Slack-thread
+    if not thread_ts:
+        raise Exception("Message event mangler thread_ts")
+
+    messages = get_thread_messages(thread_ts)
+
+    print("=== THREAD HISTORY ===")
+
+    conversation_parts = []
+
+    for message in messages:
+        message_text = message.get("text", "")
+
+        print(message_text)
+
+        conversation_parts.append(message_text)
+
+    conversation = "\n".join(conversation_parts)
+
+
+print("=== SENDES TIL GEMINI ===")
+print(conversation)
+
 
 response = client.interactions.create(
     model="gemini-3.5-flash-lite",
-    input=text,
+    input=conversation,
 )
 
 answer = response.output_text
 
 
-# 4. Svar i tråden
+# Svar altid i den relevante thread
 post_slack_message(
     answer,
     thread_ts=thread_ts,
