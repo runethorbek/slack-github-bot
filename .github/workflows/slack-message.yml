@@ -21,6 +21,7 @@ jobs:
       - name: Run Python bot
         env:
           SLACK_TEXT: ${{ github.event.client_payload.text }}
-          SLACK_RESPONSE_URL: ${{ github.event.client_payload.response_url }}
+          SLACK_CHANNEL_ID: ${{ github.event.client_payload.channel_id }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python main.py
