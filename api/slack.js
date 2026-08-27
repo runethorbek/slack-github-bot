@@ -107,6 +107,7 @@ export default {
 
       const formData = await request.formData();
 
+      const command = formData.get("command") ?? "";
       const text = formData.get("text") ?? "";
       const responseUrl = formData.get("response_url") ?? "";
       const channelId = formData.get("channel_id") ?? "";
@@ -114,6 +115,7 @@ export default {
 
       waitUntil(
         triggerGitHub({
+          command,
           text,
           response_url: responseUrl,
           channel_id: channelId,
