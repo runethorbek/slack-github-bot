@@ -95,3 +95,7 @@ A deployed smoke test covers an authorized command, an unauthorized-channel atte
 - Persistent idempotency and duplicate-response prevention.
 - Moving execution out of GitHub Actions.
 - Broader refactoring or unrelated production hardening.
+
+## Implementation Tracking
+
+Parent issue [#1](https://github.com/runethorbek/slack-github-bot/issues/1)
