@@ -67,7 +67,9 @@ class TasksListCommandTests(unittest.TestCase):
                 {
                     "url": "https://www.notion.so/example-task",
                     "properties": {
-                        "Name": {
+                        "Navn": {
+                            "id": "title",
+                            "type": "title",
                             "title": [
                                 {"plain_text": "Known staging task"},
                             ]
@@ -99,7 +101,7 @@ class TasksListCommandTests(unittest.TestCase):
                 "Content-Type": "application/json",
                 "Notion-Version": "2025-09-03",
             },
-            params={"filter_properties[]": "Name"},
+            params={"filter_properties[]": "title"},
             json={"page_size": 1},
             timeout=10,
         )

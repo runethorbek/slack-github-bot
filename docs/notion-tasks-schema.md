@@ -8,7 +8,15 @@ This document describes the current schema of the Notion Tasks data source used 
 
 Type: `title`
 
+Notion property ID: `title`
+
+Display name in the configured Danish data source: `Navn`
+
 The task name.
+
+`Name` is the domain term used by the application and feature spec. The bot
+identifies the Notion property by its stable property ID, so the display name
+may be localized or renamed without changing this mapping.
 
 ### Created
 

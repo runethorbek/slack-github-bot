@@ -42,7 +42,7 @@ def fetch_one_task(notion_post, api_key, data_source_id):
             "Content-Type": "application/json",
             "Notion-Version": NOTION_API_VERSION,
         },
-        params={"filter_properties[]": "Name"},
+        params={"filter_properties[]": "title"},
         json={"page_size": 1},
         timeout=10,
     )
@@ -76,7 +76,18 @@ def fetch_one_task(notion_post, api_key, data_source_id):
         raise RuntimeError("The staging Tasks data source returned no tasks")
 
     page = results[0]
-    title_parts = page["properties"]["Name"]["title"]
+    title_property = next(
+        (
+            property_value
+            for property_value in page["properties"].values()
+            if property_value.get("id") == "title"
+        ),
+        None,
+    )
+    if not title_property:
+        raise RuntimeError("The staging task is missing its title property")
+
+    title_parts = title_property["title"]
     name = "".join(part["plain_text"] for part in title_parts).strip()
     url = page["url"]
 
