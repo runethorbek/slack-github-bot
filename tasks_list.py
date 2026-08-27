@@ -1,3 +1,4 @@
+import hashlib
 import json
 
 
@@ -6,6 +7,31 @@ NOTION_API_VERSION = "2025-09-03"
 
 def is_tasks_list_command(command, text):
     return command == "/tasks" and text == "list"
+
+
+def log_channel_authorization_mismatch(channel_id, allowed_channel_id):
+    def fingerprint(value):
+        if not value:
+            return None
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+
+    print(
+        "[DEBUG-tasks-auth-v1] "
+        + json.dumps(
+            {
+                "incoming_present": bool(channel_id),
+                "incoming_length": len(channel_id),
+                "incoming_fingerprint": fingerprint(channel_id),
+                "configured_present": bool(allowed_channel_id),
+                "configured_length": len(allowed_channel_id),
+                "configured_fingerprint": fingerprint(allowed_channel_id),
+                "configured_has_surrounding_whitespace": (
+                    allowed_channel_id != allowed_channel_id.strip()
+                ),
+                "trimmed_match": channel_id == allowed_channel_id.strip(),
+            }
+        )
+    )
 
 
 def fetch_one_task(notion_post, api_key, data_source_id):
@@ -71,6 +97,7 @@ def handle_tasks_list(
     # Authorization must happen before Notion credentials are read or a
     # Notion request is constructed.
     if channel_id != allowed_channel_id:
+        log_channel_authorization_mismatch(channel_id, allowed_channel_id)
         return False
 
     name, url = fetch_one_task(

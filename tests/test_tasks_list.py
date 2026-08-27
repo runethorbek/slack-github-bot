@@ -1,4 +1,5 @@
 import io
+import json
 import unittest
 from contextlib import redirect_stdout
 from unittest.mock import Mock
@@ -26,16 +27,36 @@ class TasksListCommandTests(unittest.TestCase):
         post_slack_message = Mock()
         environment = {"TASKS_SLACK_CHANNEL_ID": "C-allowed"}
 
-        handled = handle_tasks_list(
-            "C-other",
-            post_slack_message,
-            notion_post,
-            environment,
-        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            handled = handle_tasks_list(
+                "C-other",
+                post_slack_message,
+                notion_post,
+                environment,
+            )
 
         self.assertFalse(handled)
         notion_post.assert_not_called()
         post_slack_message.assert_not_called()
+        prefix = "[DEBUG-tasks-auth-v1] "
+        self.assertTrue(output.getvalue().startswith(prefix))
+        diagnostic = json.loads(output.getvalue()[len(prefix):])
+        self.assertEqual(
+            diagnostic,
+            {
+                "incoming_present": True,
+                "incoming_length": 7,
+                "incoming_fingerprint": "b5a24a519fcb",
+                "configured_present": True,
+                "configured_length": 9,
+                "configured_fingerprint": "96058746f011",
+                "configured_has_surrounding_whitespace": False,
+                "trimmed_match": False,
+            },
+        )
+        self.assertNotIn("C-other", output.getvalue())
+        self.assertNotIn("C-allowed", output.getvalue())
 
     def test_authorized_channel_reads_and_posts_one_linked_task(self):
         notion_response = Mock()
