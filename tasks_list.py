@@ -1,3 +1,6 @@
+import json
+
+
 NOTION_API_VERSION = "2025-09-03"
 
 
@@ -17,6 +20,29 @@ def fetch_one_task(notion_post, api_key, data_source_id):
         json={"page_size": 1},
         timeout=10,
     )
+
+    if not response.ok:
+        try:
+            error = response.json()
+        except ValueError:
+            error = {}
+
+        error_code = error.get("code") if isinstance(error, dict) else None
+        error_message = error.get("message") if isinstance(error, dict) else None
+        print(
+            json.dumps(
+                {
+                    "http_status": response.status_code,
+                    "notion_error_code": (
+                        error_code if isinstance(error_code, str) else None
+                    ),
+                    "notion_error_message": (
+                        error_message if isinstance(error_message, str) else None
+                    ),
+                }
+            )
+        )
+
     response.raise_for_status()
 
     results = response.json().get("results", [])

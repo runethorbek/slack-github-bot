@@ -1,7 +1,9 @@
+import io
 import unittest
+from contextlib import redirect_stdout
 from unittest.mock import Mock
 
-from tasks_list import handle_tasks_list, is_tasks_list_command
+from tasks_list import fetch_one_task, handle_tasks_list, is_tasks_list_command
 
 
 class TasksListCommandTests(unittest.TestCase):
@@ -37,6 +39,8 @@ class TasksListCommandTests(unittest.TestCase):
 
     def test_authorized_channel_reads_and_posts_one_linked_task(self):
         notion_response = Mock()
+        notion_response.ok = True
+        notion_response.status_code = 200
         notion_response.json.return_value = {
             "results": [
                 {
@@ -89,6 +93,36 @@ class TasksListCommandTests(unittest.TestCase):
                 ),
             ],
         )
+
+    def test_notion_failure_logs_only_safe_diagnostic_fields(self):
+        notion_response = Mock()
+        notion_response.ok = False
+        notion_response.status_code = 401
+        notion_response.json.return_value = {
+            "code": "unauthorized",
+            "message": "API token is invalid.",
+            "task": "must not be logged",
+        }
+        notion_response.raise_for_status.side_effect = RuntimeError(
+            "request failed"
+        )
+
+        output = io.StringIO()
+        with self.assertRaisesRegex(RuntimeError, "request failed"):
+            with redirect_stdout(output):
+                fetch_one_task(
+                    Mock(return_value=notion_response),
+                    "secret-token",
+                    "data-source-id",
+                )
+
+        self.assertEqual(
+            output.getvalue(),
+            '{"http_status": 401, "notion_error_code": "unauthorized", '
+            '"notion_error_message": "API token is invalid."}\n',
+        )
+        self.assertNotIn("secret-token", output.getvalue())
+        self.assertNotIn("must not be logged", output.getvalue())
 
 
 if __name__ == "__main__":
