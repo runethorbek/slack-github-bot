@@ -3,7 +3,7 @@ import sys
 import requests
 from google import genai
 
-from tasks_list import handle_tasks_list, is_tasks_list_command
+from tasks_list import handle_tasks_command
 
 
 # ---------------------------------------------------------
@@ -81,22 +81,18 @@ def get_thread_messages(thread_ts):
 
 
 # ---------------------------------------------------------
-# Staging /tasks list tracer bullet
+# /tasks command family
 # ---------------------------------------------------------
 
-if is_tasks_list_command(command, text):
-    handled = handle_tasks_list(
-        channel_id,
-        post_slack_message,
-        requests.post,
-        os.environ,
-    )
-
-    if handled:
-        print("Staging task posted to Slack thread")
-    else:
-        print("Task request ignored for unauthorized channel")
-
+if handle_tasks_command(
+    command,
+    text,
+    channel_id,
+    post_slack_message,
+    requests.post,
+    os.environ,
+):
+    print("Task command handled")
     sys.exit(0)
 
 
