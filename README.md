@@ -206,6 +206,7 @@ Configure the following environment variables in Vercel:
 GITHUB_OWNER
 GITHUB_REPO
 GITHUB_TOKEN
+SLACK_SIGNING_SECRET
 ```
 
 Example:
@@ -216,6 +217,8 @@ GITHUB_REPO=slack-github-bot
 ```
 
 `GITHUB_TOKEN` must be stored as a secret and must have permission to trigger `repository_dispatch` on the repository.
+
+`SLACK_SIGNING_SECRET` must be stored as a secret and match the signing secret for the Slack app that sends requests to the endpoint.
 
 Do not commit the GitHub token to the repository.
 
