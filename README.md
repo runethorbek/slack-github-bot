@@ -55,12 +55,18 @@ The Python process is stateless. Instead of storing conversation state itself, i
 ```text
 .
 ├── api/
-│   └── slack.js
+│   ├── slack.js
+│   └── slack-request.js
 ├── .github/
 │   └── workflows/
 │       └── slack-message.yml
 ├── main.py
+├── tasks_list.py
+├── tests/
 ├── package.json
+├── docs/
+│   ├── specs/tasks-list.md
+│   └── notion-tasks-schema.md
 └── README.md
 ```
 
@@ -77,6 +83,12 @@ It forwards the relevant payload to GitHub using a `repository_dispatch` event.
 
 The Vercel function deliberately contains very little application logic. Its primary responsibility is transporting events from Slack to GitHub.
 
+Before parsing or dispatching a request, it verifies Slack's `X-Slack-Signature` using the exact raw request body and `SLACK_SIGNING_SECRET`. Requests with a missing, invalid, or more-than-five-minute-old timestamp are rejected. The signing secret stays in Vercel and is never forwarded to GitHub Actions.
+
+### `api/slack-request.js`
+
+Contains the authenticated transport handling used by the Vercel function. It preserves the slash-command identity (`/testbot` or `/tasks`) in the dispatch payload, authenticates slash commands, Events API callbacks, and URL-verification requests, and returns an immediate ephemeral acknowledgement for authenticated slash commands.
+
 ### `slack-message.yml`
 
 GitHub Actions workflow triggered by:
@@ -91,12 +103,22 @@ The workflow:
 1. Checks out the repository
 2. Configures Python
 3. Installs dependencies
-4. Passes Slack information and secrets to `main.py`
+4. Passes Slack command, event, and configuration values to `main.py`
 5. Runs the Python bot
 
 ### `main.py`
 
-Contains the bot logic.
+Contains the bot logic and routes the owned `/tasks` command family before the Gemini conversation path.
+
+For `/tasks` requests it:
+
+1. Accepts `/tasks list` case-insensitively, allowing surrounding whitespace
+2. Returns usage guidance for missing, unknown, or extra arguments
+3. Refuses requests outside the configured Tasks channel before accessing Notion
+4. Reads at most one task from the configured Notion Tasks data source
+5. Creates a public `/tasks list` root message and replies with the linked task name
+
+Every `/tasks` outcome ends before Gemini is invoked. `/testbot` and Slack thread messages retain the existing Gemini-backed conversation behavior.
 
 For a new `/testbot` request it:
 
@@ -115,10 +137,11 @@ For subsequent Slack thread replies it:
 
 ## Slack configuration
 
-Create a Slack App and configure a slash command:
+Create a Slack App and configure these slash commands:
 
 ```text
 /testbot
+/tasks
 ```
 
 The Request URL should point to the deployed Vercel function:
@@ -246,7 +269,19 @@ It normally starts with:
 xoxb-
 ```
 
-Never commit either token to the repository.
+### `NOTION_API_KEY`
+
+API key for read-only access to the configured Notion Tasks data source.
+
+### `NOTION_TASKS_DATA_SOURCE_ID`
+
+The ID of the Notion Tasks data source queried by `/tasks list`.
+
+### `TASKS_SLACK_CHANNEL_ID`
+
+The Slack channel ID authorized to use `/tasks`.
+
+Never commit any token, API key, or data-source identifier to the repository.
 
 ## GitHub Action environment
 
@@ -256,12 +291,16 @@ Example:
 
 ```yaml
 env:
+  SLACK_COMMAND: ${{ github.event.client_payload.command }}
   SLACK_TEXT: ${{ github.event.client_payload.text }}
   SLACK_CHANNEL_ID: ${{ github.event.client_payload.channel_id }}
   SLACK_THREAD_TS: ${{ github.event.client_payload.thread_ts }}
   SLACK_EVENT_TYPE: ${{ github.event.client_payload.slack_event_type }}
   SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+  NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+  NOTION_TASKS_DATA_SOURCE_ID: ${{ secrets.NOTION_TASKS_DATA_SOURCE_ID }}
+  TASKS_SLACK_CHANNEL_ID: ${{ secrets.TASKS_SLACK_CHANNEL_ID }}
 ```
 
 ## Conversation model
@@ -271,6 +310,8 @@ The project uses a simple convention:
 ```text
 One Slack thread = one task / conversation
 ```
+
+`/tasks` is an exception to the Gemini conversation path: it is an owned command family. The currently supported command is `/tasks list`; its result is a public root message with a linked task in a threaded reply. Invalid and unauthorized `/tasks` requests return a deterministic response and do not access Notion or Gemini.
 
 The first user message defines the task.
 
@@ -396,7 +437,7 @@ Before treating it as a production service, additional hardening should be added
 
 In particular:
 
-* Validate Slack request signatures using the Slack Signing Secret
+* Slack request signatures are validated at the Vercel boundary using the Slack Signing Secret, including a five-minute replay window
 * Do not log secrets or Slack response URLs
 * Minimize GitHub token permissions
 * Restrict Slack App OAuth scopes
@@ -404,6 +445,8 @@ In particular:
 * Add better retry and error handling
 * Consider limits on Gemini input size
 * Avoid logging complete Slack conversations
+
+The `/tasks list` path is read-only. It authorizes the Slack channel before constructing a Notion request, requests at most one task, and does not send task-command input or Notion data to Gemini.
 
 ## Current limitations
 
@@ -417,22 +460,22 @@ The current design intentionally favors simplicity and visibility over response 
 
 ## Possible next steps
 
-Potential extensions include:
+Potential extensions include richer read-only task-list behavior and, separately, carefully constrained write actions.
 
 ```text
 Slack threads
     ↓
-Gemini
+Authenticated /tasks command
     ↓
-Notion read access
+Read-only Notion access
     ↓
-Notion write actions
+Formatted task-list results
 ```
 
 Examples:
 
 ```text
-"Which projects are currently blocked?"
+"Which tasks are currently blocked?"
 
 "Create a task called 'Fix login timeout'."
 
