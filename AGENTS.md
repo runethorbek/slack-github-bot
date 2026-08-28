@@ -69,3 +69,15 @@ For substantial features:
 The next feature is read-only access to the Notion Tasks data source.
 
 Do not implement Notion writes or scheduled reminders as part of that task unless explicitly requested.
+
+## GitHub access
+
+The GitHub CLI (`gh`) is installed and authenticated on the host environment.
+
+When GitHub issue or PR information is needed:
+
+1. Use `gh` rather than assuming GitHub is unavailable.
+2. If `gh` is blocked by the sandbox or requires additional permissions,
+   request permission to run it.
+3. Do not conclude that `gh` is unavailable solely because the first
+   sandboxed invocation fails.
