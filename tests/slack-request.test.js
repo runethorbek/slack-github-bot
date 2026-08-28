@@ -90,6 +90,38 @@ test("a valid signed /tasks list request preserves the existing dispatch", async
   ]);
 });
 
+test("authenticated slash commands receive the same ephemeral acknowledgement", async (t) => {
+  const commands = [
+    ["/tasks", "list"],
+    ["/testbot", "hello"],
+  ];
+
+  for (const [command, text] of commands) {
+    await t.test(command, async () => {
+      const body = new URLSearchParams({
+        command,
+        text,
+        response_url: "https://hooks.slack.test/response",
+        channel_id: "C123",
+        user_id: "U123",
+      }).toString();
+      const dependencies = testDependencies();
+
+      const response = await handleSlackRequest(
+        slackRequest(body),
+        dependencies.options
+      );
+      await Promise.all(dependencies.deferred);
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        response_type: "ephemeral",
+        text: "Request received…",
+      });
+    });
+  }
+});
+
 test("signature verification uses the exact raw request body", async () => {
   const rawBody =
     "command=%2ftasks&text=list&text=list&response_url=https%3A%2F%2Fhooks.slack.test%2Fresponse&channel_id=C123&user_id=U123";
@@ -237,6 +269,114 @@ test("missing, invalid, and out-of-window signatures are rejected before dispatc
       );
 
       assert.equal(response.status, 401);
+      assert.deepEqual(dependencies.dispatched, []);
+      assert.deepEqual(dependencies.deferred, []);
+    });
+  }
+});
+
+test("signatures exactly five minutes old or ahead are accepted", async (t) => {
+  for (const offset of [-300, 300]) {
+    await t.test(`${offset} seconds`, async () => {
+      const body = new URLSearchParams({
+        command: "/testbot",
+        text: "hello",
+      }).toString();
+      const timestamp = NOW_SECONDS + offset;
+      const dependencies = testDependencies();
+
+      const response = await handleSlackRequest(
+        slackRequest(body, {
+          timestamp,
+          signature: sign(body, timestamp),
+        }),
+        dependencies.options
+      );
+      await Promise.all(dependencies.deferred);
+
+      assert.equal(response.status, 200);
+      assert.equal(dependencies.dispatched.length, 1);
+    });
+  }
+});
+
+test("a missing signing secret fails closed without dispatch", async () => {
+  const body = new URLSearchParams({
+    command: "/testbot",
+    text: "hello",
+  }).toString();
+  const dependencies = testDependencies();
+
+  const originalConsoleError = console.error;
+  console.error = () => {};
+  try {
+    const response = await handleSlackRequest(slackRequest(body), {
+      ...dependencies.options,
+      signingSecret: "",
+    });
+
+    assert.equal(response.status, 500);
+    assert.deepEqual(dependencies.dispatched, []);
+    assert.deepEqual(dependencies.deferred, []);
+  } finally {
+    console.error = originalConsoleError;
+  }
+});
+
+test("malformed authenticated JSON fails without dispatch", async () => {
+  const body = "{not-json";
+  const dependencies = testDependencies();
+
+  const originalConsoleError = console.error;
+  console.error = () => {};
+  try {
+    const response = await handleSlackRequest(
+      slackRequest(body, { contentType: "application/json" }),
+      dependencies.options
+    );
+
+    assert.equal(response.status, 500);
+    assert.deepEqual(dependencies.dispatched, []);
+    assert.deepEqual(dependencies.deferred, []);
+  } finally {
+    console.error = originalConsoleError;
+  }
+});
+
+test("bot messages and top-level messages are acknowledged without dispatch", async (t) => {
+  const events = [
+    [
+      "bot message",
+      {
+        type: "message",
+        text: "bot output",
+        channel: "C123",
+        bot_id: "B123",
+        thread_ts: "123.456",
+      },
+    ],
+    [
+      "top-level message",
+      {
+        type: "message",
+        text: "ordinary channel message",
+        channel: "C123",
+        user: "U123",
+      },
+    ],
+  ];
+
+  for (const [name, event] of events) {
+    await t.test(name, async () => {
+      const body = JSON.stringify({ type: "event_callback", event });
+      const dependencies = testDependencies();
+
+      const response = await handleSlackRequest(
+        slackRequest(body, { contentType: "application/json" }),
+        dependencies.options
+      );
+
+      assert.equal(response.status, 200);
       assert.deepEqual(dependencies.dispatched, []);
       assert.deepEqual(dependencies.deferred, []);
     });

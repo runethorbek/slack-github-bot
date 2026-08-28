@@ -160,6 +160,72 @@ class MainRoutingTests(unittest.TestCase):
         self.assertEqual(requests_module.post.call_count, 2)
         requests_module.get.assert_called_once()
 
+    def test_task_data_and_credentials_are_not_logged(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        private_task_name = "Confidential acquisition task"
+        secret_token = "notion-secret-must-not-be-logged"
+        notion_response = Mock()
+        notion_response.json.return_value = {
+            "results": [
+                {
+                    "url": "https://www.notion.so/private-task",
+                    "properties": {
+                        "Navn": {
+                            "id": "title",
+                            "type": "title",
+                            "title": [{"plain_text": private_task_name}],
+                        },
+                        "Description": {
+                            "type": "rich_text",
+                            "rich_text": [{"plain_text": "private description"}],
+                        },
+                    },
+                }
+            ]
+        }
+        root_response = Mock()
+        root_response.json.return_value = {"ok": True, "ts": "123.456"}
+        reply_response = Mock()
+        reply_response.json.return_value = {"ok": True}
+        requests_module.post.side_effect = [
+            notion_response,
+            root_response,
+            reply_response,
+        ]
+        environment = {
+            "SLACK_COMMAND": "/tasks",
+            "SLACK_TEXT": "list",
+            "SLACK_CHANNEL_ID": "C-allowed",
+            "SLACK_BOT_TOKEN": "slack-secret-must-not-be-logged",
+            "TASKS_SLACK_CHANNEL_ID": "C-allowed",
+            "NOTION_API_KEY": secret_token,
+            "NOTION_TASKS_DATA_SOURCE_ID": "data-source-id",
+        }
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(
+                sys.modules,
+                {
+                    "requests": requests_module,
+                    "google": google_module,
+                    "google.genai": genai_module,
+                },
+            ),
+            patch("builtins.print") as print_mock,
+            self.assertRaises(SystemExit),
+        ):
+            runpy.run_module("main", run_name="__main__")
+
+        logged_text = " ".join(
+            " ".join(str(argument) for argument in call.args)
+            for call in print_mock.call_args_list
+        )
+        self.assertNotIn(private_task_name, logged_text)
+        self.assertNotIn("private description", logged_text)
+        self.assertNotIn(secret_token, logged_text)
+        self.assertNotIn(environment["SLACK_BOT_TOKEN"], logged_text)
+
     @staticmethod
     def fake_modules():
         slack_response = Mock()

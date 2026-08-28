@@ -148,5 +148,6 @@ class TasksListCommandTests(unittest.TestCase):
             Mock(side_effect=[{"ts": "123.456"}, {}]),
         )
 
+
 if __name__ == "__main__":
     unittest.main()

@@ -142,9 +142,10 @@ export async function handleSlackRequest(
       })
     );
 
-    // Slack skal have svar meget hurtigt.
-    return new Response("", {
-      status: 200,
+    // Acknowledge every authenticated slash command at the transport layer.
+    return Response.json({
+      response_type: "ephemeral",
+      text: "Request received…",
     });
   } catch (error) {
     console.error("Slack webhook failed:", error);
