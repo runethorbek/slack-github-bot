@@ -20,7 +20,11 @@ class MainRoutingTests(unittest.TestCase):
                             "id": "title",
                             "type": "title",
                             "title": [{"plain_text": "Known staging task"}],
-                        }
+                        },
+                        "Status": {
+                            "type": "status",
+                            "status": {"name": "Ikke started"},
+                        },
                     },
                 }
             ]
@@ -174,6 +178,10 @@ class MainRoutingTests(unittest.TestCase):
                             "id": "title",
                             "type": "title",
                             "title": [{"plain_text": private_task_name}],
+                        },
+                        "Status": {
+                            "type": "status",
+                            "status": {"name": "Ikke started"},
                         },
                         "Description": {
                             "type": "rich_text",

@@ -112,7 +112,11 @@ process.stdout.write(JSON.stringify(dispatched[0]));
                             "id": "title",
                             "type": "title",
                             "title": [{"plain_text": "Known staging task"}],
-                        }
+                        },
+                        "Status": {
+                            "type": "status",
+                            "status": {"name": "Ikke started"},
+                        },
                     },
                 }
             ]
