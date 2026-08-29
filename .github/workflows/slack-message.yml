@@ -22,6 +22,7 @@ jobs:
         env:
           SLACK_COMMAND: ${{ github.event.client_payload.command }}
           SLACK_TEXT: ${{ github.event.client_payload.text }}
+          SLACK_RESPONSE_URL: ${{ github.event.client_payload.response_url }}
           SLACK_CHANNEL_ID: ${{ github.event.client_payload.channel_id }}
           SLACK_THREAD_TS: ${{ github.event.client_payload.thread_ts }}
           SLACK_EVENT_TYPE: ${{ github.event.client_payload.slack_event_type }}

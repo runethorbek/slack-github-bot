@@ -33,6 +33,7 @@ def handle_tasks_command(
     notion_post,
     environment,
     today=None,
+    post_ephemeral_response=None,
 ):
     """Handle the owned /tasks command family without using Gemini.
 
@@ -45,14 +46,18 @@ def handle_tasks_command(
         return False
 
     if text.strip().casefold() != "list":
-        post_slack_message(TASKS_USAGE)
+        post_task_validation_response(
+            TASKS_USAGE, post_slack_message, post_ephemeral_response
+        )
         return True
 
     allowed_channel_id = environment["TASKS_SLACK_CHANNEL_ID"]
     if channel_id != allowed_channel_id:
         # Authorization happens before Notion credentials are read or a
         # Notion request is constructed.
-        post_slack_message(TASKS_CHANNEL_REFUSAL)
+        post_task_validation_response(
+            TASKS_CHANNEL_REFUSAL, post_slack_message, post_ephemeral_response
+        )
         return True
 
     command_today = today or copenhagen_today()
@@ -77,6 +82,13 @@ def handle_tasks_command(
 
     post_slack_message(message, thread_ts=root_message["ts"])
     return True
+
+
+def post_task_validation_response(message, post_slack_message, post_ephemeral_response):
+    if post_ephemeral_response:
+        post_ephemeral_response(message)
+    else:
+        post_slack_message(message)
 
 
 def fetch_tasks(notion_post, api_key, data_source_id):

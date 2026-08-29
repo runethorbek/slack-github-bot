@@ -94,6 +94,7 @@ class MainRoutingTests(unittest.TestCase):
                     "SLACK_COMMAND": "/tasks",
                     "SLACK_TEXT": text,
                     "SLACK_CHANNEL_ID": channel_id,
+                    "SLACK_RESPONSE_URL": "https://hooks.slack.test/response",
                     "SLACK_BOT_TOKEN": "test-slack-token",
                     **task_environment,
                 }
@@ -116,7 +117,18 @@ class MainRoutingTests(unittest.TestCase):
                 self.assertEqual(exit_context.exception.code, 0)
                 genai_module.Client.assert_not_called()
                 requests_module.get.assert_not_called()
-                requests_module.post.assert_called_once()
+                requests_module.post.assert_called_once_with(
+                    "https://hooks.slack.test/response",
+                    json={
+                        "response_type": "ephemeral",
+                        "text": (
+                            "Usage: /tasks list"
+                            if name == "invalid"
+                            else "The /tasks command is not available in this channel."
+                        ),
+                    },
+                    timeout=10,
+                )
 
     def test_testbot_still_reaches_gemini(self):
         requests_module, google_module, genai_module = self.fake_modules()

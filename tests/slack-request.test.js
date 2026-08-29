@@ -90,7 +90,7 @@ test("a valid signed /tasks list request preserves the existing dispatch", async
   ]);
 });
 
-test("authenticated slash commands receive the same ephemeral acknowledgement", async (t) => {
+test("authenticated slash commands receive an empty acknowledgement", async (t) => {
   const commands = [
     ["/tasks", "list"],
     ["/testbot", "hello"],
@@ -114,10 +114,7 @@ test("authenticated slash commands receive the same ephemeral acknowledgement", 
       await Promise.all(dependencies.deferred);
 
       assert.equal(response.status, 200);
-      assert.deepEqual(await response.json(), {
-        response_type: "ephemeral",
-        text: "Request received…",
-      });
+      assert.equal(await response.text(), "");
     });
   }
 });

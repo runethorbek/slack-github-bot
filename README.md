@@ -87,7 +87,7 @@ Before parsing or dispatching a request, it verifies Slack's `X-Slack-Signature`
 
 ### `api/slack-request.js`
 
-Contains the authenticated transport handling used by the Vercel function. It preserves the slash-command identity (`/testbot` or `/tasks`) in the dispatch payload, authenticates slash commands, Events API callbacks, and URL-verification requests, and returns an immediate ephemeral acknowledgement for authenticated slash commands.
+Contains the authenticated transport handling used by the Vercel function. It preserves the slash-command identity (`/testbot` or `/tasks`) and response URL in the dispatch payload, authenticates slash commands, Events API callbacks, and URL-verification requests, and returns an immediate empty acknowledgement for authenticated slash commands. Python uses the response URL for ephemeral `/tasks` validation responses.
 
 ### `slack-message.yml`
 
@@ -293,6 +293,7 @@ Example:
 env:
   SLACK_COMMAND: ${{ github.event.client_payload.command }}
   SLACK_TEXT: ${{ github.event.client_payload.text }}
+  SLACK_RESPONSE_URL: ${{ github.event.client_payload.response_url }}
   SLACK_CHANNEL_ID: ${{ github.event.client_payload.channel_id }}
   SLACK_THREAD_TS: ${{ github.event.client_payload.thread_ts }}
   SLACK_EVENT_TYPE: ${{ github.event.client_payload.slack_event_type }}

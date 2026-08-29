@@ -17,6 +17,7 @@ slack_token = os.environ["SLACK_BOT_TOKEN"]
 
 event_type = os.environ.get("SLACK_EVENT_TYPE", "slash_command")
 thread_ts = os.environ.get("SLACK_THREAD_TS", "")
+response_url = os.environ.get("SLACK_RESPONSE_URL", "")
 
 
 # ---------------------------------------------------------
@@ -57,6 +58,21 @@ def post_slack_message(message, thread_ts=None):
     return slack_post("chat.postMessage", payload)
 
 
+def post_ephemeral_command_response(message):
+    if not response_url:
+        raise RuntimeError("SLACK_RESPONSE_URL is required for a /tasks response")
+
+    response = requests.post(
+        response_url,
+        json={
+            "response_type": "ephemeral",
+            "text": message,
+        },
+        timeout=10,
+    )
+    response.raise_for_status()
+
+
 def get_thread_messages(thread_ts):
     response = requests.get(
         "https://slack.com/api/conversations.replies",
@@ -91,6 +107,7 @@ if handle_tasks_command(
     post_slack_message,
     requests.post,
     os.environ,
+    post_ephemeral_response=post_ephemeral_command_response,
 ):
     print("Task command handled")
     sys.exit(0)

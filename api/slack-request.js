@@ -142,11 +142,9 @@ export async function handleSlackRequest(
       })
     );
 
-    // Acknowledge every authenticated slash command at the transport layer.
-    return Response.json({
-      response_type: "ephemeral",
-      text: "Request received…",
-    });
+    // Acknowledge within Slack's three-second deadline. Command-specific
+    // responses are sent later from Python through the signed response_url.
+    return new Response("", { status: 200 });
   } catch (error) {
     console.error("Slack webhook failed:", error);
 

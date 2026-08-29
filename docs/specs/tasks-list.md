@@ -9,7 +9,7 @@ The command is read-only and deterministic. Task data must not be sent to Gemini
 ## User-visible behavior
 
 - `/tasks list` is accepted case-insensitively with surrounding whitespace. Missing, unknown, or extra arguments return concise usage guidance.
-- The Slack transport immediately acknowledges every authenticated slash command ephemerally with `Request received…`; command-specific validation remains in Python.
+- The Slack transport immediately acknowledges every authenticated slash command with an empty `200` response; command-specific validation responses are sent ephemerally through Slack's response URL from Python.
 - In the one authorized channel, the bot creates a public `/tasks list` root message and posts the result in its thread.
 - Other channels receive a refusal, and Notion is not queried.
 - Replies in a task-list thread do not invoke Gemini; users are directed to run a new supported command.
