@@ -293,7 +293,6 @@ Example:
 env:
   SLACK_COMMAND: ${{ github.event.client_payload.command }}
   SLACK_TEXT: ${{ github.event.client_payload.text }}
-  SLACK_RESPONSE_URL: ${{ github.event.client_payload.response_url }}
   SLACK_CHANNEL_ID: ${{ github.event.client_payload.channel_id }}
   SLACK_THREAD_TS: ${{ github.event.client_payload.thread_ts }}
   SLACK_EVENT_TYPE: ${{ github.event.client_payload.slack_event_type }}
@@ -303,6 +302,10 @@ env:
   NOTION_TASKS_DATA_SOURCE_ID: ${{ secrets.NOTION_TASKS_DATA_SOURCE_ID }}
   TASKS_SLACK_CHANNEL_ID: ${{ secrets.TASKS_SLACK_CHANNEL_ID }}
 ```
+
+The workflow reads the response URL from GitHub's event payload, masks it, and
+exports it to Python as `SLACK_RESPONSE_URL`. Do not pass it directly through a
+workflow `env:` mapping, because GitHub Actions logs environment values.
 
 ## Conversation model
 

@@ -18,11 +18,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Prepare Slack response URL
+        run: |
+          response_url="$(node -e 'const fs = require("fs"); const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, "utf8")); process.stdout.write(event.client_payload.response_url || "");')"
+          echo "::add-mask::$response_url"
+          echo "SLACK_RESPONSE_URL=$response_url" >> "$GITHUB_ENV"
+
       - name: Run Python bot
         env:
           SLACK_COMMAND: ${{ github.event.client_payload.command }}
           SLACK_TEXT: ${{ github.event.client_payload.text }}
-          SLACK_RESPONSE_URL: ${{ github.event.client_payload.response_url }}
           SLACK_CHANNEL_ID: ${{ github.event.client_payload.channel_id }}
           SLACK_THREAD_TS: ${{ github.event.client_payload.thread_ts }}
           SLACK_EVENT_TYPE: ${{ github.event.client_payload.slack_event_type }}
