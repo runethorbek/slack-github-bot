@@ -70,14 +70,18 @@ The next feature is read-only access to the Notion Tasks data source.
 
 Do not implement Notion writes or scheduled reminders as part of that task unless explicitly requested.
 
-## GitHub access
+## GitHub issue workflow
 
 The GitHub CLI (`gh`) is installed and authenticated on the host environment.
 
-When GitHub issue or PR information is needed:
+In this Codex environment, GitHub CLI access requires host/elevated execution.
 
-1. Use `gh` rather than assuming GitHub is unavailable.
-2. If `gh` is blocked by the sandbox or requires additional permissions,
-   request permission to run it.
-3. Do not conclude that `gh` is unavailable solely because the first
-   sandboxed invocation fails.
+When GitHub issue or PR information is needed:
+1. Do not first attempt `gh` inside the sandbox.
+2. Request permission to run the required `gh` command on the host.
+3. Use `gh` as the source of truth for issue and PR content.
+4. Do not fall back to guessing, browser scraping, or alternate GitHub access methods unless `gh` fails after permission has been granted.
+
+Examples:
+- `gh issue view <number> --repo runethorbek/slack-github-bot`
+- `gh issue list --repo runethorbek/slack-github-bot`
