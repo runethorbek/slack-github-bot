@@ -197,6 +197,17 @@ else:
 
 messages = get_thread_messages(thread_ts)
 
+if (
+    event_type == "message"
+    and messages
+    and messages[0].get("text", "").strip().casefold() == "/tasks list"
+):
+    post_slack_message(
+        "Task-list follow-ups are not supported. Run /tasks list.",
+        thread_ts=thread_ts,
+    )
+    sys.exit(0)
+
 conversation = build_conversation(messages)
 
 

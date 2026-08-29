@@ -130,6 +130,58 @@ class MainRoutingTests(unittest.TestCase):
                     timeout=10,
                 )
 
+    def test_task_list_thread_reply_exits_before_gemini(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        thread_response = Mock()
+        thread_response.json.return_value = {
+            "ok": True,
+            "messages": [
+                {"text": "/tasks list", "bot_id": "B-task-bot"},
+                {"text": "Can you update this?"},
+            ],
+        }
+        requests_module.get.return_value = thread_response
+
+        environment = {
+            "SLACK_TEXT": "Can you update this?",
+            "SLACK_CHANNEL_ID": "C-allowed",
+            "SLACK_THREAD_TS": "123.456",
+            "SLACK_EVENT_TYPE": "message",
+            "SLACK_BOT_TOKEN": "test-slack-token",
+        }
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(
+                sys.modules,
+                {
+                    "requests": requests_module,
+                    "google": google_module,
+                    "google.genai": genai_module,
+                },
+            ),
+            patch("builtins.print"),
+            self.assertRaises(SystemExit) as exit_context,
+        ):
+            runpy.run_module("main", run_name="__main__")
+
+        self.assertEqual(exit_context.exception.code, 0)
+        genai_module.Client.assert_not_called()
+        requests_module.post.assert_called_once_with(
+            "https://slack.com/api/chat.postMessage",
+            headers={
+                "Authorization": "Bearer test-slack-token",
+                "Content-Type": "application/json",
+            },
+            json={
+                "channel": "C-allowed",
+                "text": "Task-list follow-ups are not supported. Run /tasks list.",
+                "mrkdwn": True,
+                "thread_ts": "123.456",
+            },
+            timeout=10,
+        )
+
     def test_testbot_still_reaches_gemini(self):
         requests_module, google_module, genai_module = self.fake_modules()
         root_response = Mock()
