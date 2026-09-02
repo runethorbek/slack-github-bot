@@ -28,7 +28,7 @@ Priority order is `High`, `Medium`, `Low`, then no priority.
 
 The response shows at most 20 tasks. Each item includes a linked Name, Priority, Track name or fallback, and Follow-up state. Overdue tasks are identified explicitly. Status, Created, and Description are omitted.
 
-Track handling supports no Track, one Track, or multiple Tracks. A failed Track lookup does not remove the task; it displays `Track unavailable`. Repeated Track lookups are reused within the command.
+Track handling is defined in the [Track Resolution Feature Spec](track-resolution.md).
 
 If no tasks qualify, the bot responds `No tasks need attention right now.` Transient Notion failures are retried at most twice. Other Notion or schema failures produce a generic Slack error without exposing secrets or task contents. A malformed individual task is skipped, valid tasks are still shown, and the skipped count is reported.
 
@@ -77,7 +77,7 @@ A deployed smoke test covers an authorized command, an unauthorized-channel atte
 ## Known assumptions
 
 - The Tasks schema matches `docs/notion-tasks-schema.md`, including the exact Status value `Ikke started`.
-- The related Tracks data source has a title property named `Name`.
+- The related Tracks data source follows [the Tracks schema](../notion-tracks-schema.md).
 - The Notion integration can read both the Tasks and Tracks data sources.
 - Follow-up values are date-only rather than timed dates or ranges.
 - The authorized Slack channel, Notion data-source identifier, user-facing Notion URL, and required credentials are configured outside application code.
