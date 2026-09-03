@@ -73,7 +73,7 @@ class TasksListCommandTests(unittest.TestCase):
             )
         ]
 
-        notion_post, post_slack_message = self.run_list(pages)
+        notion_post, _, post_slack_message = self.run_list(pages)
 
         notion_post.assert_called_once_with(
             NOTION_QUERY_URL,
@@ -105,7 +105,7 @@ class TasksListCommandTests(unittest.TestCase):
         self.assertNotIn("Too far away", output)
 
     def test_empty_result_uses_the_specified_message(self):
-        _, post_slack_message = self.run_list(
+        _, _, post_slack_message = self.run_list(
             [self.notion_page([self.task("Later", "2026-09-06")])]
         )
 
@@ -114,7 +114,7 @@ class TasksListCommandTests(unittest.TestCase):
         )
 
     def test_renders_no_more_than_twenty_eligible_tasks(self):
-        _, post_slack_message = self.run_list(
+        _, _, post_slack_message = self.run_list(
             [self.notion_page([self.task(f"Task {number:02d}") for number in range(1, 22)])]
         )
 
@@ -133,7 +133,7 @@ class TasksListCommandTests(unittest.TestCase):
             for page in range(1, 6)
         ]
 
-        notion_post, post_slack_message = self.run_list(pages)
+        notion_post, _, post_slack_message = self.run_list(pages)
 
         self.assertEqual(notion_post.call_count, 5)
         expected_queries = [
@@ -168,19 +168,169 @@ class TasksListCommandTests(unittest.TestCase):
     def test_normalized_list_commands_use_the_task_path(self):
         for text in ("list", "LIST", " list", "list ", "  LiSt  "):
             with self.subTest(text=text):
-                notion_post, post_slack_message = self.run_list(
+                notion_post, _, post_slack_message = self.run_list(
                     [self.notion_page([self.task("Known task")])], text=text
                 )
                 notion_post.assert_called_once()
                 self.assertIn("Known task", self.thread_output(post_slack_message))
 
-    def run_list(self, pages, text="list"):
+    def test_renders_zero_one_and_exactly_three_tracks(self):
+        track_pages = {
+            "high": self.track("Alpha", "High"),
+            "medium": self.track("Middle", "Medium"),
+            "low": self.track("Lowly", "Low"),
+        }
+        _, notion_get, post_slack_message = self.run_list(
+            [
+                self.notion_page(
+                    [
+                        self.task("No relation"),
+                        self.task("One relation", track_ids=["medium"]),
+                        self.task(
+                            "Exactly three",
+                            track_ids=["low", "medium", "high"],
+                        ),
+                    ]
+                )
+            ],
+            track_pages=track_pages,
+        )
+
+        output = self.thread_output(post_slack_message)
+        self.assertIn("Track: No track", output)
+        self.assertIn("Track: Middle", output)
+        self.assertIn("Track: Alpha, Middle, Lowly", output)
+        self.assertNotIn("+1 more", output)
+        self.assertEqual(notion_get.call_count, 3)
+
+    def test_truncates_after_ordering_and_reports_the_remainder(self):
+        track_pages = {
+            "none": self.track("Unprioritized"),
+            "low": self.track("Lowly", "Low"),
+            "high-zulu": self.track("Zulu", "High"),
+            "medium": self.track("Middle", "Medium"),
+            "high-alpha": self.track("Alpha", "High"),
+        }
+        _, notion_get, post_slack_message = self.run_list(
+            [
+                self.notion_page(
+                    [
+                        self.task(
+                            "Many relations",
+                            track_ids=[
+                                "none",
+                                "low",
+                                "high-zulu",
+                                "medium",
+                                "high-alpha",
+                            ],
+                        )
+                    ]
+                )
+            ],
+            track_pages=track_pages,
+        )
+
+        output = self.thread_output(post_slack_message)
+        self.assertIn("Track: Alpha, Zulu, Middle, +2 more", output)
+        self.assertNotIn("Lowly", output)
+        self.assertNotIn("Unprioritized", output)
+        self.assertEqual(notion_get.call_count, 5)
+
+    def test_unavailable_tracks_count_toward_the_cap_and_remainder(self):
+        track_pages = {
+            "high": self.track("Alpha", "High"),
+            "medium": self.track("Middle", "Medium"),
+            "failed-one": RuntimeError("Notion lookup failed"),
+            "failed-two": RuntimeError("Notion lookup failed"),
+        }
+        _, _, post_slack_message = self.run_list(
+            [
+                self.notion_page(
+                    [
+                        self.task(
+                            "Partial failure",
+                            track_ids=["failed-one", "medium", "high", "failed-two"],
+                        )
+                    ]
+                )
+            ],
+            track_pages=track_pages,
+        )
+
+        output = self.thread_output(post_slack_message)
+        self.assertIn("Track: Alpha, Middle, Track unavailable, +1 more", output)
+        self.assertEqual(output.count("Track unavailable"), 1)
+
+    def test_reuses_track_lookups_and_keeps_tasks_when_a_track_is_unavailable(self):
+        track_pages = {
+            "shared": self.track("Shared", "Medium"),
+            "missing-name": {
+                "properties": {
+                    "Other title": {
+                        "type": "title",
+                        "title": [{"plain_text": "Wrong title"}],
+                    }
+                }
+            },
+            "failed": RuntimeError("Notion lookup failed"),
+        }
+        _, notion_get, post_slack_message = self.run_list(
+            [
+                self.notion_page(
+                    [
+                        self.task("First", track_ids=["shared", "failed"]),
+                        self.task("Second", track_ids=["shared", "missing-name"]),
+                    ]
+                )
+            ],
+            track_pages=track_pages,
+        )
+
+        output = self.thread_output(post_slack_message)
+        self.assertIn("Track: Shared, Track unavailable", output)
+        self.assertEqual(output.count("Shared"), 2)
+        self.assertEqual(output.count("Track unavailable"), 2)
+        requested_urls = [call.args[0] for call in notion_get.call_args_list]
+        self.assertEqual(requested_urls.count("https://api.notion.com/v1/pages/shared"), 1)
+        self.assertEqual(notion_get.call_count, 3)
+
+    def test_only_displayed_tasks_trigger_track_resolution(self):
+        tasks = [
+            self.task(f"Task {number:02d}", track_ids=[f"track-{number:02d}"])
+            for number in range(1, 22)
+        ]
+        track_pages = {
+            f"track-{number:02d}": self.track(f"Track {number:02d}", "Low")
+            for number in range(1, 22)
+        }
+
+        _, notion_get, _ = self.run_list(
+            [self.notion_page(tasks)], track_pages=track_pages
+        )
+
+        self.assertEqual(notion_get.call_count, 20)
+        requested_urls = {call.args[0] for call in notion_get.call_args_list}
+        self.assertNotIn("https://api.notion.com/v1/pages/track-21", requested_urls)
+
+    def run_list(self, pages, text="list", track_pages=None):
         responses = []
         for page in pages:
             response = Mock()
             response.json.return_value = page
             responses.append(response)
         notion_post = Mock(side_effect=responses)
+
+        def get_track(url, **_kwargs):
+            track_id = url.rsplit("/", 1)[-1]
+            value = (track_pages or {}).get(track_id)
+            if isinstance(value, Exception):
+                raise value
+            response = Mock()
+            response.json.return_value = value
+            return response
+
+        notion_get = Mock(side_effect=get_track)
 
         def post_to_slack(message, thread_ts=None):
             if thread_ts is None:
@@ -196,11 +346,14 @@ class TasksListCommandTests(unittest.TestCase):
             notion_post,
             self.authorized_environment(),
             today=FIXED_TODAY,
+            notion_get=notion_get,
         )
         self.assertTrue(handled)
         for response in responses:
             response.raise_for_status.assert_called_once_with()
-        return notion_post, post_slack_message
+        if track_pages is None:
+            self.assertEqual(notion_get.call_count, 0)
+        return notion_post, notion_get, post_slack_message
 
     @staticmethod
     def thread_output(post_slack_message):
@@ -224,7 +377,13 @@ class TasksListCommandTests(unittest.TestCase):
         return {"results": results, "has_more": has_more, "next_cursor": next_cursor}
 
     @staticmethod
-    def task(name, follow_up=None, priority=None, status="Ikke started"):
+    def task(
+        name,
+        follow_up=None,
+        priority=None,
+        status="Ikke started",
+        track_ids=None,
+    ):
         return {
             "url": f"https://www.notion.so/{name.casefold().replace(' ', '-')}",
             "properties": {
@@ -242,7 +401,26 @@ class TasksListCommandTests(unittest.TestCase):
                     "type": "date",
                     "date": {"start": follow_up} if follow_up else None,
                 },
+                "Track": {
+                    "type": "relation",
+                    "relation": [{"id": track_id} for track_id in (track_ids or [])],
+                },
             },
+        }
+
+    @staticmethod
+    def track(name, priority=None):
+        return {
+            "properties": {
+                "Navn": {
+                    "type": "title",
+                    "title": [{"plain_text": name}] if name else [],
+                },
+                "Priority": {
+                    "type": "select",
+                    "select": {"name": priority} if priority else None,
+                },
+            }
         }
 
     @staticmethod

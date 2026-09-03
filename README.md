@@ -115,8 +115,9 @@ For `/tasks` requests it:
 1. Accepts `/tasks list` case-insensitively, allowing surrounding whitespace
 2. Returns usage guidance for missing, unknown, or extra arguments
 3. Refuses requests outside the configured Tasks channel before accessing Notion
-4. Reads at most one task from the configured Notion Tasks data source
-5. Creates a public `/tasks list` root message and replies with the linked task name
+4. Reads the bounded task set from the configured Notion Tasks data source
+5. Resolves related Track names only for the tasks that will be displayed
+6. Creates a public `/tasks list` root message and replies with the formatted task list
 
 Every `/tasks` outcome ends before Gemini is invoked. `/testbot` and Slack thread messages retain the existing Gemini-backed conversation behavior.
 
@@ -315,7 +316,7 @@ The project uses a simple convention:
 One Slack thread = one task / conversation
 ```
 
-`/tasks` is an exception to the Gemini conversation path: it is an owned command family. The currently supported command is `/tasks list`; its result is a public root message with a linked task in a threaded reply. Invalid and unauthorized `/tasks` requests return a deterministic response and do not access Notion or Gemini.
+`/tasks` is an exception to the Gemini conversation path: it is an owned command family. The currently supported command is `/tasks list`; its result is a public root message with a formatted task list, including related Tracks, in a threaded reply. Invalid and unauthorized `/tasks` requests return a deterministic response and do not access Notion or Gemini.
 
 The first user message defines the task.
 

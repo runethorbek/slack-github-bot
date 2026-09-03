@@ -29,6 +29,8 @@ Priority order is `High`, `Medium`, `Low`, then no priority.
 The response shows at most 20 tasks. Each item includes a linked Name, Priority, Track name or fallback, and Follow-up state. Overdue tasks are identified explicitly. Status, Created, and Description are omitted.
 
 Track handling is defined in the [Track Resolution Feature Spec](track-resolution.md).
+Each task displays at most three Track entries; additional related Tracks are
+summarized with an explicit `+N more` remainder.
 
 If no tasks qualify, the bot responds `No tasks need attention right now.` Transient Notion failures are retried at most twice. Other Notion or schema failures produce a generic Slack error without exposing secrets or task contents. A malformed individual task is skipped, valid tasks are still shown, and the skipped count is reported.
 

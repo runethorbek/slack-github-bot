@@ -42,7 +42,15 @@ class SlackToPythonContractTests(unittest.TestCase):
 
         self.assertEqual(exit_context.exception.code, 0)
         genai_module.Client.assert_not_called()
-        requests_module.get.assert_not_called()
+        requests_module.get.assert_called_once_with(
+            "https://api.notion.com/v1/pages/track-id",
+            headers={
+                "Authorization": "Bearer fake-notion-token",
+                "Content-Type": "application/json",
+                "Notion-Version": "2025-09-03",
+            },
+            timeout=10,
+        )
         self.assertEqual(
             [call.args[0] for call in requests_module.post.call_args_list],
             [
@@ -51,6 +59,8 @@ class SlackToPythonContractTests(unittest.TestCase):
                 "https://slack.com/api/chat.postMessage",
             ],
         )
+        reply_text = requests_module.post.call_args_list[-1].kwargs["json"]["text"]
+        self.assertIn("Track: Known staging track", reply_text)
 
     @staticmethod
     def capture_javascript_dispatch():
@@ -117,9 +127,26 @@ process.stdout.write(JSON.stringify(dispatched[0]));
                             "type": "status",
                             "status": {"name": "Ikke started"},
                         },
+                        "Track": {
+                            "type": "relation",
+                            "relation": [{"id": "track-id"}],
+                        },
                     },
                 }
             ]
+        }
+        track_response = Mock()
+        track_response.json.return_value = {
+            "properties": {
+                "Navn": {
+                    "type": "title",
+                    "title": [{"plain_text": "Known staging track"}],
+                },
+                "Priority": {
+                    "type": "select",
+                    "select": {"name": "High"},
+                },
+            }
         }
         root_response = Mock()
         root_response.json.return_value = {"ok": True, "ts": "123.456"}
@@ -130,7 +157,7 @@ process.stdout.write(JSON.stringify(dispatched[0]));
         requests_module.post = Mock(
             side_effect=[notion_response, root_response, reply_response]
         )
-        requests_module.get = Mock()
+        requests_module.get = Mock(return_value=track_response)
 
         genai_module = types.ModuleType("google.genai")
         genai_module.Client = Mock(

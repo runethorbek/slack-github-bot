@@ -10,6 +10,7 @@ NO_TASKS_MESSAGE = "No tasks need attention right now."
 MORE_TASKS_MESSAGE = "More tasks may need attention."
 MAX_SCANNED_TASKS = 500
 MAX_DISPLAYED_TASKS = 20
+MAX_DISPLAYED_TRACKS = 3
 NOTION_PAGE_SIZE = 100
 MAX_NOTION_PAGES = MAX_SCANNED_TASKS // NOTION_PAGE_SIZE
 PRIORITY_ORDER = {"High": 0, "Medium": 1, "Low": 2}
@@ -23,6 +24,13 @@ class Task:
     status: str | None
     follow_up: date | None
     priority: str | None
+    track_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Track:
+    name: str
+    priority: str | None
 
 
 def handle_tasks_command(
@@ -34,6 +42,7 @@ def handle_tasks_command(
     environment,
     today=None,
     post_ephemeral_response=None,
+    notion_get=None,
 ):
     """Handle the owned /tasks command family without using Gemini.
 
@@ -67,10 +76,15 @@ def handle_tasks_command(
         environment["NOTION_TASKS_DATA_SOURCE_ID"],
     )
     eligible_tasks = select_tasks_needing_attention(pages, command_today)
+    resolved_tracks = resolve_tracks(
+        eligible_tasks,
+        notion_get,
+        environment["NOTION_API_KEY"],
+    )
 
     root_message = post_slack_message("/tasks list")
     if eligible_tasks:
-        message = format_task_list(eligible_tasks, command_today)
+        message = format_task_list(eligible_tasks, command_today, resolved_tracks)
         if has_unexamined_tasks:
             message = f"{message}\n\n{MORE_TASKS_MESSAGE}"
     elif has_unexamined_tasks:
@@ -118,11 +132,7 @@ def fetch_tasks(notion_post, api_key, data_source_id):
 
         response = notion_post(
             f"https://api.notion.com/v1/data_sources/{data_source_id}/query",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-                "Notion-Version": NOTION_API_VERSION,
-            },
+            headers=notion_headers(api_key),
             json=request_json,
             timeout=10,
         )
@@ -185,13 +195,79 @@ def task_from_notion_page(page):
         if follow_up_property
         else None
     )
+    track_property = properties.get("Track")
+    if track_property and track_property.get("type") != "relation":
+        track_property = None
+    track_ids = tuple(
+        relation["id"]
+        for relation in (track_property.get("relation", []) if track_property else [])
+        if relation.get("id")
+    )
     return Task(
         name=name,
         url=url,
         status=status,
         follow_up=date.fromisoformat(follow_up_start) if follow_up_start else None,
         priority=priority,
+        track_ids=track_ids,
     )
+
+
+def resolve_tracks(tasks, notion_get, api_key):
+    """Resolve each distinct Track at most once for this command."""
+    resolved = {}
+    for task in tasks:
+        for track_id in task.track_ids:
+            if track_id in resolved:
+                continue
+
+            if notion_get is None:
+                resolved[track_id] = None
+                continue
+
+            try:
+                response = notion_get(
+                    f"https://api.notion.com/v1/pages/{track_id}",
+                    headers=notion_headers(api_key),
+                    timeout=10,
+                )
+                response.raise_for_status()
+                resolved[track_id] = track_from_notion_page(response.json())
+            except Exception:
+                # Track failures are intentionally isolated to the relation;
+                # the task remains visible with a safe fallback.
+                resolved[track_id] = None
+    return resolved
+
+
+def track_from_notion_page(page):
+    properties = page["properties"]
+    name_property = properties.get("Navn")
+    if not name_property or name_property.get("type") != "title":
+        raise RuntimeError("A Track is missing its Navn")
+    name = "".join(
+        part.get("plain_text", "") for part in name_property.get("title", [])
+    ).strip()
+    if not name:
+        raise RuntimeError("A Track is missing its Navn")
+
+    priority_property = properties.get("Priority")
+    if priority_property and priority_property.get("type") != "select":
+        priority_property = None
+    priority = (
+        (priority_property.get("select") or {}).get("name")
+        if priority_property
+        else None
+    )
+    return Track(name=name, priority=priority)
+
+
+def notion_headers(api_key):
+    return {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "Notion-Version": NOTION_API_VERSION,
+    }
 
 
 def find_property(properties, display_name, property_type, required=True):
@@ -231,11 +307,13 @@ def task_sort_key(task):
     return (0, task.follow_up, priority_rank, name_key)
 
 
-def format_task_list(tasks, today):
-    return "\n".join(format_task(task, today) for task in tasks)
+def format_task_list(tasks, today, resolved_tracks=None):
+    return "\n".join(
+        format_task(task, today, resolved_tracks or {}) for task in tasks
+    )
 
 
-def format_task(task, today):
+def format_task(task, today, resolved_tracks=None):
     priority = task.priority or "No priority"
     if task.follow_up is None:
         follow_up = "No follow-up"
@@ -246,9 +324,36 @@ def format_task(task, today):
     else:
         follow_up = f"Follow-up: {task.follow_up.isoformat()}"
 
-    # Track resolution is explicitly deferred. Keep the output honest rather
-    # than attempting an additional Notion lookup in this issue.
+    track_text = format_tracks(task, resolved_tracks or {})
     return (
         f"• <{task.url}|{task.name}> — Priority: {priority} — "
-        f"Track: unavailable — {follow_up}"
+        f"Track: {track_text} — {follow_up}"
     )
+
+
+def format_tracks(task, resolved_tracks):
+    if not task.track_ids:
+        return "No track"
+
+    available = [
+        resolved_tracks.get(track_id)
+        for track_id in task.track_ids
+        if resolved_tracks.get(track_id) is not None
+    ]
+    available.sort(
+        key=lambda track: (
+            PRIORITY_ORDER.get(track.priority, len(PRIORITY_ORDER)),
+            track.name.casefold(),
+        )
+    )
+    unavailable_count = sum(
+        resolved_tracks.get(track_id) is None for track_id in task.track_ids
+    )
+    names = [track.name for track in available]
+    names.extend("Track unavailable" for _ in range(unavailable_count))
+    displayed_names = names[:MAX_DISPLAYED_TRACKS]
+    if len(task.track_ids) > MAX_DISPLAYED_TRACKS:
+        displayed_names.append(
+            f"+{len(task.track_ids) - MAX_DISPLAYED_TRACKS} more"
+        )
+    return ", ".join(displayed_names)

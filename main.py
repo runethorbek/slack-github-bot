@@ -108,6 +108,7 @@ if handle_tasks_command(
     requests.post,
     os.environ,
     post_ephemeral_response=post_ephemeral_command_response,
+    notion_get=requests.get,
 ):
     print("Task command handled")
     sys.exit(0)
