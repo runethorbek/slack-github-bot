@@ -298,6 +298,170 @@ class MainRoutingTests(unittest.TestCase):
         self.assertNotIn(secret_token, logged_text)
         self.assertNotIn(environment["SLACK_BOT_TOKEN"], logged_text)
 
+    def test_slack_authentication_error_is_safe_and_provider_specific(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        slack_response = Mock()
+        slack_response.json.return_value = {"ok": False, "error": "invalid_auth"}
+        requests_module.post.return_value = slack_response
+        environment = {
+            "SLACK_COMMAND": "/testbot",
+            "SLACK_TEXT": "hello",
+            "SLACK_CHANNEL_ID": "C-channel",
+            "SLACK_BOT_TOKEN": "slack-secret-must-not-be-logged",
+        }
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(sys.modules, {
+                "requests": requests_module,
+                "google": google_module,
+                "google.genai": genai_module,
+            }),
+            patch("builtins.print") as print_mock,
+            self.assertRaisesRegex(
+                RuntimeError, r"^Slack authentication failed \(invalid_auth\)\.$"
+            ) as error_context,
+        ):
+            runpy.run_module("main", run_name="__main__")
+
+        self.assertNotIn(environment["SLACK_BOT_TOKEN"], str(error_context.exception))
+        self.assertIsNone(error_context.exception.__cause__)
+        self.assertNotIn(
+            environment["SLACK_BOT_TOKEN"],
+            " ".join(str(argument) for call in print_mock.call_args_list for argument in call.args),
+        )
+
+    def test_ephemeral_slack_authentication_error_is_safe_and_provider_specific(self):
+        for status_code in (401, 403):
+            with self.subTest(status_code=status_code):
+                requests_module, google_module, genai_module = self.fake_modules()
+                response_url = "https://hooks.slack.test/signed-response-url"
+                http_error = Exception(
+                    f"{status_code} Client Error: Unauthorized for url: {response_url}"
+                )
+                http_error.response = Mock(status_code=status_code)
+                response = Mock()
+                response.raise_for_status.side_effect = http_error
+                requests_module.post.return_value = response
+                environment = {
+                    "SLACK_COMMAND": "/tasks",
+                    "SLACK_TEXT": "invalid",
+                    "SLACK_CHANNEL_ID": "C-channel",
+                    "SLACK_RESPONSE_URL": response_url,
+                    "SLACK_BOT_TOKEN": "slack-secret-must-not-be-logged",
+                }
+
+                with (
+                    patch.dict(os.environ, environment, clear=True),
+                    patch.dict(sys.modules, {
+                        "requests": requests_module,
+                        "google": google_module,
+                        "google.genai": genai_module,
+                    }),
+                    patch("builtins.print") as print_mock,
+                    self.assertRaisesRegex(
+                        RuntimeError,
+                        rf"^Slack authentication failed \(HTTP {status_code}\)\.$",
+                    ) as error_context,
+                ):
+                    runpy.run_module("main", run_name="__main__")
+
+                self.assertIsNone(error_context.exception.__cause__)
+                self.assertNotIn(response_url, str(error_context.exception))
+                self.assertNotIn(
+                    response_url,
+                    " ".join(
+                        str(argument)
+                        for call in print_mock.call_args_list
+                        for argument in call.args
+                    ),
+                )
+                genai_module.Client.assert_not_called()
+
+    def test_ephemeral_slack_failure_does_not_expose_signed_response_url(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        response_url = "https://hooks.slack.test/signed-response-url"
+        http_error = Exception(
+            f"404 Client Error: Not Found for url: {response_url}"
+        )
+        http_error.response = Mock(status_code=404)
+        response = Mock()
+        response.raise_for_status.side_effect = http_error
+        requests_module.post.return_value = response
+        environment = {
+            "SLACK_COMMAND": "/tasks",
+            "SLACK_TEXT": "invalid",
+            "SLACK_CHANNEL_ID": "C-channel",
+            "SLACK_RESPONSE_URL": response_url,
+            "SLACK_BOT_TOKEN": "slack-secret-must-not-be-logged",
+        }
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(sys.modules, {
+                "requests": requests_module,
+                "google": google_module,
+                "google.genai": genai_module,
+            }),
+            patch("builtins.print") as print_mock,
+            self.assertRaisesRegex(
+                RuntimeError, r"^Slack response delivery failed\.$"
+            ) as error_context,
+        ):
+            runpy.run_module("main", run_name="__main__")
+
+        self.assertIsNone(error_context.exception.__cause__)
+        self.assertNotIn(response_url, str(error_context.exception))
+        self.assertNotIn(
+            response_url,
+            " ".join(
+                str(argument)
+                for call in print_mock.call_args_list
+                for argument in call.args
+            ),
+        )
+        genai_module.Client.assert_not_called()
+
+    def test_gemini_authentication_error_is_safe_and_provider_specific(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        root_response = Mock()
+        root_response.json.return_value = {"ok": True, "ts": "123.456"}
+        requests_module.post.return_value = root_response
+        thread_response = Mock()
+        thread_response.json.return_value = {"ok": True, "messages": [{"text": "hello"}]}
+        requests_module.get.return_value = thread_response
+        gemini_error = Exception("credential rejected")
+        gemini_error.code = 403
+        genai_module.Client.side_effect = gemini_error
+        environment = {
+            "SLACK_COMMAND": "/testbot",
+            "SLACK_TEXT": "hello",
+            "SLACK_CHANNEL_ID": "C-channel",
+            "SLACK_BOT_TOKEN": "test-slack-token",
+            "GEMINI_API_KEY": "gemini-secret-must-not-be-logged",
+        }
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(sys.modules, {
+                "requests": requests_module,
+                "google": google_module,
+                "google.genai": genai_module,
+            }),
+            patch("builtins.print") as print_mock,
+            self.assertRaisesRegex(
+                RuntimeError, r"^Gemini authentication failed \(HTTP 403\)\.$"
+            ) as error_context,
+        ):
+            runpy.run_module("main", run_name="__main__")
+
+        self.assertNotIn(environment["GEMINI_API_KEY"], str(error_context.exception))
+        self.assertIsNone(error_context.exception.__cause__)
+        self.assertNotIn(
+            environment["GEMINI_API_KEY"],
+            " ".join(str(argument) for call in print_mock.call_args_list for argument in call.args),
+        )
+
     @staticmethod
     def fake_modules():
         slack_response = Mock()

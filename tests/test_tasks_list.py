@@ -5,7 +5,12 @@ from unittest.mock import Mock, call, patch
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import Timeout
 
-from tasks_list import handle_tasks_command, retry_delay, select_tasks_needing_attention
+from tasks_list import (
+    NotionAuthenticationError,
+    handle_tasks_command,
+    retry_delay,
+    select_tasks_needing_attention,
+)
 
 
 FIXED_TODAY = date(2026, 8, 29)
@@ -40,27 +45,26 @@ class TasksListCommandTests(unittest.TestCase):
         sleep.assert_called_once_with(7.0)
         self.assertIn("Recovered", self.thread_output(post_slack_message))
 
-    def test_does_not_retry_a_non_retryable_query_error_and_posts_a_safe_reply(self):
+    def test_credential_failure_fails_with_a_safe_notion_specific_message(self):
         unauthorized = Mock()
         unauthorized.raise_for_status.side_effect = NotionHttpError(401)
         notion_post = Mock(return_value=unauthorized)
         post_slack_message = Mock(side_effect=lambda message, thread_ts=None: {"ts": "123.456"})
         sleep = Mock()
 
-        handled = handle_tasks_command(
-            "/tasks", "list", "C-allowed", post_slack_message, notion_post,
-            self.authorized_environment(), today=FIXED_TODAY, sleep=sleep,
-        )
+        with self.assertRaisesRegex(
+            NotionAuthenticationError, r"^Notion authentication failed \(HTTP 401\)\.$"
+        ) as error_context:
+            handle_tasks_command(
+                "/tasks", "list", "C-allowed", post_slack_message, notion_post,
+                self.authorized_environment(), today=FIXED_TODAY, sleep=sleep,
+            )
 
-        self.assertTrue(handled)
         notion_post.assert_called_once()
         sleep.assert_not_called()
-        self.assertEqual(
-            self.thread_output(post_slack_message),
-            "Unable to retrieve tasks right now. Please try again later.",
-        )
-        self.assertNotIn("401", self.thread_output(post_slack_message))
-        self.assertNotIn("secret-token", self.thread_output(post_slack_message))
+        self.assertEqual(post_slack_message.call_count, 1)
+        self.assertIsNone(error_context.exception.__cause__)
+        self.assertNotIn("secret-token", str(error_context.exception))
 
     def test_stops_after_two_retries_for_a_transient_query_failure(self):
         failed_responses = []

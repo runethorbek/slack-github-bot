@@ -25,24 +25,21 @@ response_url = os.environ.get("SLACK_RESPONSE_URL", "")
 # ---------------------------------------------------------
 
 def slack_post(method, payload):
-    response = requests.post(
-        f"https://slack.com/api/{method}",
-        headers={
-            "Authorization": f"Bearer {slack_token}",
-            "Content-Type": "application/json",
-        },
-        json=payload,
-        timeout=10,
-    )
-
-    response.raise_for_status()
-
-    result = response.json()
-
-    if not result.get("ok"):
-        raise Exception(f"Slack error: {result}")
-
-    return result
+    try:
+        response = requests.post(
+            f"https://slack.com/api/{method}",
+            headers={
+                "Authorization": f"Bearer {slack_token}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=10,
+        )
+        response.raise_for_status()
+        return slack_result_or_raise(response.json())
+    except Exception as error:
+        raise_slack_credential_error(error)
+        raise
 
 
 def post_slack_message(message, thread_ts=None):
@@ -62,38 +59,81 @@ def post_ephemeral_command_response(message):
     if not response_url:
         raise RuntimeError("SLACK_RESPONSE_URL is required for a /tasks response")
 
-    response = requests.post(
-        response_url,
-        json={
-            "response_type": "ephemeral",
-            "text": message,
-        },
-        timeout=10,
-    )
-    response.raise_for_status()
+    try:
+        response = requests.post(
+            response_url,
+            json={
+                "response_type": "ephemeral",
+                "text": message,
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+    except Exception as error:
+        raise_slack_credential_error(error)
+        raise RuntimeError("Slack response delivery failed.") from None
 
 
 def get_thread_messages(thread_ts):
-    response = requests.get(
-        "https://slack.com/api/conversations.replies",
-        headers={
-            "Authorization": f"Bearer {slack_token}",
-        },
-        params={
-            "channel": channel_id,
-            "ts": thread_ts,
-        },
-        timeout=10,
-    )
+    try:
+        response = requests.get(
+            "https://slack.com/api/conversations.replies",
+            headers={
+                "Authorization": f"Bearer {slack_token}",
+            },
+            params={
+                "channel": channel_id,
+                "ts": thread_ts,
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+        return slack_result_or_raise(response.json())["messages"]
+    except Exception as error:
+        raise_slack_credential_error(error)
+        raise
 
-    response.raise_for_status()
 
-    result = response.json()
+SLACK_CREDENTIAL_ERRORS = {
+    "account_inactive",
+    "invalid_auth",
+    "missing_scope",
+    "not_authed",
+    "token_revoked",
+}
 
-    if not result.get("ok"):
-        raise Exception(f"Slack error: {result}")
 
-    return result["messages"]
+def slack_result_or_raise(result):
+    if not isinstance(result, dict) or not result.get("ok"):
+        error_code = result.get("error") if isinstance(result, dict) else None
+        if error_code in SLACK_CREDENTIAL_ERRORS:
+            raise RuntimeError(f"Slack authentication failed ({error_code}).")
+        raise RuntimeError("Slack API request failed.")
+    return result
+
+
+def raise_slack_credential_error(error):
+    status_code = external_error_status_code(error)
+    if status_code in (401, 403):
+        raise RuntimeError(f"Slack authentication failed (HTTP {status_code}).") from None
+
+
+def external_error_status_code(error):
+    response = getattr(error, "response", None)
+    status_code = getattr(response, "status_code", None)
+    if isinstance(status_code, int):
+        return status_code
+    for attribute in ("status_code", "code"):
+        status_code = getattr(error, attribute, None)
+        if isinstance(status_code, int):
+            return status_code
+    return None
+
+
+def raise_gemini_credential_error(error):
+    status_code = external_error_status_code(error)
+    if status_code in (401, 403):
+        raise RuntimeError(f"Gemini authentication failed (HTTP {status_code}).") from None
 
 
 # ---------------------------------------------------------
@@ -222,7 +262,11 @@ print("====================")
 # Gemini
 # ---------------------------------------------------------
 
-client = genai.Client()
+try:
+    client = genai.Client()
+except Exception as error:
+    raise_gemini_credential_error(error)
+    raise
 
 prompt = f"""
 {SYSTEM_INSTRUCTION}
@@ -232,10 +276,14 @@ SLACK THREAD HISTORY:
 {conversation}
 """
 
-response = client.interactions.create(
-    model="gemini-3.5-flash-lite",
-    input=prompt,
-)
+try:
+    response = client.interactions.create(
+        model="gemini-3.5-flash-lite",
+        input=prompt,
+    )
+except Exception as error:
+    raise_gemini_credential_error(error)
+    raise
 
 answer = response.output_text.strip()
 

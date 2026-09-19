@@ -43,6 +43,10 @@ class TaskListCommandError(Exception):
     """A Notion task-list failure that is safe to expose generically."""
 
 
+class NotionAuthenticationError(RuntimeError):
+    """A Notion credential failure that must fail the workflow clearly."""
+
+
 class MalformedTaskPageError(ValueError):
     """A single task record cannot be interpreted using the expected schema."""
 
@@ -286,6 +290,7 @@ def resolve_tracks(tasks, notion_get, api_key, sleep=time.sleep):
                         timeout=10,
                     ),
                     sleep,
+                    credential_failure_status_codes=(401,),
                 )
                 try:
                     track_page = response.json()
@@ -299,7 +304,9 @@ def resolve_tracks(tasks, notion_get, api_key, sleep=time.sleep):
     return resolved
 
 
-def call_notion_with_retries(request, sleep):
+def call_notion_with_retries(
+    request, sleep, credential_failure_status_codes=(401, 403)
+):
     """Make one Notion read, retrying only bounded transient failures."""
     for retry_number in range(3):
         try:
@@ -307,9 +314,20 @@ def call_notion_with_retries(request, sleep):
             response.raise_for_status()
             return response
         except Exception as error:
+            status_code = external_error_status_code(error)
+            if status_code in credential_failure_status_codes:
+                raise NotionAuthenticationError(
+                    f"Notion authentication failed (HTTP {status_code})."
+                ) from None
             if not is_retryable_notion_error(error) or retry_number == 2:
                 raise TaskListCommandError() from error
             sleep(retry_delay(error, retry_number))
+
+
+def external_error_status_code(error):
+    response = getattr(error, "response", None)
+    status_code = getattr(response, "status_code", None)
+    return status_code if isinstance(status_code, int) else None
 
 
 def is_retryable_notion_error(error):
