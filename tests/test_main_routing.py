@@ -34,8 +34,8 @@ class MainRoutingTests(unittest.TestCase):
         reply_response = Mock()
         reply_response.json.return_value = {"ok": True}
         requests_module.post.side_effect = [
-            notion_response,
             root_response,
+            notion_response,
             reply_response,
         ]
 
@@ -70,8 +70,8 @@ class MainRoutingTests(unittest.TestCase):
         self.assertEqual(
             [call.args[0] for call in requests_module.post.call_args_list],
             [
-                "https://api.notion.com/v1/data_sources/data-source-id/query",
                 "https://slack.com/api/chat.postMessage",
+                "https://api.notion.com/v1/data_sources/data-source-id/query",
                 "https://slack.com/api/chat.postMessage",
             ],
         )
@@ -260,8 +260,8 @@ class MainRoutingTests(unittest.TestCase):
         reply_response = Mock()
         reply_response.json.return_value = {"ok": True}
         requests_module.post.side_effect = [
-            notion_response,
             root_response,
+            notion_response,
             reply_response,
         ]
         environment = {

@@ -1,6 +1,11 @@
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
+import math
+import time
 from zoneinfo import ZoneInfo
+
+import requests
 
 
 NOTION_API_VERSION = "2025-09-03"
@@ -8,6 +13,7 @@ TASKS_USAGE = "Usage: /tasks list"
 TASKS_CHANNEL_REFUSAL = "The /tasks command is not available in this channel."
 NO_TASKS_MESSAGE = "No tasks need attention right now."
 MORE_TASKS_MESSAGE = "More tasks may need attention."
+TASKS_FAILURE_MESSAGE = "Unable to retrieve tasks right now. Please try again later."
 MAX_SCANNED_TASKS = 500
 MAX_DISPLAYED_TASKS = 20
 MAX_DISPLAYED_TRACKS = 3
@@ -33,6 +39,18 @@ class Track:
     priority: str | None
 
 
+class TaskListCommandError(Exception):
+    """A Notion task-list failure that is safe to expose generically."""
+
+
+class MalformedTaskPageError(ValueError):
+    """A single task record cannot be interpreted using the expected schema."""
+
+
+class MalformedTrackPageError(ValueError):
+    """A Track record cannot be interpreted using the expected schema."""
+
+
 def handle_tasks_command(
     command,
     text,
@@ -43,6 +61,7 @@ def handle_tasks_command(
     today=None,
     post_ephemeral_response=None,
     notion_get=None,
+    sleep=time.sleep,
 ):
     """Handle the owned /tasks command family without using Gemini.
 
@@ -69,20 +88,28 @@ def handle_tasks_command(
         )
         return True
 
-    command_today = today or copenhagen_today()
-    pages, has_unexamined_tasks = fetch_tasks(
-        notion_post,
-        environment["NOTION_API_KEY"],
-        environment["NOTION_TASKS_DATA_SOURCE_ID"],
-    )
-    eligible_tasks = select_tasks_needing_attention(pages, command_today)
-    resolved_tracks = resolve_tracks(
-        eligible_tasks,
-        notion_get,
-        environment["NOTION_API_KEY"],
-    )
-
     root_message = post_slack_message("/tasks list")
+    try:
+        command_today = today or copenhagen_today()
+        pages, has_unexamined_tasks = fetch_tasks(
+            notion_post,
+            environment["NOTION_API_KEY"],
+            environment["NOTION_TASKS_DATA_SOURCE_ID"],
+            sleep=sleep,
+        )
+        eligible_tasks, skipped_task_count = select_tasks_needing_attention(
+            pages, command_today
+        )
+        resolved_tracks = resolve_tracks(
+            eligible_tasks,
+            notion_get,
+            environment["NOTION_API_KEY"],
+            sleep=sleep,
+        )
+    except TaskListCommandError:
+        post_slack_message(TASKS_FAILURE_MESSAGE, thread_ts=root_message["ts"])
+        return True
+
     if eligible_tasks:
         message = format_task_list(eligible_tasks, command_today, resolved_tracks)
         if has_unexamined_tasks:
@@ -93,6 +120,10 @@ def handle_tasks_command(
         message = MORE_TASKS_MESSAGE
     else:
         message = NO_TASKS_MESSAGE
+
+    if skipped_task_count:
+        noun = "task" if skipped_task_count == 1 else "tasks"
+        message = f"{message}\n\nSkipped {skipped_task_count} malformed {noun}."
 
     post_slack_message(message, thread_ts=root_message["ts"])
     return True
@@ -105,7 +136,7 @@ def post_task_validation_response(message, post_slack_message, post_ephemeral_re
         post_slack_message(message)
 
 
-def fetch_tasks(notion_post, api_key, data_source_id):
+def fetch_tasks(notion_post, api_key, data_source_id, sleep=time.sleep):
     """Fetch at most 500 non-finished task records from Notion.
 
     A true second result means Notion had another page after the examined set;
@@ -130,16 +161,25 @@ def fetch_tasks(notion_post, api_key, data_source_id):
         if cursor:
             request_json["start_cursor"] = cursor
 
-        response = notion_post(
-            f"https://api.notion.com/v1/data_sources/{data_source_id}/query",
-            headers=notion_headers(api_key),
-            json=request_json,
-            timeout=10,
+        response = call_notion_with_retries(
+            lambda: notion_post(
+                f"https://api.notion.com/v1/data_sources/{data_source_id}/query",
+                headers=notion_headers(api_key),
+                json=request_json,
+                timeout=10,
+            ),
+            sleep,
         )
-        response.raise_for_status()
         pages_fetched += 1
-        response_body = response.json()
+        try:
+            response_body = response.json()
+        except (TypeError, ValueError) as error:
+            raise TaskListCommandError() from error
+        if not isinstance(response_body, dict):
+            raise TaskListCommandError()
         page_results = response_body.get("results", [])
+        if not isinstance(page_results, list):
+            raise TaskListCommandError()
         remaining = MAX_SCANNED_TASKS - len(results)
         results.extend(page_results[:remaining])
 
@@ -166,54 +206,67 @@ def fetch_tasks(notion_post, api_key, data_source_id):
 
 
 def select_tasks_needing_attention(pages, today):
-    tasks = [task_from_notion_page(page) for page in pages]
+    tasks = []
+    skipped_task_count = 0
+    for page in pages:
+        try:
+            tasks.append(task_from_notion_page(page))
+        except MalformedTaskPageError:
+            skipped_task_count += 1
     eligible_tasks = [task for task in tasks if needs_attention(task, today)]
-    return sorted(eligible_tasks, key=task_sort_key)[:MAX_DISPLAYED_TASKS]
+    return sorted(eligible_tasks, key=task_sort_key)[:MAX_DISPLAYED_TASKS], skipped_task_count
 
 
 def task_from_notion_page(page):
-    properties = page["properties"]
-    title_property = find_property(properties, "Name", "title")
-    name = "".join(
-        part.get("plain_text", "") for part in title_property.get("title", [])
-    ).strip()
-    url = page["url"]
-    if not name or not url:
-        raise RuntimeError("A task is missing its Name or URL")
+    try:
+        properties = page["properties"]
+        title_property = find_property(properties, "Name", "title")
+        name = "".join(
+            part.get("plain_text", "") for part in title_property.get("title", [])
+        ).strip()
+        url = page["url"]
+        if not name or not url:
+            raise MalformedTaskPageError("A task is missing its Name or URL")
 
-    status_property = find_property(properties, "Status", "status")
-    status = (status_property.get("status") or {}).get("name")
-    priority_property = find_property(properties, "Priority", "select", required=False)
-    priority = (
-        (priority_property.get("select") or {}).get("name")
-        if priority_property
-        else None
-    )
-    follow_up_property = find_property(properties, "Follow-up", "date", required=False)
-    follow_up_start = (
-        (follow_up_property.get("date") or {}).get("start")
-        if follow_up_property
-        else None
-    )
-    track_property = properties.get("Track")
-    if track_property and track_property.get("type") != "relation":
-        track_property = None
-    track_ids = tuple(
-        relation["id"]
-        for relation in (track_property.get("relation", []) if track_property else [])
-        if relation.get("id")
-    )
-    return Task(
-        name=name,
-        url=url,
-        status=status,
-        follow_up=date.fromisoformat(follow_up_start) if follow_up_start else None,
-        priority=priority,
-        track_ids=track_ids,
-    )
+        status_property = find_property(properties, "Status", "status")
+        status = (status_property.get("status") or {}).get("name")
+        priority_property = find_property(
+            properties, "Priority", "select", required=False
+        )
+        priority = (
+            (priority_property.get("select") or {}).get("name")
+            if priority_property
+            else None
+        )
+        follow_up_property = find_property(
+            properties, "Follow-up", "date", required=False
+        )
+        follow_up_start = (
+            (follow_up_property.get("date") or {}).get("start")
+            if follow_up_property
+            else None
+        )
+        track_property = properties.get("Track")
+        if track_property and track_property.get("type") != "relation":
+            track_property = None
+        track_ids = tuple(
+            relation["id"]
+            for relation in (track_property.get("relation", []) if track_property else [])
+            if relation.get("id")
+        )
+        return Task(
+            name=name,
+            url=url,
+            status=status,
+            follow_up=date.fromisoformat(follow_up_start) if follow_up_start else None,
+            priority=priority,
+            track_ids=track_ids,
+        )
+    except (AttributeError, KeyError, TypeError, ValueError) as error:
+        raise MalformedTaskPageError() from error
 
 
-def resolve_tracks(tasks, notion_get, api_key):
+def resolve_tracks(tasks, notion_get, api_key, sleep=time.sleep):
     """Resolve each distinct Track at most once for this command."""
     resolved = {}
     for task in tasks:
@@ -226,40 +279,91 @@ def resolve_tracks(tasks, notion_get, api_key):
                 continue
 
             try:
-                response = notion_get(
-                    f"https://api.notion.com/v1/pages/{track_id}",
-                    headers=notion_headers(api_key),
-                    timeout=10,
+                response = call_notion_with_retries(
+                    lambda: notion_get(
+                        f"https://api.notion.com/v1/pages/{track_id}",
+                        headers=notion_headers(api_key),
+                        timeout=10,
+                    ),
+                    sleep,
                 )
-                response.raise_for_status()
-                resolved[track_id] = track_from_notion_page(response.json())
-            except Exception:
+                try:
+                    track_page = response.json()
+                except (TypeError, ValueError) as error:
+                    raise MalformedTrackPageError() from error
+                resolved[track_id] = track_from_notion_page(track_page)
+            except (TaskListCommandError, MalformedTrackPageError):
                 # Track failures are intentionally isolated to the relation;
                 # the task remains visible with a safe fallback.
                 resolved[track_id] = None
     return resolved
 
 
-def track_from_notion_page(page):
-    properties = page["properties"]
-    name_property = properties.get("Navn")
-    if not name_property or name_property.get("type") != "title":
-        raise RuntimeError("A Track is missing its Navn")
-    name = "".join(
-        part.get("plain_text", "") for part in name_property.get("title", [])
-    ).strip()
-    if not name:
-        raise RuntimeError("A Track is missing its Navn")
+def call_notion_with_retries(request, sleep):
+    """Make one Notion read, retrying only bounded transient failures."""
+    for retry_number in range(3):
+        try:
+            response = request()
+            response.raise_for_status()
+            return response
+        except Exception as error:
+            if not is_retryable_notion_error(error) or retry_number == 2:
+                raise TaskListCommandError() from error
+            sleep(retry_delay(error, retry_number))
 
-    priority_property = properties.get("Priority")
-    if priority_property and priority_property.get("type") != "select":
-        priority_property = None
-    priority = (
-        (priority_property.get("select") or {}).get("name")
-        if priority_property
-        else None
-    )
-    return Track(name=name, priority=priority)
+
+def is_retryable_notion_error(error):
+    response = getattr(error, "response", None)
+    status_code = getattr(response, "status_code", None)
+    if status_code == 429 or (isinstance(status_code, int) and 500 <= status_code < 600):
+        return True
+    return isinstance(error, (requests.exceptions.Timeout, requests.exceptions.ConnectionError))
+
+
+def retry_delay(error, retry_number):
+    response = getattr(error, "response", None)
+    headers = getattr(response, "headers", {}) or {}
+    retry_after = headers.get("Retry-After")
+    try:
+        delay = float(retry_after)
+    except (TypeError, ValueError):
+        delay = None
+    if delay is not None and math.isfinite(delay) and delay >= 0:
+        return delay
+    if isinstance(retry_after, str):
+        try:
+            retry_at = parsedate_to_datetime(retry_after)
+            if retry_at.tzinfo is None:
+                retry_at = retry_at.replace(tzinfo=timezone.utc)
+            return max(0, (retry_at - datetime.now(timezone.utc)).total_seconds())
+        except (TypeError, ValueError, IndexError, OverflowError):
+            pass
+    return 1 + retry_number
+
+
+def track_from_notion_page(page):
+    try:
+        properties = page["properties"]
+        name_property = properties.get("Navn")
+        if not name_property or name_property.get("type") != "title":
+            raise MalformedTrackPageError("A Track is missing its Navn")
+        name = "".join(
+            part.get("plain_text", "") for part in name_property.get("title", [])
+        ).strip()
+        if not name:
+            raise MalformedTrackPageError("A Track is missing its Navn")
+
+        priority_property = properties.get("Priority")
+        if priority_property and priority_property.get("type") != "select":
+            priority_property = None
+        priority = (
+            (priority_property.get("select") or {}).get("name")
+            if priority_property
+            else None
+        )
+        return Track(name=name, priority=priority)
+    except (AttributeError, KeyError, TypeError, ValueError) as error:
+        raise MalformedTrackPageError() from error
 
 
 def notion_headers(api_key):
@@ -285,7 +389,7 @@ def find_property(properties, display_name, property_type, required=True):
             return candidate
 
     if required:
-        raise RuntimeError(f"A task is missing its {display_name} property")
+        raise MalformedTaskPageError(f"A task is missing its {display_name} property")
     return None
 
 

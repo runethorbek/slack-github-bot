@@ -32,7 +32,7 @@ Track handling is defined in the [Track Resolution Feature Spec](track-resolutio
 Each task displays at most three Track entries; additional related Tracks are
 summarized with an explicit `+N more` remainder.
 
-If no tasks qualify, the bot responds `No tasks need attention right now.` Transient Notion failures are retried at most twice. Other Notion or schema failures produce a generic Slack error without exposing secrets or task contents. A malformed individual task is skipped, valid tasks are still shown, and the skipped count is reported.
+If no tasks qualify, the bot responds `No tasks need attention right now.` A transient Notion failure is a connection or timeout error, HTTP `429`, or HTTP `5xx`; each Notion read has one initial attempt and at most two retries. A valid numeric or HTTP-date `Retry-After` header determines the retry delay; otherwise retries wait one then two seconds. Authentication, permission, request, and schema errors are not retried. Task-query failures or task-list schema failures produce `Unable to retrieve tasks right now. Please try again later.` in the command thread, without exposing secrets or task contents. Individual Track lookup failures, including permission and Track-schema failures, remain isolated to that relation and render `Track unavailable`. A malformed individual task is skipped, valid tasks are still shown, and the skipped count is reported.
 
 ## Smallest agreed tracer bullet
 

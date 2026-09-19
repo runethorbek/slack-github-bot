@@ -54,8 +54,8 @@ class SlackToPythonContractTests(unittest.TestCase):
         self.assertEqual(
             [call.args[0] for call in requests_module.post.call_args_list],
             [
-                "https://api.notion.com/v1/data_sources/fake-data-source-id/query",
                 "https://slack.com/api/chat.postMessage",
+                "https://api.notion.com/v1/data_sources/fake-data-source-id/query",
                 "https://slack.com/api/chat.postMessage",
             ],
         )
@@ -155,7 +155,7 @@ process.stdout.write(JSON.stringify(dispatched[0]));
 
         requests_module = types.ModuleType("requests")
         requests_module.post = Mock(
-            side_effect=[notion_response, root_response, reply_response]
+            side_effect=[root_response, notion_response, reply_response]
         )
         requests_module.get = Mock(return_value=track_response)
 

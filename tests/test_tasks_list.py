@@ -1,15 +1,221 @@
 import unittest
 from datetime import date
-from unittest.mock import Mock
+from unittest.mock import Mock, call, patch
 
-from tasks_list import handle_tasks_command
+from requests.exceptions import ConnectionError as RequestsConnectionError
+from requests.exceptions import Timeout
+
+from tasks_list import handle_tasks_command, retry_delay, select_tasks_needing_attention
 
 
 FIXED_TODAY = date(2026, 8, 29)
 NOTION_QUERY_URL = "https://api.notion.com/v1/data_sources/data-source-id/query"
 
 
+class NotionHttpError(Exception):
+    def __init__(self, status_code, headers=None):
+        self.response = type(
+            "Response", (), {"status_code": status_code, "headers": headers or {}}
+        )()
+
+
 class TasksListCommandTests(unittest.TestCase):
+    def test_retries_a_rate_limited_query_twice_at_most_and_respects_retry_after(self):
+        rate_limited = Mock()
+        rate_limited_error = NotionHttpError(429, {"Retry-After": "7"})
+        rate_limited.raise_for_status.side_effect = rate_limited_error
+        successful = Mock()
+        successful.json.return_value = self.notion_page([self.task("Recovered")])
+        notion_post = Mock(side_effect=[rate_limited, successful])
+        post_slack_message = Mock(side_effect=lambda message, thread_ts=None: {"ts": "123.456"})
+        sleep = Mock()
+
+        handled = handle_tasks_command(
+            "/tasks", "list", "C-allowed", post_slack_message, notion_post,
+            self.authorized_environment(), today=FIXED_TODAY, sleep=sleep,
+        )
+
+        self.assertTrue(handled)
+        self.assertEqual(notion_post.call_count, 2)
+        sleep.assert_called_once_with(7.0)
+        self.assertIn("Recovered", self.thread_output(post_slack_message))
+
+    def test_does_not_retry_a_non_retryable_query_error_and_posts_a_safe_reply(self):
+        unauthorized = Mock()
+        unauthorized.raise_for_status.side_effect = NotionHttpError(401)
+        notion_post = Mock(return_value=unauthorized)
+        post_slack_message = Mock(side_effect=lambda message, thread_ts=None: {"ts": "123.456"})
+        sleep = Mock()
+
+        handled = handle_tasks_command(
+            "/tasks", "list", "C-allowed", post_slack_message, notion_post,
+            self.authorized_environment(), today=FIXED_TODAY, sleep=sleep,
+        )
+
+        self.assertTrue(handled)
+        notion_post.assert_called_once()
+        sleep.assert_not_called()
+        self.assertEqual(
+            self.thread_output(post_slack_message),
+            "Unable to retrieve tasks right now. Please try again later.",
+        )
+        self.assertNotIn("401", self.thread_output(post_slack_message))
+        self.assertNotIn("secret-token", self.thread_output(post_slack_message))
+
+    def test_stops_after_two_retries_for_a_transient_query_failure(self):
+        failed_responses = []
+        for _ in range(3):
+            response = Mock()
+            response.raise_for_status.side_effect = NotionHttpError(503)
+            failed_responses.append(response)
+        notion_post = Mock(side_effect=failed_responses)
+        post_slack_message = Mock(side_effect=lambda message, thread_ts=None: {"ts": "123.456"})
+        sleep = Mock()
+
+        handle_tasks_command(
+            "/tasks", "list", "C-allowed", post_slack_message, notion_post,
+            self.authorized_environment(), today=FIXED_TODAY, sleep=sleep,
+        )
+
+        self.assertEqual(notion_post.call_count, 3)
+        self.assertEqual(sleep.call_args_list, [call(1), call(2)])
+        self.assertEqual(
+            self.thread_output(post_slack_message),
+            "Unable to retrieve tasks right now. Please try again later.",
+        )
+
+    def test_does_not_retry_a_malformed_query_response(self):
+        malformed = Mock()
+        malformed.json.return_value = {"results": "private task contents"}
+        notion_post = Mock(return_value=malformed)
+        post_slack_message = Mock(side_effect=lambda message, thread_ts=None: {"ts": "123.456"})
+        sleep = Mock()
+
+        handle_tasks_command(
+            "/tasks", "list", "C-allowed", post_slack_message, notion_post,
+            self.authorized_environment(), today=FIXED_TODAY, sleep=sleep,
+        )
+
+        notion_post.assert_called_once()
+        sleep.assert_not_called()
+        self.assertNotIn("private task contents", self.thread_output(post_slack_message))
+
+    def test_skips_malformed_tasks_and_reports_the_count(self):
+        malformed = self.task("Broken")
+        del malformed["properties"]["Status"]
+
+        _, _, post_slack_message = self.run_list(
+            [self.notion_page([malformed, self.task("Valid")])]
+        )
+
+        output = self.thread_output(post_slack_message)
+        self.assertIn("Valid", output)
+        self.assertNotIn("Broken", output)
+        self.assertIn("Skipped 1 malformed task.", output)
+
+    def test_retries_a_transient_track_lookup(self):
+        query_response = Mock()
+        query_response.json.return_value = self.notion_page(
+            [self.task("Task", track_ids=["track-id"])]
+        )
+        track_response = Mock()
+        track_response.json.return_value = self.track("Recovered track")
+        notion_get = Mock(side_effect=[Timeout(), track_response])
+        post_slack_message = Mock(side_effect=lambda message, thread_ts=None: {"ts": "123.456"})
+        sleep = Mock()
+
+        handle_tasks_command(
+            "/tasks", "list", "C-allowed", post_slack_message,
+            Mock(return_value=query_response), self.authorized_environment(),
+            today=FIXED_TODAY, notion_get=notion_get, sleep=sleep,
+        )
+
+        self.assertEqual(notion_get.call_count, 2)
+        sleep.assert_called_once_with(1)
+        self.assertIn("Recovered track", self.thread_output(post_slack_message))
+
+    def test_recovers_from_a_connection_error_and_a_server_error(self):
+        connection_recovery = Mock()
+        connection_recovery.json.return_value = self.notion_page([self.task("Connected")])
+        connection_post = Mock(side_effect=[RequestsConnectionError(), connection_recovery])
+        post_slack_message = Mock(side_effect=lambda message, thread_ts=None: {"ts": "123.456"})
+        sleep = Mock()
+
+        handle_tasks_command(
+            "/tasks", "list", "C-allowed", post_slack_message, connection_post,
+            self.authorized_environment(), today=FIXED_TODAY, sleep=sleep,
+        )
+
+        self.assertEqual(connection_post.call_count, 2)
+        sleep.assert_called_once_with(1)
+        self.assertIn("Connected", self.thread_output(post_slack_message))
+
+        server_error = Mock()
+        server_error.raise_for_status.side_effect = NotionHttpError(503)
+        server_recovery = Mock()
+        server_recovery.json.return_value = self.notion_page([self.task("Recovered")])
+        server_post = Mock(side_effect=[server_error, server_recovery])
+        server_sleep = Mock()
+
+        handle_tasks_command(
+            "/tasks", "list", "C-allowed", post_slack_message, server_post,
+            self.authorized_environment(), today=FIXED_TODAY, sleep=server_sleep,
+        )
+
+        self.assertEqual(server_post.call_count, 2)
+        server_sleep.assert_called_once_with(1)
+
+    def test_invalid_retry_after_values_use_backoff(self):
+        self.assertEqual(retry_delay(NotionHttpError(429), 0), 1)
+        self.assertEqual(retry_delay(NotionHttpError(429, {"Retry-After": "nope"}), 0), 1)
+        self.assertEqual(retry_delay(NotionHttpError(429, {"Retry-After": "NaN"}), 1), 2)
+        self.assertEqual(
+            retry_delay(
+                NotionHttpError(429, {"Retry-After": "Wed, 21 Oct 2015 07:28:00 GMT"}),
+                1,
+            ),
+            0,
+        )
+
+    def test_malformed_query_json_is_not_retried(self):
+        malformed = Mock()
+        malformed.json.side_effect = ValueError("not JSON")
+        notion_post = Mock(return_value=malformed)
+        post_slack_message = Mock(side_effect=lambda message, thread_ts=None: {"ts": "123.456"})
+
+        handle_tasks_command(
+            "/tasks", "list", "C-allowed", post_slack_message, notion_post,
+            self.authorized_environment(), today=FIXED_TODAY, sleep=Mock(),
+        )
+
+        notion_post.assert_called_once()
+        self.assertEqual(
+            self.thread_output(post_slack_message),
+            "Unable to retrieve tasks right now. Please try again later.",
+        )
+
+    def test_unexpected_task_parsing_error_is_not_reported_as_malformed(self):
+        with self.assertRaises(AssertionError):
+            with patch("tasks_list.task_from_notion_page", side_effect=AssertionError):
+                select_tasks_needing_attention([self.task("Task")], FIXED_TODAY)
+
+    def test_terminal_track_permission_failure_is_isolated(self):
+        query_response = Mock()
+        query_response.json.return_value = self.notion_page(
+            [self.task("Task", track_ids=["forbidden"])]
+        )
+        forbidden = Mock()
+        forbidden.raise_for_status.side_effect = NotionHttpError(403)
+        post_slack_message = Mock(side_effect=lambda message, thread_ts=None: {"ts": "123.456"})
+
+        handle_tasks_command(
+            "/tasks", "list", "C-allowed", post_slack_message,
+            Mock(return_value=query_response), self.authorized_environment(),
+            today=FIXED_TODAY, notion_get=Mock(return_value=forbidden), sleep=Mock(),
+        )
+
+        self.assertIn("Track unavailable", self.thread_output(post_slack_message))
+
     def test_other_commands_are_not_owned(self):
         notion_post = Mock()
         post_slack_message = Mock()
