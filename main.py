@@ -137,6 +137,25 @@ def raise_gemini_credential_error(error):
         raise RuntimeError(f"Gemini authentication failed (HTTP {status_code}).") from None
 
 
+GEMINI_MODEL = "gemini-3.5-flash-lite"
+
+
+def generate_gemini_text(prompt):
+    try:
+        client = genai.Client()
+    except Exception as error:
+        raise_gemini_credential_error(error)
+        raise
+
+    try:
+        response = client.interactions.create(model=GEMINI_MODEL, input=prompt)
+    except Exception as error:
+        raise_gemini_credential_error(error)
+        raise
+
+    return response.output_text.strip()
+
+
 # ---------------------------------------------------------
 # Deterministic command families
 # ---------------------------------------------------------
@@ -147,6 +166,7 @@ if handle_people_command(
     post_slack_message,
     requests.post,
     os.environ,
+    generate_text=generate_gemini_text,
     post_ephemeral_response=post_ephemeral_command_response,
 ):
     print("People command handled")
@@ -274,12 +294,6 @@ print("====================")
 # Gemini
 # ---------------------------------------------------------
 
-try:
-    client = genai.Client()
-except Exception as error:
-    raise_gemini_credential_error(error)
-    raise
-
 prompt = f"""
 {SYSTEM_INSTRUCTION}
 
@@ -288,16 +302,7 @@ SLACK THREAD HISTORY:
 {conversation}
 """
 
-try:
-    response = client.interactions.create(
-        model="gemini-3.5-flash-lite",
-        input=prompt,
-    )
-except Exception as error:
-    raise_gemini_credential_error(error)
-    raise
-
-answer = response.output_text.strip()
+answer = generate_gemini_text(prompt)
 
 
 # ---------------------------------------------------------

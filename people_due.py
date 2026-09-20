@@ -12,7 +12,7 @@ from tasks_list import (
 )
 
 
-PEOPLE_USAGE = "Usage: /people due"
+PEOPLE_USAGE = "Usage: /people due | /people suggest <person>"
 NO_DUE_PERSON_MESSAGE = "No people are due for contact."
 PEOPLE_FAILURE_MESSAGE = "Unable to retrieve people right now. Please try again later."
 INCOMPLETE_SCAN_MESSAGE = (
@@ -72,20 +72,54 @@ def handle_people_command(
     post_slack_message,
     notion_post,
     environment,
+    generate_text=None,
     today=None,
     post_ephemeral_response=None,
     sleep=time.sleep,
 ):
-    """Handle the read-only /people command family without using Gemini."""
+    """Handle the /people command family.
+
+    ``due`` is fully deterministic. ``suggest <person>`` also reads Notion
+    deterministically, but drafts its output with Gemini via the injected
+    ``generate_text`` callable, keeping Gemini isolated from Notion access
+    and from arbitrary side effects.
+    """
     if command != "/people":
         return False
 
-    if text.strip().casefold() != "due":
-        post_validation_response(
-            PEOPLE_USAGE, post_slack_message, post_ephemeral_response
-        )
+    normalized_text = text.strip()
+    lowered_text = normalized_text.casefold()
+
+    if lowered_text == "due":
+        handle_people_due(post_slack_message, notion_post, environment, today, sleep)
         return True
 
+    if lowered_text.startswith("suggest"):
+        remainder = normalized_text[len("suggest"):]
+        person_name = remainder.strip()
+        if person_name and remainder[0].isspace():
+            # Imported lazily to avoid a circular import: people_suggest
+            # depends on shared helpers defined in this module.
+            from people_suggest import handle_people_suggest
+
+            handle_people_suggest(
+                person_name,
+                post_slack_message,
+                notion_post,
+                generate_text,
+                environment,
+                today=today,
+                sleep=sleep,
+            )
+            return True
+
+    post_validation_response(
+        PEOPLE_USAGE, post_slack_message, post_ephemeral_response
+    )
+    return True
+
+
+def handle_people_due(post_slack_message, notion_post, environment, today, sleep):
     root_message = post_slack_message("/people due")
     try:
         command_today = today or copenhagen_today()
@@ -101,7 +135,7 @@ def handle_people_command(
         post_slack_message(
             PEOPLE_FAILURE_MESSAGE, thread_ts=root_message["ts"]
         )
-        return True
+        return
 
     if due_people:
         message = format_due_people(due_people)
@@ -119,7 +153,6 @@ def handle_people_command(
         message = f"{message}\n\nSkipped {skipped_person_count} malformed {noun}."
 
     post_slack_message(message, thread_ts=root_message["ts"])
-    return True
 
 
 def post_validation_response(message, post_slack_message, post_ephemeral_response):
