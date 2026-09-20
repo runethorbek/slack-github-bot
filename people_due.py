@@ -583,4 +583,18 @@ def format_due_person(due_person):
                 f"Next contact due: {due_person.next_contact_due.isoformat()}",
             ]
         )
+    lines.append(format_suggest_hint(due_person.person))
     return "\n".join(lines)
+
+
+def format_suggest_hint(person):
+    """A copy-runnable pointer at the existing suggest command.
+
+    The current Slack transport only supports slash commands and plain
+    messages; there is no Interactivity endpoint for buttons or action
+    links (see api/slack-request.js). Rather than add that infrastructure,
+    reuse Slice 1's `/people suggest <person>` verbatim as inline code, so
+    the Person can be invoked with no new mechanism and no duplicated
+    resolution or Gemini logic.
+    """
+    return f"Suggest a message: `/people suggest {person.name}`"

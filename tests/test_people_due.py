@@ -15,6 +15,7 @@ from people_due import (
     find_due_people,
     find_one_due_person,
     format_due_people,
+    format_suggest_hint,
     handle_people_command,
     person_from_notion_page,
 )
@@ -814,6 +815,179 @@ class PeopleDueListTests(unittest.TestCase):
     def due_person(name, latest_interaction=None, next_contact_due=None):
         return DuePerson(
             Person(name, name, "1 month"), latest_interaction, next_contact_due
+        )
+
+    @staticmethod
+    def environment():
+        return {
+            "NOTION_API_KEY": "secret-token",
+            "NOTION_PEOPLE_DATA_SOURCE_ID": "people-id",
+            "NOTION_INTERACTIONS_DATA_SOURCE_ID": "interactions-id",
+        }
+
+    @staticmethod
+    def response(results):
+        response = Mock()
+        response.json.return_value = {"results": results}
+        return response
+
+    @staticmethod
+    def person(page_id, name, cadence, linkedin=None):
+        return {
+            "id": page_id,
+            "properties": {
+                "Name": {
+                    "type": "title",
+                    "title": [{"plain_text": name}],
+                },
+                "Contact cadence": {
+                    "type": "select",
+                    "select": {"name": cadence} if cadence else None,
+                },
+                **(
+                    {"LinkedIn": {"type": "url", "url": linkedin}}
+                    if linkedin is not None
+                    else {}
+                ),
+            },
+        }
+
+    @staticmethod
+    def interaction(interaction_date, person_ids=("p1",)):
+        return {
+            "properties": {
+                "Date": {
+                    "type": "date",
+                    "date": (
+                        {"start": interaction_date}
+                        if interaction_date is not None
+                        else None
+                    ),
+                },
+                "People": {
+                    "type": "relation",
+                    "relation": [{"id": person_id} for person_id in person_ids],
+                },
+            }
+        }
+
+
+class PeopleDueSuggestHintTests(unittest.TestCase):
+    """Slice 2 of issue #13: linking /people due to /people suggest."""
+
+    def test_due_person_block_renders_a_suggest_command_hint(self):
+        notion_post = Mock(
+            side_effect=[
+                self.response([self.person("p1", "Jane Doe", "1 month")]),
+                self.response([]),
+            ]
+        )
+
+        due_people, _, _ = self.call_find_due_people(notion_post)
+        message = format_due_people(due_people)
+
+        self.assertIn("Suggest a message: `/people suggest Jane Doe`", message)
+
+    def test_suggest_hint_uses_the_exact_person_name_not_the_linkedin_label(self):
+        person = Person("p1", "Jane Doe", "1 month", linkedin_url="https://www.linkedin.com/in/janedoe")
+
+        hint = format_suggest_hint(person)
+
+        self.assertEqual(hint, "Suggest a message: `/people suggest Jane Doe`")
+
+    def test_suggest_hint_and_linkedin_link_render_independently_for_mixed_people(self):
+        notion_post = Mock(
+            side_effect=[
+                self.response(
+                    [
+                        self.person(
+                            "p1",
+                            "Alex",
+                            "1 month",
+                            linkedin="https://www.linkedin.com/in/alex",
+                        ),
+                        self.person("p2", "Blair", "1 month"),
+                    ]
+                ),
+                self.response([]),
+            ]
+        )
+
+        due_people, _, _ = self.call_find_due_people(notion_post)
+        message = format_due_people(due_people)
+
+        self.assertIn("<https://www.linkedin.com/in/alex|Alex>", message)
+        self.assertIn("`/people suggest Alex`", message)
+        self.assertIn("*Blair*", message)
+        self.assertIn("`/people suggest Blair`", message)
+
+    def test_existing_cadence_and_interaction_fields_are_preserved_alongside_the_hint(self):
+        notion_post = Mock(
+            side_effect=[
+                self.response([self.person("p1", "Alex", "6 months")]),
+                self.response([self.interaction("2026-02-28")]),
+            ]
+        )
+
+        due_people, _, _ = self.call_find_due_people(notion_post)
+        message = format_due_people(due_people)
+
+        self.assertIn("*Alex*", message)
+        self.assertIn("Contact cadence: 6 months", message)
+        self.assertIn("Latest interaction: 2026-02-28", message)
+        self.assertIn("Next contact due: 2026-08-28", message)
+        self.assertIn("`/people suggest Alex`", message)
+
+    def test_suggest_hint_reuses_the_existing_suggest_command_route(self):
+        """The hint text, run verbatim, must reach Slice 1's suggest path.
+
+        This pins reuse: the hint is not a separate implementation, it is
+        exactly the `/people suggest <person>` command already handled by
+        handle_people_command / handle_people_suggest.
+        """
+        person = Person("p1", "Jane Doe", "1 month")
+        hint = format_suggest_hint(person)
+        command_text = hint.split("`")[1]
+        command, _, text = command_text.partition(" ")
+        self.assertEqual(command, "/people")
+
+        notion_post = Mock(
+            side_effect=[
+                self.response([self.person("p1", "Jane Doe", "1 month")]),
+                self.response([]),
+            ]
+        )
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+        )
+        generate_text = Mock(return_value="Hey Jane, been a while!")
+
+        handled = handle_people_command(
+            command,
+            text,
+            post_slack_message,
+            notion_post,
+            self.environment(),
+            generate_text=generate_text,
+            today=FIXED_TODAY,
+            sleep=Mock(),
+        )
+
+        self.assertTrue(handled)
+        generate_text.assert_called_once()
+        output = post_slack_message.call_args_list[-1].args[0]
+        self.assertEqual(
+            output, "Suggested message for Jane Doe:\n\nHey Jane, been a while!"
+        )
+
+    def call_find_due_people(self, notion_post):
+        return find_due_people(
+            notion_post,
+            "secret-token",
+            "people-id",
+            "interactions-id",
+            FIXED_TODAY,
+            Mock(),
         )
 
     @staticmethod
