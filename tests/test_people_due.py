@@ -16,6 +16,7 @@ from people_due import (
     find_one_due_person,
     format_due_people,
     handle_people_command,
+    person_from_notion_page,
 )
 from tasks_list import NotionAuthenticationError
 
@@ -327,7 +328,7 @@ class PeopleDueTests(unittest.TestCase):
         return response
 
     @staticmethod
-    def person(page_id, name, cadence):
+    def person(page_id, name, cadence, linkedin=None):
         return {
             "id": page_id,
             "properties": {
@@ -339,6 +340,11 @@ class PeopleDueTests(unittest.TestCase):
                     "type": "select",
                     "select": {"name": cadence} if cadence else None,
                 },
+                **(
+                    {"LinkedIn": {"type": "url", "url": linkedin}}
+                    if linkedin is not None
+                    else {}
+                ),
             },
         }
 
@@ -567,6 +573,68 @@ class PeopleDueListTests(unittest.TestCase):
             all(call.args[0].endswith("/query") for call in notion_post.call_args_list)
         )
 
+    def test_person_with_linkedin_url_is_rendered_as_a_clickable_link(self):
+        notion_post = Mock(
+            side_effect=[
+                self.response(
+                    [
+                        self.person(
+                            "p1",
+                            "Alex",
+                            "1 month",
+                            linkedin="https://www.linkedin.com/in/alex",
+                        ),
+                    ]
+                ),
+                self.response([]),
+            ]
+        )
+
+        due_people, _, _ = self.call_find_due_people(notion_post)
+        message = format_due_people(due_people)
+
+        self.assertIn("<https://www.linkedin.com/in/alex|Alex>", message)
+        self.assertIn("Contact cadence: 1 month", message)
+
+    def test_person_without_linkedin_url_is_rendered_as_plain_text(self):
+        notion_post = Mock(
+            side_effect=[
+                self.response([self.person("p1", "Alex", "1 month")]),
+                self.response([]),
+            ]
+        )
+
+        due_people, _, _ = self.call_find_due_people(notion_post)
+        message = format_due_people(due_people)
+
+        self.assertIn("*Alex*", message)
+        self.assertNotIn("<", message)
+
+    def test_mixed_linkedin_and_no_linkedin_people_render_independently(self):
+        notion_post = Mock(
+            side_effect=[
+                self.response(
+                    [
+                        self.person(
+                            "p1",
+                            "Alex",
+                            "1 month",
+                            linkedin="https://www.linkedin.com/in/alex",
+                        ),
+                        self.person("p2", "Blair", "1 month"),
+                    ]
+                ),
+                self.response([]),
+            ]
+        )
+
+        due_people, _, _ = self.call_find_due_people(notion_post)
+        message = format_due_people(due_people)
+
+        self.assertIn("<https://www.linkedin.com/in/alex|Alex>", message)
+        self.assertIn("*Blair*", message)
+        self.assertNotIn("<Blair", message)
+
     def test_result_count_is_bounded_and_shows_a_remainder_indicator(self):
         due_people = [
             self.due_person(f"Person{index:02d}") for index in range(25)
@@ -763,7 +831,7 @@ class PeopleDueListTests(unittest.TestCase):
         return response
 
     @staticmethod
-    def person(page_id, name, cadence):
+    def person(page_id, name, cadence, linkedin=None):
         return {
             "id": page_id,
             "properties": {
@@ -775,6 +843,11 @@ class PeopleDueListTests(unittest.TestCase):
                     "type": "select",
                     "select": {"name": cadence} if cadence else None,
                 },
+                **(
+                    {"LinkedIn": {"type": "url", "url": linkedin}}
+                    if linkedin is not None
+                    else {}
+                ),
             },
         }
 
@@ -841,6 +914,35 @@ class PeopleDueRobustnessTests(unittest.TestCase):
 
         self.assertEqual([d.person.name for d in due_people], ["Blair"])
         self.assertEqual(skipped_person_count, 1)
+
+    def test_malformed_linkedin_property_falls_back_to_no_link_without_skipping(self):
+        malformed_variants = [
+            {"type": "rich_text", "rich_text": []},  # wrong property type
+            {"type": "url", "url": None},  # empty Notion URL field
+            {"type": "url", "url": ""},  # empty string
+            "not-a-dict",
+        ]
+        for linkedin_property in malformed_variants:
+            with self.subTest(linkedin_property=linkedin_property):
+                page = {
+                    "id": "p1",
+                    "properties": {
+                        "Name": {
+                            "type": "title",
+                            "title": [{"plain_text": "Alex"}],
+                        },
+                        "Contact cadence": {
+                            "type": "select",
+                            "select": {"name": "1 month"},
+                        },
+                        "LinkedIn": linkedin_property,
+                    },
+                }
+
+                person = person_from_notion_page(page)
+
+                self.assertIsNotNone(person)
+                self.assertIsNone(person.linkedin_url)
 
     def test_malformed_interaction_record_does_not_block_valid_people(self):
         notion_post = Mock(
@@ -1024,7 +1126,7 @@ class PeopleDueRobustnessTests(unittest.TestCase):
         return response
 
     @staticmethod
-    def person(page_id, name, cadence):
+    def person(page_id, name, cadence, linkedin=None):
         return {
             "id": page_id,
             "properties": {
@@ -1036,6 +1138,11 @@ class PeopleDueRobustnessTests(unittest.TestCase):
                     "type": "select",
                     "select": {"name": cadence} if cadence else None,
                 },
+                **(
+                    {"LinkedIn": {"type": "url", "url": linkedin}}
+                    if linkedin is not None
+                    else {}
+                ),
             },
         }
 

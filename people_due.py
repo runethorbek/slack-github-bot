@@ -44,6 +44,7 @@ class Person:
     page_id: str
     name: str
     cadence: str
+    linkedin_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -445,9 +446,21 @@ def person_from_notion_page(page):
         page_id = page["id"]
         if not name or not page_id or cadence not in CADENCE_MONTHS:
             return None
-        return Person(page_id, name, cadence)
+        linkedin_url = extract_linkedin_url(properties)
+        return Person(page_id, name, cadence, linkedin_url)
     except (AttributeError, KeyError, TypeError):
         return None
+
+
+def extract_linkedin_url(properties):
+    """Read the LinkedIn URL property as-is; never construct or guess one."""
+    linkedin_property = properties.get("LinkedIn")
+    if not isinstance(linkedin_property, dict):
+        return None
+    if linkedin_property.get("type") != "url":
+        return None
+    url = linkedin_property.get("url")
+    return url if isinstance(url, str) and url else None
 
 
 def interaction_date_values(pages):
@@ -517,9 +530,15 @@ def add_calendar_months(value, months):
     return date(year, month, day)
 
 
+def format_person_name(person):
+    if person.linkedin_url:
+        return f"<{person.linkedin_url}|{person.name}>"
+    return person.name
+
+
 def format_due_person(due_person):
     lines = [
-        f"*{due_person.person.name}*",
+        f"*{format_person_name(due_person.person)}*",
         f"Contact cadence: {due_person.person.cadence}",
     ]
     if due_person.latest_interaction is None:
