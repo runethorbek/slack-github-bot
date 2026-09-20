@@ -3,6 +3,7 @@ import sys
 import requests
 from google import genai
 
+from people_due import handle_people_command
 from tasks_list import handle_tasks_command
 
 
@@ -57,7 +58,7 @@ def post_slack_message(message, thread_ts=None):
 
 def post_ephemeral_command_response(message):
     if not response_url:
-        raise RuntimeError("SLACK_RESPONSE_URL is required for a /tasks response")
+        raise RuntimeError("SLACK_RESPONSE_URL is required for a slash command response")
 
     try:
         response = requests.post(
@@ -137,8 +138,19 @@ def raise_gemini_credential_error(error):
 
 
 # ---------------------------------------------------------
-# /tasks command family
+# Deterministic command families
 # ---------------------------------------------------------
+
+if handle_people_command(
+    command,
+    text,
+    post_slack_message,
+    requests.post,
+    os.environ,
+    post_ephemeral_response=post_ephemeral_command_response,
+):
+    print("People command handled")
+    sys.exit(0)
 
 if handle_tasks_command(
     command,

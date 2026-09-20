@@ -7,6 +7,82 @@ from unittest.mock import Mock, patch
 
 
 class MainRoutingTests(unittest.TestCase):
+    def test_people_due_exits_before_gemini_and_only_queries_notion(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        root_response = Mock()
+        root_response.json.return_value = {"ok": True, "ts": "123.456"}
+        people_response = Mock()
+        people_response.json.return_value = {
+            "results": [
+                {
+                    "id": "person-id",
+                    "properties": {
+                        "Name": {
+                            "type": "title",
+                            "title": [{"plain_text": "Known person"}],
+                        },
+                        "Contact cadence": {
+                            "type": "select",
+                            "select": {"name": "1 month"},
+                        },
+                    },
+                }
+            ]
+        }
+        interactions_response = Mock()
+        interactions_response.json.return_value = {"results": []}
+        reply_response = Mock()
+        reply_response.json.return_value = {"ok": True}
+        requests_module.post.side_effect = [
+            root_response,
+            people_response,
+            interactions_response,
+            reply_response,
+        ]
+        environment = {
+            "SLACK_COMMAND": "/people",
+            "SLACK_TEXT": "due",
+            "SLACK_CHANNEL_ID": "C-channel",
+            "SLACK_BOT_TOKEN": "test-slack-token",
+            "NOTION_API_KEY": "test-notion-token",
+            "NOTION_PEOPLE_DATA_SOURCE_ID": "people-id",
+            "NOTION_INTERACTIONS_DATA_SOURCE_ID": "interactions-id",
+        }
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(
+                sys.modules,
+                {
+                    "requests": requests_module,
+                    "google": google_module,
+                    "google.genai": genai_module,
+                },
+            ),
+            patch("builtins.print") as print_mock,
+            self.assertRaises(SystemExit) as exit_context,
+        ):
+            runpy.run_module("main", run_name="__main__")
+
+        self.assertEqual(exit_context.exception.code, 0)
+        genai_module.Client.assert_not_called()
+        requests_module.get.assert_not_called()
+        notion_calls = requests_module.post.call_args_list[1:3]
+        self.assertEqual(
+            [call.args[0] for call in notion_calls],
+            [
+                "https://api.notion.com/v1/data_sources/people-id/query",
+                "https://api.notion.com/v1/data_sources/interactions-id/query",
+            ],
+        )
+        self.assertTrue(all(call.args[0].endswith("/query") for call in notion_calls))
+        logged_text = " ".join(
+            str(argument)
+            for call in print_mock.call_args_list
+            for argument in call.args
+        )
+        self.assertNotIn("Known person", logged_text)
+
     def test_authorized_normalized_tasks_list_exits_before_gemini(self):
         requests_module, google_module, genai_module = self.fake_modules()
 

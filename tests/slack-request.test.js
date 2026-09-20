@@ -90,9 +90,31 @@ test("a valid signed /tasks list request preserves the existing dispatch", async
   ]);
 });
 
+test("a valid signed /people due request preserves the command dispatch", async () => {
+  const body = new URLSearchParams({
+    command: "/people",
+    text: "due",
+    response_url: "https://hooks.slack.test/response",
+    channel_id: "C123",
+    user_id: "U123",
+  }).toString();
+  const dependencies = testDependencies();
+
+  const response = await handleSlackRequest(
+    slackRequest(body),
+    dependencies.options
+  );
+  await Promise.all(dependencies.deferred);
+
+  assert.equal(response.status, 200);
+  assert.equal(dependencies.dispatched[0].command, "/people");
+  assert.equal(dependencies.dispatched[0].text, "due");
+});
+
 test("authenticated slash commands receive an empty acknowledgement", async (t) => {
   const commands = [
     ["/tasks", "list"],
+    ["/people", "due"],
     ["/testbot", "hello"],
   ];
 
