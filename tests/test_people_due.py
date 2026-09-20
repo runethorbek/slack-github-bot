@@ -3,11 +3,17 @@ from datetime import date
 from unittest.mock import Mock
 
 from people_due import (
+    INCOMPLETE_SCAN_MESSAGE,
+    MAX_DISPLAYED_PEOPLE,
     CadenceStatus,
+    DuePerson,
     NO_DUE_PERSON_MESSAGE,
+    Person,
     add_calendar_months,
     evaluate_cadence,
+    find_due_people,
     find_one_due_person,
+    format_due_people,
     handle_people_command,
 )
 
@@ -328,7 +334,7 @@ class PeopleDueTests(unittest.TestCase):
         }
 
     @staticmethod
-    def interaction(interaction_date):
+    def interaction(interaction_date, person_ids=("p1",)):
         return {
             "properties": {
                 "Date": {
@@ -338,7 +344,447 @@ class PeopleDueTests(unittest.TestCase):
                         if interaction_date is not None
                         else None
                     ),
-                }
+                },
+                "People": {
+                    "type": "relation",
+                    "relation": [{"id": person_id} for person_id in person_ids],
+                },
+            }
+        }
+
+
+class PeopleDueListTests(unittest.TestCase):
+    """Slice 3: bulk evaluation, ordering, limits, and Slack formatting."""
+
+    def test_multiple_due_people_are_returned(self):
+        notion_post = Mock(
+            side_effect=[
+                self.response(
+                    [
+                        self.person("p1", "Alex", "1 month"),
+                        self.person("p2", "Blair", "1 month"),
+                    ]
+                ),
+                self.response(
+                    [
+                        self.interaction("2026-06-01", person_ids=("p1",)),
+                        self.interaction("2026-08-01", person_ids=("p2",)),
+                    ]
+                ),
+            ]
+        )
+
+        due_people, is_incomplete = self.call_find_due_people(notion_post)
+
+        self.assertEqual(
+            [due_person.person.name for due_person in due_people],
+            ["Alex", "Blair"],
+        )
+
+    def test_people_not_due_are_excluded(self):
+        notion_post = Mock(
+            side_effect=[
+                self.response(
+                    [
+                        self.person("p1", "Alex", "1 month"),
+                        self.person("p2", "Blair", "1 month"),
+                    ]
+                ),
+                self.response(
+                    [
+                        # Alex's next contact isn't due until 2026-10-01.
+                        self.interaction("2026-09-01", person_ids=("p1",)),
+                        # Blair's next contact was due 2026-07-01.
+                        self.interaction("2026-06-01", person_ids=("p2",)),
+                    ]
+                ),
+            ]
+        )
+
+        due_people, is_incomplete = self.call_find_due_people(notion_post)
+
+        self.assertEqual([due_person.person.name for due_person in due_people], ["Blair"])
+
+    def test_ordering_places_most_overdue_first(self):
+        notion_post = Mock(
+            side_effect=[
+                self.response(
+                    [
+                        self.person("p1", "A", "1 month"),
+                        self.person("p2", "B", "1 month"),
+                        self.person("p3", "C", "1 month"),
+                    ]
+                ),
+                self.response(
+                    [
+                        self.interaction("2026-08-01", person_ids=("p1",)),  # due 09-01
+                        self.interaction("2026-06-01", person_ids=("p2",)),  # due 07-01
+                        self.interaction("2026-07-01", person_ids=("p3",)),  # due 08-01
+                    ]
+                ),
+            ]
+        )
+
+        due_people, is_incomplete = self.call_find_due_people(notion_post)
+
+        self.assertEqual(
+            [due_person.person.name for due_person in due_people], ["B", "C", "A"]
+        )
+
+    def test_no_previous_interaction_people_are_ordered_after_dated_overdue(self):
+        notion_post = Mock(
+            side_effect=[
+                self.response(
+                    [
+                        self.person("p1", "Aaron", "1 month"),
+                        self.person("p2", "Zack", "1 month"),
+                    ]
+                ),
+                self.response(
+                    [
+                        # Only Zack has an Interaction; Aaron has none.
+                        self.interaction("2026-06-01", person_ids=("p2",)),
+                    ]
+                ),
+            ]
+        )
+
+        due_people, is_incomplete = self.call_find_due_people(notion_post)
+
+        self.assertEqual(
+            [due_person.person.name for due_person in due_people], ["Zack", "Aaron"]
+        )
+        self.assertIsNone(due_people[1].next_contact_due)
+
+    def test_name_is_a_stable_tiebreaker_within_each_group(self):
+        notion_post = Mock(
+            side_effect=[
+                self.response(
+                    [
+                        self.person("p1", "Zoe", "1 month"),
+                        self.person("p2", "Amy", "1 month"),
+                        self.person("p3", "Zed", "1 month"),
+                        self.person("p4", "Ann", "1 month"),
+                    ]
+                ),
+                self.response(
+                    [
+                        # Zoe and Amy share the same next contact due date.
+                        self.interaction("2026-06-01", person_ids=("p1",)),
+                        self.interaction("2026-06-01", person_ids=("p2",)),
+                        # Zed and Ann have no Interaction (no-interaction group).
+                    ]
+                ),
+            ]
+        )
+
+        due_people, is_incomplete = self.call_find_due_people(notion_post)
+
+        self.assertEqual(
+            [due_person.person.name for due_person in due_people],
+            ["Amy", "Zoe", "Ann", "Zed"],
+        )
+
+    def test_person_without_cadence_is_excluded_from_bulk_evaluation(self):
+        notion_post = Mock(
+            side_effect=[
+                self.response(
+                    [
+                        self.person("p1", "NoCadence", None),
+                        self.person("p2", "Blair", "1 month"),
+                    ]
+                ),
+                self.response([]),
+            ]
+        )
+
+        due_people, is_incomplete = self.call_find_due_people(notion_post)
+
+        self.assertEqual([due_person.person.name for due_person in due_people], ["Blair"])
+        self.assertEqual(notion_post.call_count, 2)
+
+    def test_no_due_people_produces_the_deterministic_empty_state(self):
+        notion_post = Mock(
+            side_effect=[
+                self.response(
+                    [
+                        self.person("p1", "Alex", "1 month"),
+                        self.person("p2", "Blair", "1 month"),
+                    ]
+                ),
+                self.response(
+                    [
+                        self.interaction("2026-09-10", person_ids=("p1",)),
+                        self.interaction("2026-09-15", person_ids=("p2",)),
+                    ]
+                ),
+            ]
+        )
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+        )
+
+        handle_people_command(
+            "/people", "due", post_slack_message, notion_post,
+            self.environment(), today=FIXED_TODAY, sleep=Mock(),
+        )
+
+        self.assertEqual(
+            post_slack_message.call_args_list[-1].args[0], NO_DUE_PERSON_MESSAGE
+        )
+
+    def test_reads_are_query_only_and_bounded_to_two_notion_calls(self):
+        notion_post = Mock(
+            side_effect=[
+                self.response(
+                    [
+                        self.person("p1", "Alex", "1 month"),
+                        self.person("p2", "Blair", "1 month"),
+                    ]
+                ),
+                self.response(
+                    [
+                        self.interaction("2026-06-01", person_ids=("p1",)),
+                        self.interaction("2026-08-01", person_ids=("p2",)),
+                    ]
+                ),
+            ]
+        )
+
+        self.call_find_due_people(notion_post)
+
+        self.assertEqual(notion_post.call_count, 2)
+        self.assertTrue(
+            all(call.args[0].endswith("/query") for call in notion_post.call_args_list)
+        )
+
+    def test_result_count_is_bounded_and_shows_a_remainder_indicator(self):
+        due_people = [
+            self.due_person(f"Person{index:02d}") for index in range(25)
+        ]
+
+        message = format_due_people(due_people)
+
+        blocks = message.split("\n\n")
+        self.assertEqual(len(blocks), MAX_DISPLAYED_PEOPLE + 1)
+        self.assertEqual(blocks[-1], "+5 more")
+        self.assertIn("Person00", message)
+        self.assertNotIn("Person24", message)
+
+    def test_result_within_the_limit_has_no_remainder_indicator(self):
+        due_people = [self.due_person(f"Person{index:02d}") for index in range(3)]
+
+        message = format_due_people(due_people)
+
+        self.assertNotIn("more", message)
+
+    def test_people_pagination_collects_every_page_when_complete(self):
+        notion_post = Mock(
+            side_effect=[
+                self.paged_response(
+                    [self.person("p1", "Alex", "1 month")],
+                    has_more=True,
+                    next_cursor="cursor-2",
+                ),
+                self.paged_response([self.person("p2", "Blair", "1 month")]),
+                self.response([]),
+            ]
+        )
+
+        due_people, is_incomplete = self.call_find_due_people(notion_post)
+
+        self.assertEqual(
+            [due_person.person.name for due_person in due_people], ["Alex", "Blair"]
+        )
+        self.assertFalse(is_incomplete)
+        self.assertEqual(notion_post.call_count, 3)
+        self.assertEqual(
+            notion_post.call_args_list[1].kwargs["json"]["start_cursor"], "cursor-2"
+        )
+
+    def test_people_scan_reaching_the_bound_marks_the_result_incomplete(self):
+        people_pages = [
+            self.paged_response(
+                [self.person(f"p{page}", f"Person{page}", "1 month")],
+                has_more=True,
+                next_cursor=f"cursor-{page + 1}",
+            )
+            for page in range(1, 6)
+        ]
+        notion_post = Mock(side_effect=[*people_pages, self.response([])])
+
+        due_people, is_incomplete = self.call_find_due_people(notion_post)
+
+        # All 5 scanned People had no Interaction within the bound, so all
+        # are (possibly incorrectly) evaluated as due; is_incomplete tells
+        # the caller not to trust this as a complete or reliable result.
+        self.assertEqual(len(due_people), 5)
+        self.assertTrue(is_incomplete)
+        self.assertEqual(notion_post.call_count, 6)
+
+    def test_missing_next_cursor_marks_incomplete_without_looping_forever(self):
+        notion_post = Mock(
+            side_effect=[
+                self.paged_response(
+                    [self.person("p1", "Alex", "1 month")],
+                    has_more=True,
+                    next_cursor=None,
+                ),
+                self.response([]),
+            ]
+        )
+
+        due_people, is_incomplete = self.call_find_due_people(notion_post)
+
+        self.assertTrue(is_incomplete)
+        self.assertEqual(notion_post.call_count, 2)
+
+    def test_interaction_scan_bound_flags_incomplete_instead_of_mislabeling(self):
+        interaction_pages = [
+            self.paged_response(
+                [self.interaction(f"2026-0{page}-01", person_ids=("someone-else",))],
+                has_more=True,
+                next_cursor=f"cursor-{page + 1}",
+            )
+            for page in range(1, 6)
+        ]
+        notion_post = Mock(
+            side_effect=[
+                self.response([self.person("p1", "Alex", "1 month")]),
+                *interaction_pages,
+            ]
+        )
+
+        due_people, is_incomplete = self.call_find_due_people(notion_post)
+
+        # Alex's real Interaction, if any, was never reached by the bounded
+        # scan (every scanned page belonged to another Person), so Alex is
+        # shown due with no previous Interaction. is_incomplete flags that
+        # this cannot be trusted as a confirmed "no previous interaction".
+        self.assertEqual([due_person.person.name for due_person in due_people], ["Alex"])
+        self.assertIsNone(due_people[0].latest_interaction)
+        self.assertTrue(is_incomplete)
+        self.assertEqual(notion_post.call_count, 6)
+
+    def test_incomplete_scan_appends_a_disclaimer_after_the_due_list(self):
+        people_pages = [
+            self.paged_response(
+                [self.person(f"p{page}", f"Person{page}", "1 month")],
+                has_more=True,
+                next_cursor=f"cursor-{page + 1}",
+            )
+            for page in range(1, 6)
+        ]
+        notion_post = Mock(side_effect=[*people_pages, self.response([])])
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+        )
+
+        handle_people_command(
+            "/people", "due", post_slack_message, notion_post,
+            self.environment(), today=FIXED_TODAY, sleep=Mock(),
+        )
+
+        output = post_slack_message.call_args_list[-1].args[0]
+        self.assertIn("Person1", output)
+        self.assertIn(INCOMPLETE_SCAN_MESSAGE, output)
+
+    def test_incomplete_scan_replaces_the_empty_state_message(self):
+        notion_post = Mock(
+            side_effect=[
+                self.paged_response(
+                    [self.person("p1", "Alex", "1 month")],
+                    has_more=True,
+                    next_cursor=None,
+                ),
+                # Alex's next contact isn't due until 2026-10-01.
+                self.response([self.interaction("2026-09-01", person_ids=("p1",))]),
+            ]
+        )
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+        )
+
+        handle_people_command(
+            "/people", "due", post_slack_message, notion_post,
+            self.environment(), today=FIXED_TODAY, sleep=Mock(),
+        )
+
+        output = post_slack_message.call_args_list[-1].args[0]
+        self.assertEqual(output, INCOMPLETE_SCAN_MESSAGE)
+
+    @staticmethod
+    def paged_response(results, has_more=False, next_cursor=None):
+        response = Mock()
+        response.json.return_value = {
+            "results": results,
+            "has_more": has_more,
+            "next_cursor": next_cursor,
+        }
+        return response
+
+    def call_find_due_people(self, notion_post):
+        return find_due_people(
+            notion_post,
+            "secret-token",
+            "people-id",
+            "interactions-id",
+            FIXED_TODAY,
+            Mock(),
+        )
+
+    @staticmethod
+    def due_person(name, latest_interaction=None, next_contact_due=None):
+        return DuePerson(
+            Person(name, name, "1 month"), latest_interaction, next_contact_due
+        )
+
+    @staticmethod
+    def environment():
+        return {
+            "NOTION_API_KEY": "secret-token",
+            "NOTION_PEOPLE_DATA_SOURCE_ID": "people-id",
+            "NOTION_INTERACTIONS_DATA_SOURCE_ID": "interactions-id",
+        }
+
+    @staticmethod
+    def response(results):
+        response = Mock()
+        response.json.return_value = {"results": results}
+        return response
+
+    @staticmethod
+    def person(page_id, name, cadence):
+        return {
+            "id": page_id,
+            "properties": {
+                "Name": {
+                    "type": "title",
+                    "title": [{"plain_text": name}],
+                },
+                "Contact cadence": {
+                    "type": "select",
+                    "select": {"name": cadence} if cadence else None,
+                },
+            },
+        }
+
+    @staticmethod
+    def interaction(interaction_date, person_ids=("p1",)):
+        return {
+            "properties": {
+                "Date": {
+                    "type": "date",
+                    "date": (
+                        {"start": interaction_date}
+                        if interaction_date is not None
+                        else None
+                    ),
+                },
+                "People": {
+                    "type": "relation",
+                    "relation": [{"id": person_id} for person_id in person_ids],
+                },
             }
         }
 
