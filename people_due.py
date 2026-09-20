@@ -1,6 +1,7 @@
 from calendar import monthrange
 from dataclasses import dataclass
 from datetime import date, datetime
+from enum import Enum
 import time
 
 from tasks_list import (
@@ -22,7 +23,14 @@ CADENCE_MONTHS = {
     "12 months": 12,
 }
 PEOPLE_PAGE_SIZE = 100
-INTERACTIONS_PAGE_SIZE = 1
+INTERACTIONS_PAGE_SIZE = 100
+
+
+class CadenceStatus(str, Enum):
+    DUE_WITH_NO_PREVIOUS_INTERACTION = "due_with_no_previous_interaction"
+    NOT_DUE = "not_due"
+    DUE_TODAY = "due_today"
+    OVERDUE = "overdue"
 
 
 @dataclass(frozen=True)
@@ -30,6 +38,14 @@ class Person:
     page_id: str
     name: str
     cadence: str
+
+
+@dataclass(frozen=True)
+class CadenceEvaluation:
+    status: CadenceStatus
+    latest_interaction_date: date | None
+    next_due_date: date | None
+    is_due: bool
 
 
 @dataclass(frozen=True)
@@ -124,8 +140,6 @@ def find_one_due_person(
             api_key,
             interactions_data_source_id,
             {
-                # Sorting and filtering in Notion make the first row the latest
-                # valid, non-future Interaction for this tracer.
                 "page_size": INTERACTIONS_PAGE_SIZE,
                 "filter": {
                     "and": [
@@ -147,18 +161,17 @@ def find_one_due_person(
             },
             sleep,
         )
-        latest_interaction = latest_valid_interaction_date(
-            interaction_pages, today
+        evaluation = evaluate_cadence(
+            person.cadence,
+            interaction_date_values(interaction_pages),
+            today,
         )
-        next_contact_due = (
-            add_calendar_months(
-                latest_interaction, CADENCE_MONTHS[person.cadence]
+        if evaluation.is_due:
+            return DuePerson(
+                person,
+                evaluation.latest_interaction_date,
+                evaluation.next_due_date,
             )
-            if latest_interaction
-            else None
-        )
-        if latest_interaction is None or today >= next_contact_due:
-            return DuePerson(person, latest_interaction, next_contact_due)
 
     return None
 
@@ -205,20 +218,54 @@ def person_from_notion_page(page):
         return None
 
 
-def latest_valid_interaction_date(pages, today):
-    valid_dates = []
+def interaction_date_values(pages):
+    values = []
     for page in pages:
         try:
             date_property = page["properties"]["Date"]
             if date_property.get("type") != "date":
                 continue
-            start = (date_property.get("date") or {}).get("start")
-            interaction_date = parse_notion_date(start)
+            values.append((date_property.get("date") or {}).get("start"))
+        except (AttributeError, KeyError, TypeError):
+            continue
+    return values
+
+
+def latest_valid_interaction_date(values, today):
+    valid_dates = []
+    for value in values:
+        try:
+            interaction_date = parse_notion_date(value)
             if interaction_date <= today:
                 valid_dates.append(interaction_date)
-        except (AttributeError, KeyError, TypeError, ValueError):
+        except (TypeError, ValueError):
             continue
     return max(valid_dates, default=None)
+
+
+def evaluate_cadence(cadence, interaction_dates, today):
+    """Evaluate one person's cadence from raw Interaction date values."""
+    months = CADENCE_MONTHS[cadence]
+    latest_interaction = latest_valid_interaction_date(interaction_dates, today)
+    if latest_interaction is None:
+        return CadenceEvaluation(
+            CadenceStatus.DUE_WITH_NO_PREVIOUS_INTERACTION,
+            None,
+            None,
+            True,
+        )
+
+    next_due_date = add_calendar_months(latest_interaction, months)
+    if today < next_due_date:
+        status = CadenceStatus.NOT_DUE
+        is_due = False
+    elif today == next_due_date:
+        status = CadenceStatus.DUE_TODAY
+        is_due = True
+    else:
+        status = CadenceStatus.OVERDUE
+        is_due = True
+    return CadenceEvaluation(status, latest_interaction, next_due_date, is_due)
 
 
 def parse_notion_date(value):
