@@ -177,9 +177,11 @@ def person_profile_from_notion_page(page):
         name_property = properties["Name"]
         if name_property.get("type") != "title":
             return None
-        name = "".join(
-            part.get("plain_text", "") for part in name_property.get("title", [])
-        ).strip()
+        name = " ".join(
+            "".join(
+                part.get("plain_text", "") for part in name_property.get("title", [])
+            ).split()
+        )
         page_id = page["id"]
         if not name or not page_id:
             return None
