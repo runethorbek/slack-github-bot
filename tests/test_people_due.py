@@ -5,6 +5,7 @@ from unittest.mock import Mock
 from people_due import (
     INCOMPLETE_SCAN_MESSAGE,
     MAX_DISPLAYED_PEOPLE,
+    PEOPLE_FAILURE_MESSAGE,
     CadenceStatus,
     DuePerson,
     NO_DUE_PERSON_MESSAGE,
@@ -16,6 +17,14 @@ from people_due import (
     format_due_people,
     handle_people_command,
 )
+from tasks_list import NotionAuthenticationError
+
+
+class NotionHttpError(Exception):
+    def __init__(self, status_code, headers=None):
+        self.response = type(
+            "Response", (), {"status_code": status_code, "headers": headers or {}}
+        )()
 
 
 FIXED_TODAY = date(2026, 9, 20)
@@ -374,7 +383,7 @@ class PeopleDueListTests(unittest.TestCase):
             ]
         )
 
-        due_people, is_incomplete = self.call_find_due_people(notion_post)
+        due_people, is_incomplete, _ = self.call_find_due_people(notion_post)
 
         self.assertEqual(
             [due_person.person.name for due_person in due_people],
@@ -401,7 +410,7 @@ class PeopleDueListTests(unittest.TestCase):
             ]
         )
 
-        due_people, is_incomplete = self.call_find_due_people(notion_post)
+        due_people, is_incomplete, _ = self.call_find_due_people(notion_post)
 
         self.assertEqual([due_person.person.name for due_person in due_people], ["Blair"])
 
@@ -425,7 +434,7 @@ class PeopleDueListTests(unittest.TestCase):
             ]
         )
 
-        due_people, is_incomplete = self.call_find_due_people(notion_post)
+        due_people, is_incomplete, _ = self.call_find_due_people(notion_post)
 
         self.assertEqual(
             [due_person.person.name for due_person in due_people], ["B", "C", "A"]
@@ -449,7 +458,7 @@ class PeopleDueListTests(unittest.TestCase):
             ]
         )
 
-        due_people, is_incomplete = self.call_find_due_people(notion_post)
+        due_people, is_incomplete, _ = self.call_find_due_people(notion_post)
 
         self.assertEqual(
             [due_person.person.name for due_person in due_people], ["Zack", "Aaron"]
@@ -478,7 +487,7 @@ class PeopleDueListTests(unittest.TestCase):
             ]
         )
 
-        due_people, is_incomplete = self.call_find_due_people(notion_post)
+        due_people, is_incomplete, _ = self.call_find_due_people(notion_post)
 
         self.assertEqual(
             [due_person.person.name for due_person in due_people],
@@ -498,7 +507,7 @@ class PeopleDueListTests(unittest.TestCase):
             ]
         )
 
-        due_people, is_incomplete = self.call_find_due_people(notion_post)
+        due_people, is_incomplete, _ = self.call_find_due_people(notion_post)
 
         self.assertEqual([due_person.person.name for due_person in due_people], ["Blair"])
         self.assertEqual(notion_post.call_count, 2)
@@ -591,7 +600,7 @@ class PeopleDueListTests(unittest.TestCase):
             ]
         )
 
-        due_people, is_incomplete = self.call_find_due_people(notion_post)
+        due_people, is_incomplete, _ = self.call_find_due_people(notion_post)
 
         self.assertEqual(
             [due_person.person.name for due_person in due_people], ["Alex", "Blair"]
@@ -613,7 +622,7 @@ class PeopleDueListTests(unittest.TestCase):
         ]
         notion_post = Mock(side_effect=[*people_pages, self.response([])])
 
-        due_people, is_incomplete = self.call_find_due_people(notion_post)
+        due_people, is_incomplete, _ = self.call_find_due_people(notion_post)
 
         # All 5 scanned People had no Interaction within the bound, so all
         # are (possibly incorrectly) evaluated as due; is_incomplete tells
@@ -634,7 +643,7 @@ class PeopleDueListTests(unittest.TestCase):
             ]
         )
 
-        due_people, is_incomplete = self.call_find_due_people(notion_post)
+        due_people, is_incomplete, _ = self.call_find_due_people(notion_post)
 
         self.assertTrue(is_incomplete)
         self.assertEqual(notion_post.call_count, 2)
@@ -655,7 +664,7 @@ class PeopleDueListTests(unittest.TestCase):
             ]
         )
 
-        due_people, is_incomplete = self.call_find_due_people(notion_post)
+        due_people, is_incomplete, _ = self.call_find_due_people(notion_post)
 
         # Alex's real Interaction, if any, was never reached by the bounded
         # scan (every scanned page belonged to another Person), so Alex is
@@ -766,6 +775,280 @@ class PeopleDueListTests(unittest.TestCase):
                     "type": "select",
                     "select": {"name": cadence} if cadence else None,
                 },
+            },
+        }
+
+    @staticmethod
+    def interaction(interaction_date, person_ids=("p1",)):
+        return {
+            "properties": {
+                "Date": {
+                    "type": "date",
+                    "date": (
+                        {"start": interaction_date}
+                        if interaction_date is not None
+                        else None
+                    ),
+                },
+                "People": {
+                    "type": "relation",
+                    "relation": [{"id": person_id} for person_id in person_ids],
+                },
+            }
+        }
+
+
+class PeopleDueRobustnessTests(unittest.TestCase):
+    """Slice 4: malformed records, Notion failures, and safe reporting."""
+
+    def test_malformed_person_record_does_not_block_other_people(self):
+        notion_post = Mock(
+            side_effect=[
+                self.response(
+                    [
+                        self.malformed_person("p1"),
+                        self.person("p2", "Blair", "1 month"),
+                    ]
+                ),
+                self.response([]),
+            ]
+        )
+
+        due_people, is_incomplete, skipped_person_count = self.call_find_due_people(
+            notion_post
+        )
+
+        self.assertEqual([d.person.name for d in due_people], ["Blair"])
+        self.assertEqual(skipped_person_count, 1)
+        self.assertFalse(is_incomplete)
+
+    def test_invalid_cadence_is_skipped_without_being_interpreted(self):
+        notion_post = Mock(
+            side_effect=[
+                self.response(
+                    [
+                        self.person("p1", "Weekly Alex", "weekly"),
+                        self.person("p2", "Blair", "1 month"),
+                    ]
+                ),
+                self.response([]),
+            ]
+        )
+
+        due_people, is_incomplete, skipped_person_count = self.call_find_due_people(
+            notion_post
+        )
+
+        self.assertEqual([d.person.name for d in due_people], ["Blair"])
+        self.assertEqual(skipped_person_count, 1)
+
+    def test_malformed_interaction_record_does_not_block_valid_people(self):
+        notion_post = Mock(
+            side_effect=[
+                self.response([self.person("p1", "Alex", "1 month")]),
+                self.response(
+                    [
+                        {},  # entirely malformed Interaction page
+                        self.interaction("2026-09-01", person_ids=("p1",)),
+                    ]
+                ),
+            ]
+        )
+
+        due_people, is_incomplete, skipped_person_count = self.call_find_due_people(
+            notion_post
+        )
+
+        # Alex's real Interaction on 2026-09-01 makes the next contact due
+        # 2026-10-01, so Alex is correctly not due yet. If the malformed
+        # record had crashed or corrupted the scan, this would fail.
+        self.assertEqual(due_people, [])
+        self.assertFalse(is_incomplete)
+
+    def test_missing_and_invalid_interaction_dates_do_not_crash_the_scan(self):
+        notion_post = Mock(
+            side_effect=[
+                self.response([self.person("p1", "Alex", "1 month")]),
+                self.response(
+                    [
+                        {},  # missing "properties" entirely
+                        self.interaction(None, person_ids=("p1",)),  # missing Date value
+                        {
+                            "properties": {
+                                "Date": {"type": "rich_text"},
+                                "People": {
+                                    "type": "relation",
+                                    "relation": [{"id": "p1"}],
+                                },
+                            }
+                        },  # Date has the wrong property type
+                    ]
+                ),
+            ]
+        )
+
+        due_people, is_incomplete, skipped_person_count = self.call_find_due_people(
+            notion_post
+        )
+
+        self.assertEqual([d.person.name for d in due_people], ["Alex"])
+        self.assertIsNone(due_people[0].latest_interaction)
+        self.assertFalse(is_incomplete)
+
+    def test_malformed_person_is_skipped_and_reported_with_a_count(self):
+        notion_post = Mock(
+            side_effect=[
+                self.response(
+                    [
+                        self.malformed_person("p1"),
+                        self.person("p2", "Blair", "1 month"),
+                    ]
+                ),
+                self.response([]),
+            ]
+        )
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+        )
+
+        handle_people_command(
+            "/people", "due", post_slack_message, notion_post,
+            self.environment(), today=FIXED_TODAY, sleep=Mock(),
+        )
+
+        output = post_slack_message.call_args_list[-1].args[0]
+        self.assertIn("Blair", output)
+        self.assertIn("Skipped 1 malformed person.", output)
+
+    def test_transient_notion_failure_recovers_via_shared_retry(self):
+        people_response = self.response([self.person("p1", "Alex", "1 month")])
+        rate_limited = Mock()
+        rate_limited.raise_for_status.side_effect = NotionHttpError(
+            429, {"Retry-After": "2"}
+        )
+        interactions_response = self.response([])
+        notion_post = Mock(
+            side_effect=[people_response, rate_limited, interactions_response]
+        )
+        sleep = Mock()
+
+        due_people, is_incomplete, skipped_person_count = find_due_people(
+            notion_post, "secret-token", "people-id", "interactions-id",
+            FIXED_TODAY, sleep,
+        )
+
+        self.assertEqual(notion_post.call_count, 3)
+        sleep.assert_called_once_with(2.0)
+        self.assertEqual([d.person.name for d in due_people], ["Alex"])
+        self.assertFalse(is_incomplete)
+
+    def test_notion_auth_failure_is_not_retried_and_propagates_uncaught(self):
+        unauthorized = Mock()
+        unauthorized.raise_for_status.side_effect = NotionHttpError(401)
+        notion_post = Mock(return_value=unauthorized)
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+        )
+        sleep = Mock()
+
+        with self.assertRaises(NotionAuthenticationError):
+            handle_people_command(
+                "/people", "due", post_slack_message, notion_post,
+                self.environment(), today=FIXED_TODAY, sleep=sleep,
+            )
+
+        notion_post.assert_called_once()
+        sleep.assert_not_called()
+        # Only the root "/people due" message was posted before the
+        # unretryable failure propagated, matching /tasks convention.
+        self.assertEqual(post_slack_message.call_count, 1)
+
+    def test_exhausted_transient_failure_produces_a_safe_generic_message(self):
+        failing = Mock()
+        failing.raise_for_status.side_effect = NotionHttpError(503)
+        notion_post = Mock(return_value=failing)
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+        )
+        sleep = Mock()
+
+        handle_people_command(
+            "/people", "due", post_slack_message, notion_post,
+            self.environment(), today=FIXED_TODAY, sleep=sleep,
+        )
+
+        output = post_slack_message.call_args_list[-1].args[0]
+        self.assertEqual(output, PEOPLE_FAILURE_MESSAGE)
+        self.assertNotIn("secret-token", output)
+        self.assertEqual(notion_post.call_count, 3)
+
+    def test_malformed_query_response_produces_a_safe_message_without_raw_payload(self):
+        malformed = Mock()
+        malformed.json.return_value = {"results": "not-a-list-of-people"}
+        notion_post = Mock(return_value=malformed)
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+        )
+
+        handle_people_command(
+            "/people", "due", post_slack_message, notion_post,
+            self.environment(), today=FIXED_TODAY, sleep=Mock(),
+        )
+
+        output = post_slack_message.call_args_list[-1].args[0]
+        self.assertEqual(output, PEOPLE_FAILURE_MESSAGE)
+        self.assertNotIn("not-a-list-of-people", output)
+
+    def call_find_due_people(self, notion_post):
+        return find_due_people(
+            notion_post,
+            "secret-token",
+            "people-id",
+            "interactions-id",
+            FIXED_TODAY,
+            Mock(),
+        )
+
+    @staticmethod
+    def environment():
+        return {
+            "NOTION_API_KEY": "secret-token",
+            "NOTION_PEOPLE_DATA_SOURCE_ID": "people-id",
+            "NOTION_INTERACTIONS_DATA_SOURCE_ID": "interactions-id",
+        }
+
+    @staticmethod
+    def response(results):
+        response = Mock()
+        response.json.return_value = {"results": results}
+        return response
+
+    @staticmethod
+    def person(page_id, name, cadence):
+        return {
+            "id": page_id,
+            "properties": {
+                "Name": {
+                    "type": "title",
+                    "title": [{"plain_text": name}],
+                },
+                "Contact cadence": {
+                    "type": "select",
+                    "select": {"name": cadence} if cadence else None,
+                },
+            },
+        }
+
+    @staticmethod
+    def malformed_person(page_id):
+        return {
+            "id": page_id,
+            "properties": {
+                "Contact cadence": {
+                    "type": "select",
+                    "select": {"name": "1 month"},
+                },
+                # "Name" is missing entirely.
             },
         }
 

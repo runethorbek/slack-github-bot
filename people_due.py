@@ -88,7 +88,7 @@ def handle_people_command(
     root_message = post_slack_message("/people due")
     try:
         command_today = today or copenhagen_today()
-        due_people, is_incomplete = find_due_people(
+        due_people, is_incomplete, skipped_person_count = find_due_people(
             notion_post,
             environment["NOTION_API_KEY"],
             environment["NOTION_PEOPLE_DATA_SOURCE_ID"],
@@ -112,6 +112,11 @@ def handle_people_command(
         message = INCOMPLETE_SCAN_MESSAGE
     else:
         message = NO_DUE_PERSON_MESSAGE
+
+    if skipped_person_count:
+        noun = "person" if skipped_person_count == 1 else "people"
+        message = f"{message}\n\nSkipped {skipped_person_count} malformed {noun}."
+
     post_slack_message(message, thread_ts=root_message["ts"])
     return True
 
@@ -209,9 +214,11 @@ def find_due_people(
 
     Interactions are fetched once and grouped locally by related Person,
     instead of issuing one Notion query per Person. Returns
-    (due_people, is_incomplete); is_incomplete is True when the bounded
-    scan of People or Interactions could not read everything, so the
-    result must not be presented as a complete or empty listing.
+    (due_people, is_incomplete, skipped_person_count); is_incomplete is
+    True when the bounded scan of People or Interactions could not read
+    everything, so the result must not be presented as a complete or
+    empty listing. skipped_person_count counts individually malformed
+    People records that were skipped rather than crashing the command.
     """
     people_pages, has_unexamined_people = fetch_people_pages(
         notion_post, api_key, people_data_source_id, sleep
@@ -223,9 +230,11 @@ def find_due_people(
     )
 
     due_people = []
+    skipped_person_count = 0
     for page in people_pages:
         person = person_from_notion_page(page)
         if person is None:
+            skipped_person_count += 1
             continue
 
         evaluation = evaluate_cadence(
@@ -244,7 +253,7 @@ def find_due_people(
 
     due_people.sort(key=due_person_sort_key)
     is_incomplete = has_unexamined_people or has_unexamined_interactions
-    return due_people, is_incomplete
+    return due_people, is_incomplete, skipped_person_count
 
 
 def due_person_sort_key(due_person):
