@@ -23,9 +23,9 @@ class SlackToPythonContractTests(unittest.TestCase):
             "SLACK_TEXT": payload["text"],
             "SLACK_CHANNEL_ID": payload["channel_id"],
             "SLACK_USER_ID": payload["user_id"],
+            "SLACK_CHANNEL_TYPE": payload["channel_type"],
             "SLACK_EVENT_TS": payload["event_ts"],
             "SLACK_THREAD_TS": payload["thread_ts"],
-            "SLACK_CHANNEL_TYPE": payload["channel_type"],
             "SLACK_EVENT_TYPE": payload["slack_event_type"],
             "SLACK_BOT_TOKEN": "fake-slack-token",
             "AUTHORIZED_SLACK_USER_ID": "U-authorized",
@@ -88,6 +88,8 @@ class SlackToPythonContractTests(unittest.TestCase):
             "SLACK_COMMAND": payload["command"],
             "SLACK_TEXT": payload["text"],
             "SLACK_CHANNEL_ID": payload["channel_id"],
+            "SLACK_USER_ID": payload["user_id"],
+            "SLACK_CHANNEL_TYPE": payload["channel_type"],
             "SLACK_THREAD_TS": payload["thread_ts"],
             "SLACK_EVENT_TYPE": payload["slack_event_type"],
             "SLACK_BOT_TOKEN": "fake-slack-token",
@@ -146,15 +148,20 @@ class SlackToPythonContractTests(unittest.TestCase):
         self.assertEqual(payload["command"], "/people")
         self.assertEqual(payload["text"], "suggest Jane Doe")
         self.assertEqual(payload["slack_event_type"], "block_actions")
+        self.assertEqual(payload["channel_type"], "im")
 
         requests_module, google_module, genai_module = self.fake_people_suggest_modules()
         environment = {
             "SLACK_COMMAND": payload["command"],
             "SLACK_TEXT": payload["text"],
             "SLACK_CHANNEL_ID": payload["channel_id"],
+            "SLACK_USER_ID": payload["user_id"],
+            "SLACK_CHANNEL_TYPE": payload["channel_type"],
             "SLACK_THREAD_TS": payload["thread_ts"],
             "SLACK_EVENT_TYPE": payload["slack_event_type"],
             "SLACK_BOT_TOKEN": "fake-slack-token",
+            "AUTHORIZED_SLACK_USER_ID": "U-authorized",
+            "TASKS_SLACK_CHANNEL_ID": "C-allowed",
             "NOTION_API_KEY": "fake-notion-token",
             "NOTION_PEOPLE_DATA_SOURCE_ID": "fake-people-id",
             "NOTION_INTERACTIONS_DATA_SOURCE_ID": "fake-interactions-id",
@@ -246,8 +253,8 @@ const body = new URLSearchParams({
     type: "block_actions",
     actions: [{ action_id: "people_suggest", value: "Jane Doe" }],
     response_url: "https://hooks.slack.test/interaction",
-    channel: { id: "C-allowed" },
-    user: { id: "U-user" },
+    channel: { id: "D-private" },
+    user: { id: "U-authorized" },
   }),
 }).toString();
 const signature = `v0=${createHmac("sha256", signingSecret)

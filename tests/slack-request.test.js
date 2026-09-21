@@ -84,6 +84,7 @@ test("a valid signed /tasks list request preserves the existing dispatch", async
       response_url: "https://hooks.slack.test/response",
       channel_id: "C123",
       user_id: "U123",
+      channel_type: "channel",
       thread_ts: "",
       slack_event_type: "slash_command",
     },
@@ -109,6 +110,7 @@ test("a valid signed /people due request preserves the command dispatch", async 
   assert.equal(response.status, 200);
   assert.equal(dependencies.dispatched[0].command, "/people");
   assert.equal(dependencies.dispatched[0].text, "due");
+  assert.equal(dependencies.dispatched[0].channel_type, "channel");
 });
 
 test("a valid people_suggest button click dispatches the same command a typed /people suggest would", async () => {
@@ -138,10 +140,48 @@ test("a valid people_suggest button click dispatches the same command a typed /p
       response_url: "https://hooks.slack.test/interaction",
       channel_id: "C123",
       user_id: "U123",
+      channel_type: "channel",
       thread_ts: "",
       slack_event_type: "block_actions",
     },
   ]);
+});
+
+test("slash commands and block actions preserve DM identity", async (t) => {
+  const cases = [
+    {
+      name: "slash command",
+      body: new URLSearchParams({
+        command: "/tasks",
+        text: "list",
+        response_url: "https://hooks.slack.test/response",
+        channel_id: "D123",
+        user_id: "U123",
+      }).toString(),
+    },
+    {
+      name: "block action",
+      body: new URLSearchParams({
+        payload: JSON.stringify({
+          type: "block_actions",
+          actions: [{ action_id: "people_suggest", value: "Jane Doe" }],
+          response_url: "https://hooks.slack.test/interaction",
+          channel: { id: "D123" },
+          user: { id: "U123" },
+        }),
+      }).toString(),
+    },
+  ];
+
+  for (const { name, body } of cases) {
+    await t.test(name, async () => {
+      const dependencies = testDependencies();
+      await handleSlackRequest(slackRequest(body), dependencies.options);
+      await Promise.all(dependencies.deferred);
+
+      assert.equal(dependencies.dispatched[0].channel_type, "im");
+    });
+  }
 });
 
 test("block_actions clicks with an unrecognized action or empty value are acknowledged without dispatch", async (t) => {
@@ -284,6 +324,7 @@ test("valid signed /testbot and thread events preserve their dispatches", async 
         response_url: "https://hooks.slack.test/response",
         channel_id: "C123",
         user_id: "U123",
+        channel_type: "channel",
         thread_ts: "",
         slack_event_type: "slash_command",
       },

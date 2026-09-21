@@ -13,6 +13,7 @@ from tasks_list import (
 
 
 PEOPLE_USAGE = "Usage: /people due | /people suggest <person>"
+PEOPLE_CHANNEL_REFUSAL = "The /people command is not available in this channel."
 NO_DUE_PERSON_MESSAGE = "No people are due for contact."
 PEOPLE_FAILURE_MESSAGE = "Unable to retrieve people right now. Please try again later."
 INCOMPLETE_SCAN_MESSAGE = (

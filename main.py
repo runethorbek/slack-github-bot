@@ -3,8 +3,9 @@ import sys
 import requests
 from google import genai
 
-from people_due import handle_people_command
-from tasks_list import handle_tasks_command
+from people_due import PEOPLE_CHANNEL_REFUSAL, handle_people_command
+from slack_authorization import is_private_data_request_authorized
+from tasks_list import TASKS_CHANNEL_REFUSAL, handle_tasks_command
 
 
 # ---------------------------------------------------------
@@ -192,6 +193,25 @@ if event_type == "message" and channel_type == "im":
 # ---------------------------------------------------------
 # Deterministic command families
 # ---------------------------------------------------------
+
+if command in ("/tasks", "/people") and not is_private_data_request_authorized(
+    channel_id=channel_id,
+    channel_type=channel_type,
+    user_id=user_id,
+    authorized_user_id=authorized_slack_user_id,
+    authorized_channel_id=os.environ.get("TASKS_SLACK_CHANNEL_ID", ""),
+):
+    if channel_type == "im":
+        print("Unauthorized Slack DM command ignored")
+    else:
+        refusal = (
+            TASKS_CHANNEL_REFUSAL
+            if command == "/tasks"
+            else PEOPLE_CHANNEL_REFUSAL
+        )
+        post_ephemeral_command_response(refusal)
+        print("Unauthorized private-data command rejected")
+    sys.exit(0)
 
 if handle_people_command(
     command,

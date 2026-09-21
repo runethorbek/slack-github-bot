@@ -5,6 +5,12 @@ const MAX_REQUEST_AGE_SECONDS = 5 * 60;
 // Matches PEOPLE_SUGGEST_ACTION_ID in people_due.py.
 const PEOPLE_SUGGEST_ACTION_ID = "people_suggest";
 
+function commandChannelType(channelId) {
+  // Slack slash-command and interaction payloads do not include the Events
+  // API's channel_type field. Slack DM conversation IDs begin with D.
+  return channelId.startsWith("D") ? "im" : "channel";
+}
+
 export function hasValidSlackSignature(
   rawBody,
   headers,
@@ -140,13 +146,15 @@ export async function handleSlackRequest(
         action?.action_id === PEOPLE_SUGGEST_ACTION_ID ? action.value : "";
 
       if (body?.type === "block_actions" && personName) {
+        const channelId = body.channel?.id ?? "";
         defer(
           triggerGitHub({
             command: "/people",
             text: `suggest ${personName}`,
             response_url: body.response_url ?? "",
-            channel_id: body.channel?.id ?? "",
+            channel_id: channelId,
             user_id: body.user?.id ?? "",
+            channel_type: commandChannelType(channelId),
             thread_ts: "",
             slack_event_type: "block_actions",
           })
@@ -173,6 +181,7 @@ export async function handleSlackRequest(
         response_url: responseUrl,
         channel_id: channelId,
         user_id: userId,
+        channel_type: commandChannelType(channelId),
 
         // Slash command starter en NY samtale.
         // Derfor er der endnu ikke noget thread_ts.

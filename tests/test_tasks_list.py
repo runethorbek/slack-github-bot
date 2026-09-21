@@ -246,25 +246,6 @@ class TasksListCommandTests(unittest.TestCase):
                 notion_post.assert_not_called()
                 post_slack_message.assert_called_once_with("Usage: /tasks list")
 
-    def test_unauthorized_channel_returns_refusal_without_accessing_notion(self):
-        notion_post = Mock()
-        post_slack_message = Mock()
-
-        handled = handle_tasks_command(
-            "/tasks",
-            "list",
-            "C-other",
-            post_slack_message,
-            notion_post,
-            {"TASKS_SLACK_CHANNEL_ID": "C-allowed"},
-        )
-
-        self.assertTrue(handled)
-        notion_post.assert_not_called()
-        post_slack_message.assert_called_once_with(
-            "The /tasks command is not available in this channel."
-        )
-
     def test_lists_eligible_tasks_in_date_priority_and_name_order(self):
         pages = [
             self.notion_page(

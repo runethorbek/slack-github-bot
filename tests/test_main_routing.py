@@ -136,6 +136,92 @@ class MainRoutingTests(unittest.TestCase):
         requests_module.get.assert_not_called()
         genai_module.Client.assert_not_called()
 
+    def test_unauthorized_dm_commands_stop_before_private_processing(self):
+        for command, text in (("/tasks", "list"), ("/people", "due")):
+            with self.subTest(command=command):
+                requests_module, google_module, genai_module = self.fake_modules()
+                environment = {
+                    "SLACK_COMMAND": command,
+                    "SLACK_TEXT": text,
+                    "SLACK_CHANNEL_ID": "D-private",
+                    "SLACK_USER_ID": "U-other",
+                    "SLACK_USER_NAME": "U-authorized",
+                    "SLACK_CHANNEL_TYPE": "im",
+                    "SLACK_EVENT_TYPE": "slash_command",
+                    "SLACK_BOT_TOKEN": "test-slack-token",
+                    "AUTHORIZED_SLACK_USER_ID": "U-authorized",
+                    "TASKS_SLACK_CHANNEL_ID": "C-allowed",
+                    "NOTION_API_KEY": "must-not-be-used",
+                    "NOTION_TASKS_DATA_SOURCE_ID": "must-not-be-used",
+                    "NOTION_PEOPLE_DATA_SOURCE_ID": "must-not-be-used",
+                    "NOTION_INTERACTIONS_DATA_SOURCE_ID": "must-not-be-used",
+                }
+
+                with (
+                    patch.dict(os.environ, environment, clear=True),
+                    patch.dict(
+                        sys.modules,
+                        {
+                            "requests": requests_module,
+                            "google": google_module,
+                            "google.genai": genai_module,
+                        },
+                    ),
+                    patch("builtins.print"),
+                    self.assertRaises(SystemExit) as exit_context,
+                ):
+                    runpy.run_module("main", run_name="__main__")
+
+                self.assertEqual(exit_context.exception.code, 0)
+                requests_module.post.assert_not_called()
+                requests_module.get.assert_not_called()
+                genai_module.Client.assert_not_called()
+
+    def test_people_from_another_channel_is_rejected_before_notion(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        environment = {
+            "SLACK_COMMAND": "/people",
+            "SLACK_TEXT": "due",
+            "SLACK_CHANNEL_ID": "C-other",
+            "SLACK_USER_ID": "U-authorized",
+            "SLACK_CHANNEL_TYPE": "channel",
+            "SLACK_EVENT_TYPE": "slash_command",
+            "SLACK_RESPONSE_URL": "https://hooks.slack.test/response",
+            "SLACK_BOT_TOKEN": "test-slack-token",
+            "AUTHORIZED_SLACK_USER_ID": "U-authorized",
+            "TASKS_SLACK_CHANNEL_ID": "C-allowed",
+            "NOTION_API_KEY": "must-not-be-used",
+            "NOTION_PEOPLE_DATA_SOURCE_ID": "must-not-be-used",
+            "NOTION_INTERACTIONS_DATA_SOURCE_ID": "must-not-be-used",
+        }
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(
+                sys.modules,
+                {
+                    "requests": requests_module,
+                    "google": google_module,
+                    "google.genai": genai_module,
+                },
+            ),
+            patch("builtins.print"),
+            self.assertRaises(SystemExit) as exit_context,
+        ):
+            runpy.run_module("main", run_name="__main__")
+
+        self.assertEqual(exit_context.exception.code, 0)
+        requests_module.post.assert_called_once_with(
+            "https://hooks.slack.test/response",
+            json={
+                "response_type": "ephemeral",
+                "text": "The /people command is not available in this channel.",
+            },
+            timeout=10,
+        )
+        requests_module.get.assert_not_called()
+        genai_module.Client.assert_not_called()
+
     def test_people_due_exits_before_gemini_and_only_queries_notion(self):
         requests_module, google_module, genai_module = self.fake_modules()
         root_response = Mock()
@@ -171,8 +257,12 @@ class MainRoutingTests(unittest.TestCase):
         environment = {
             "SLACK_COMMAND": "/people",
             "SLACK_TEXT": "due",
-            "SLACK_CHANNEL_ID": "C-channel",
+            "SLACK_CHANNEL_ID": "D-private",
+            "SLACK_USER_ID": "U-authorized",
+            "SLACK_CHANNEL_TYPE": "im",
             "SLACK_BOT_TOKEN": "test-slack-token",
+            "AUTHORIZED_SLACK_USER_ID": "U-authorized",
+            "TASKS_SLACK_CHANNEL_ID": "C-allowed",
             "NOTION_API_KEY": "test-notion-token",
             "NOTION_PEOPLE_DATA_SOURCE_ID": "people-id",
             "NOTION_INTERACTIONS_DATA_SOURCE_ID": "interactions-id",
@@ -249,6 +339,7 @@ class MainRoutingTests(unittest.TestCase):
             "SLACK_TEXT": "due",
             "SLACK_CHANNEL_ID": "C-channel",
             "SLACK_BOT_TOKEN": "test-slack-token",
+            "TASKS_SLACK_CHANNEL_ID": "C-channel",
             "NOTION_API_KEY": "test-notion-token",
             "NOTION_PEOPLE_DATA_SOURCE_ID": "people-id",
             "NOTION_INTERACTIONS_DATA_SOURCE_ID": "interactions-id",
@@ -328,8 +419,12 @@ class MainRoutingTests(unittest.TestCase):
         environment = {
             "SLACK_COMMAND": "/people",
             "SLACK_TEXT": "suggest Jane Doe",
-            "SLACK_CHANNEL_ID": "C-channel",
+            "SLACK_CHANNEL_ID": "D-private",
+            "SLACK_USER_ID": "U-authorized",
+            "SLACK_CHANNEL_TYPE": "im",
             "SLACK_BOT_TOKEN": "test-slack-token",
+            "AUTHORIZED_SLACK_USER_ID": "U-authorized",
+            "TASKS_SLACK_CHANNEL_ID": "C-allowed",
             "NOTION_API_KEY": "test-notion-token",
             "NOTION_PEOPLE_DATA_SOURCE_ID": "people-id",
             "NOTION_INTERACTIONS_DATA_SOURCE_ID": "interactions-id",
@@ -430,9 +525,64 @@ class MainRoutingTests(unittest.TestCase):
             ],
         )
 
+    def test_authorized_dm_tasks_list_reaches_existing_task_path(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        root_response = Mock()
+        root_response.json.return_value = {"ok": True, "ts": "123.456"}
+        notion_response = Mock()
+        notion_response.json.return_value = {"results": []}
+        reply_response = Mock()
+        reply_response.json.return_value = {"ok": True}
+        requests_module.post.side_effect = [
+            root_response,
+            notion_response,
+            reply_response,
+        ]
+        environment = {
+            "SLACK_COMMAND": "/tasks",
+            "SLACK_TEXT": "list",
+            "SLACK_CHANNEL_ID": "D-private",
+            "SLACK_USER_ID": "U-authorized",
+            "SLACK_CHANNEL_TYPE": "im",
+            "SLACK_EVENT_TYPE": "slash_command",
+            "SLACK_BOT_TOKEN": "test-slack-token",
+            "AUTHORIZED_SLACK_USER_ID": "U-authorized",
+            "TASKS_SLACK_CHANNEL_ID": "C-allowed",
+            "NOTION_API_KEY": "secret-token",
+            "NOTION_TASKS_DATA_SOURCE_ID": "data-source-id",
+        }
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(
+                sys.modules,
+                {
+                    "requests": requests_module,
+                    "google": google_module,
+                    "google.genai": genai_module,
+                },
+            ),
+            patch("builtins.print"),
+            self.assertRaises(SystemExit) as exit_context,
+        ):
+            runpy.run_module("main", run_name="__main__")
+
+        self.assertEqual(exit_context.exception.code, 0)
+        self.assertEqual(
+            requests_module.post.call_args_list[1].args[0],
+            "https://api.notion.com/v1/data_sources/data-source-id/query",
+        )
+        requests_module.get.assert_not_called()
+        genai_module.Client.assert_not_called()
+
     def test_tasks_outcomes_exit_before_gemini(self):
         cases = (
-            ("invalid", "unknown", "C-channel", {}),
+            (
+                "invalid",
+                "unknown",
+                "C-channel",
+                {"TASKS_SLACK_CHANNEL_ID": "C-channel"},
+            ),
             (
                 "unauthorized",
                 "list",

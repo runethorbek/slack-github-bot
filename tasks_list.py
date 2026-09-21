@@ -58,7 +58,7 @@ class MalformedTrackPageError(ValueError):
 def handle_tasks_command(
     command,
     text,
-    channel_id,
+    _channel_id,
     post_slack_message,
     notion_post,
     environment,
@@ -80,15 +80,6 @@ def handle_tasks_command(
     if text.strip().casefold() != "list":
         post_task_validation_response(
             TASKS_USAGE, post_slack_message, post_ephemeral_response
-        )
-        return True
-
-    allowed_channel_id = environment["TASKS_SLACK_CHANNEL_ID"]
-    if channel_id != allowed_channel_id:
-        # Authorization happens before Notion credentials are read or a
-        # Notion request is constructed.
-        post_task_validation_response(
-            TASKS_CHANNEL_REFUSAL, post_slack_message, post_ephemeral_response
         )
         return True
 
