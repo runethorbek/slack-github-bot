@@ -43,7 +43,7 @@ def slack_post(method, payload):
         raise
 
 
-def post_slack_message(message, thread_ts=None):
+def post_slack_message(message, thread_ts=None, blocks=None):
     payload = {
         "channel": channel_id,
         "text": message,
@@ -52,6 +52,9 @@ def post_slack_message(message, thread_ts=None):
 
     if thread_ts:
         payload["thread_ts"] = thread_ts
+
+    if blocks:
+        payload["blocks"] = blocks
 
     return slack_post("chat.postMessage", payload)
 

@@ -83,6 +83,77 @@ class MainRoutingTests(unittest.TestCase):
         )
         self.assertNotIn("Known person", logged_text)
 
+    def test_people_due_reply_includes_a_suggest_button_per_person(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        root_response = Mock()
+        root_response.json.return_value = {"ok": True, "ts": "123.456"}
+        people_response = Mock()
+        people_response.json.return_value = {
+            "results": [
+                {
+                    "id": "person-id",
+                    "properties": {
+                        "Name": {
+                            "type": "title",
+                            "title": [{"plain_text": "Known person"}],
+                        },
+                        "Contact cadence": {
+                            "type": "select",
+                            "select": {"name": "1 month"},
+                        },
+                    },
+                }
+            ]
+        }
+        interactions_response = Mock()
+        interactions_response.json.return_value = {"results": []}
+        reply_response = Mock()
+        reply_response.json.return_value = {"ok": True}
+        requests_module.post.side_effect = [
+            root_response,
+            people_response,
+            interactions_response,
+            reply_response,
+        ]
+        environment = {
+            "SLACK_COMMAND": "/people",
+            "SLACK_TEXT": "due",
+            "SLACK_CHANNEL_ID": "C-channel",
+            "SLACK_BOT_TOKEN": "test-slack-token",
+            "NOTION_API_KEY": "test-notion-token",
+            "NOTION_PEOPLE_DATA_SOURCE_ID": "people-id",
+            "NOTION_INTERACTIONS_DATA_SOURCE_ID": "interactions-id",
+        }
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(
+                sys.modules,
+                {
+                    "requests": requests_module,
+                    "google": google_module,
+                    "google.genai": genai_module,
+                },
+            ),
+            patch("builtins.print"),
+            self.assertRaises(SystemExit) as exit_context,
+        ):
+            runpy.run_module("main", run_name="__main__")
+
+        self.assertEqual(exit_context.exception.code, 0)
+        reply_payload = requests_module.post.call_args_list[-1].kwargs["json"]
+        blocks = reply_payload["blocks"]
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(
+            blocks[0]["accessory"],
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Suggest message"},
+                "action_id": "people_suggest",
+                "value": "Known person",
+            },
+        )
+
     def test_people_suggest_reaches_gemini_with_bounded_context_only(self):
         requests_module, google_module, genai_module = self.fake_modules()
         root_response = Mock()

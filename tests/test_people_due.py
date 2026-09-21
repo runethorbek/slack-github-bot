@@ -6,16 +6,19 @@ from people_due import (
     INCOMPLETE_SCAN_MESSAGE,
     MAX_DISPLAYED_PEOPLE,
     PEOPLE_FAILURE_MESSAGE,
+    PEOPLE_SUGGEST_ACTION_ID,
     CadenceStatus,
     DuePerson,
     NO_DUE_PERSON_MESSAGE,
     Person,
     add_calendar_months,
+    build_due_people_blocks,
+    due_person_block,
     evaluate_cadence,
     find_due_people,
     find_one_due_person,
     format_due_people,
-    format_suggest_hint,
+    format_due_person,
     handle_people_command,
     person_from_notion_page,
 )
@@ -204,7 +207,7 @@ class PeopleDueTests(unittest.TestCase):
             ]
         )
         post_slack_message = Mock(
-            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
 
         handled = handle_people_command(
@@ -230,7 +233,7 @@ class PeopleDueTests(unittest.TestCase):
             ]
         )
         post_slack_message = Mock(
-            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
 
         handle_people_command(
@@ -265,7 +268,7 @@ class PeopleDueTests(unittest.TestCase):
             ]
         )
         post_slack_message = Mock(
-            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
 
         handle_people_command(
@@ -537,7 +540,7 @@ class PeopleDueListTests(unittest.TestCase):
             ]
         )
         post_slack_message = Mock(
-            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
 
         handle_people_command(
@@ -755,7 +758,7 @@ class PeopleDueListTests(unittest.TestCase):
         ]
         notion_post = Mock(side_effect=[*people_pages, self.response([])])
         post_slack_message = Mock(
-            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
 
         handle_people_command(
@@ -780,7 +783,7 @@ class PeopleDueListTests(unittest.TestCase):
             ]
         )
         post_slack_message = Mock(
-            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
 
         handle_people_command(
@@ -872,84 +875,142 @@ class PeopleDueListTests(unittest.TestCase):
         }
 
 
-class PeopleDueSuggestHintTests(unittest.TestCase):
-    """Slice 2 of issue #13: linking /people due to /people suggest."""
+class PeopleDueSuggestButtonTests(unittest.TestCase):
+    """Slice 2 (revised) of issue #13: a real Slack button on /people due.
 
-    def test_due_person_block_renders_a_suggest_command_hint(self):
+    The first slice 2 attempt appended a copy-runnable `/people suggest
+    <name>` text hint, but Slack only recognizes a slash command typed live
+    into the composer - pasting the hint just sends it as a plain message,
+    and mobile Slack can't even select a substring out of the block to
+    retype it. These tests instead pin a real Block Kit button.
+    """
+
+    def test_due_person_block_has_a_suggest_button_with_the_person_name(self):
+        due_person = self.due_person("Jane Doe", "1 month")
+
+        block = due_person_block(due_person)
+
+        self.assertEqual(block["type"], "section")
+        self.assertIn("*Jane Doe*", block["text"]["text"])
+        self.assertEqual(
+            block["accessory"],
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Suggest message"},
+                "action_id": PEOPLE_SUGGEST_ACTION_ID,
+                "value": "Jane Doe",
+            },
+        )
+
+    def test_button_value_is_the_exact_person_name_not_the_linkedin_label(self):
+        person = Person(
+            "p1", "Jane Doe", "1 month", linkedin_url="https://www.linkedin.com/in/janedoe"
+        )
+        due_person = DuePerson(person, None, None)
+
+        block = due_person_block(due_person)
+
+        self.assertEqual(block["accessory"]["value"], "Jane Doe")
+        self.assertIn(
+            "<https://www.linkedin.com/in/janedoe|Jane Doe>", block["text"]["text"]
+        )
+
+    def test_blocks_and_linkedin_link_render_independently_for_mixed_people(self):
+        with_linkedin = DuePerson(
+            Person("p1", "Alex", "1 month", linkedin_url="https://www.linkedin.com/in/alex"),
+            None,
+            None,
+        )
+        without_linkedin = DuePerson(Person("p2", "Blair", "1 month"), None, None)
+
+        blocks = build_due_people_blocks([with_linkedin, without_linkedin])
+
+        self.assertIn("<https://www.linkedin.com/in/alex|Alex>", blocks[0]["text"]["text"])
+        self.assertEqual(blocks[0]["accessory"]["value"], "Alex")
+        self.assertIn("*Blair*", blocks[1]["text"]["text"])
+        self.assertEqual(blocks[1]["accessory"]["value"], "Blair")
+
+    def test_cadence_and_interaction_fields_are_preserved_in_the_block_text(self):
+        due_person = self.due_person(
+            "Alex", "6 months", latest_interaction=date(2026, 2, 28),
+            next_contact_due=date(2026, 8, 28),
+        )
+
+        block = due_person_block(due_person)
+        text = block["text"]["text"]
+
+        self.assertIn("*Alex*", text)
+        self.assertIn("Contact cadence: 6 months", text)
+        self.assertIn("Latest interaction: 2026-02-28", text)
+        self.assertIn("Next contact due: 2026-08-28", text)
+        self.assertEqual(text, format_due_person(due_person))
+
+    def test_build_due_people_blocks_bounds_to_the_display_limit_with_a_remainder_block(self):
+        due_people = [
+            self.due_person(f"Person {index}", "1 month")
+            for index in range(MAX_DISPLAYED_PEOPLE + 3)
+        ]
+
+        blocks = build_due_people_blocks(due_people)
+
+        self.assertEqual(len(blocks), MAX_DISPLAYED_PEOPLE + 1)
+        self.assertEqual(blocks[-1], {"type": "section", "text": {"type": "mrkdwn", "text": "+3 more"}})
+        self.assertNotIn("accessory", blocks[-1])
+
+    def test_handle_people_due_passes_blocks_with_buttons_to_post_slack_message(self):
         notion_post = Mock(
             side_effect=[
                 self.response([self.person("p1", "Jane Doe", "1 month")]),
                 self.response([]),
             ]
         )
-
-        due_people, _, _ = self.call_find_due_people(notion_post)
-        message = format_due_people(due_people)
-
-        self.assertIn("Suggest a message: `/people suggest Jane Doe`", message)
-
-    def test_suggest_hint_uses_the_exact_person_name_not_the_linkedin_label(self):
-        person = Person("p1", "Jane Doe", "1 month", linkedin_url="https://www.linkedin.com/in/janedoe")
-
-        hint = format_suggest_hint(person)
-
-        self.assertEqual(hint, "Suggest a message: `/people suggest Jane Doe`")
-
-    def test_suggest_hint_and_linkedin_link_render_independently_for_mixed_people(self):
-        notion_post = Mock(
-            side_effect=[
-                self.response(
-                    [
-                        self.person(
-                            "p1",
-                            "Alex",
-                            "1 month",
-                            linkedin="https://www.linkedin.com/in/alex",
-                        ),
-                        self.person("p2", "Blair", "1 month"),
-                    ]
-                ),
-                self.response([]),
-            ]
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
 
-        due_people, _, _ = self.call_find_due_people(notion_post)
-        message = format_due_people(due_people)
-
-        self.assertIn("<https://www.linkedin.com/in/alex|Alex>", message)
-        self.assertIn("`/people suggest Alex`", message)
-        self.assertIn("*Blair*", message)
-        self.assertIn("`/people suggest Blair`", message)
-
-    def test_existing_cadence_and_interaction_fields_are_preserved_alongside_the_hint(self):
-        notion_post = Mock(
-            side_effect=[
-                self.response([self.person("p1", "Alex", "6 months")]),
-                self.response([self.interaction("2026-02-28")]),
-            ]
+        handle_people_command(
+            "/people", "due", post_slack_message, notion_post,
+            self.environment(), today=FIXED_TODAY, sleep=Mock(),
         )
 
-        due_people, _, _ = self.call_find_due_people(notion_post)
-        message = format_due_people(due_people)
+        final_call = post_slack_message.call_args_list[-1]
+        blocks = final_call.kwargs["blocks"]
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0]["accessory"]["value"], "Jane Doe")
+        self.assertEqual(blocks[0]["accessory"]["action_id"], PEOPLE_SUGGEST_ACTION_ID)
 
-        self.assertIn("*Alex*", message)
-        self.assertIn("Contact cadence: 6 months", message)
-        self.assertIn("Latest interaction: 2026-02-28", message)
-        self.assertIn("Next contact due: 2026-08-28", message)
-        self.assertIn("`/people suggest Alex`", message)
+    def test_handle_people_due_passes_no_blocks_when_no_people_are_due(self):
+        notion_post = Mock(
+            side_effect=[
+                self.response([self.person("p1", "Alex", "1 month")]),
+                self.response([self.interaction("2026-09-10")]),
+            ]
+        )
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
+        )
 
-    def test_suggest_hint_reuses_the_existing_suggest_command_route(self):
-        """The hint text, run verbatim, must reach Slice 1's suggest path.
+        handle_people_command(
+            "/people", "due", post_slack_message, notion_post,
+            self.environment(), today=FIXED_TODAY, sleep=Mock(),
+        )
 
-        This pins reuse: the hint is not a separate implementation, it is
-        exactly the `/people suggest <person>` command already handled by
-        handle_people_command / handle_people_suggest.
+        final_call = post_slack_message.call_args_list[-1]
+        self.assertEqual(final_call.args[0], NO_DUE_PERSON_MESSAGE)
+        self.assertIsNone(final_call.kwargs["blocks"])
+
+    def test_clicking_the_button_reuses_the_existing_suggest_command_route(self):
+        """The button's synthesized command must reach Slice 1's suggest path.
+
+        api/slack-request.js turns a button click into
+        command="/people", text=f"suggest {value}" - this pins that once
+        that synthesized command reaches Python, it is handled by the exact
+        same handle_people_command / handle_people_suggest route as a typed
+        `/people suggest <person>` command, with no duplicated logic.
         """
-        person = Person("p1", "Jane Doe", "1 month")
-        hint = format_suggest_hint(person)
-        command_text = hint.split("`")[1]
-        command, _, text = command_text.partition(" ")
-        self.assertEqual(command, "/people")
+        due_person = self.due_person("Jane Doe", "1 month")
+        button = due_person_block(due_person)["accessory"]
+        command, text = "/people", f"suggest {button['value']}"
 
         notion_post = Mock(
             side_effect=[
@@ -958,7 +1019,7 @@ class PeopleDueSuggestHintTests(unittest.TestCase):
             ]
         )
         post_slack_message = Mock(
-            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
         generate_text = Mock(return_value="Hey Jane, been a while!")
 
@@ -979,6 +1040,13 @@ class PeopleDueSuggestHintTests(unittest.TestCase):
         self.assertEqual(
             output, "Suggested message for Jane Doe:\n\nHey Jane, been a while!"
         )
+
+    @staticmethod
+    def due_person(
+        name, cadence, latest_interaction=None, next_contact_due=None, linkedin_url=None
+    ):
+        person = Person("p1", name, cadence, linkedin_url=linkedin_url)
+        return DuePerson(person, latest_interaction, next_contact_due)
 
     def call_find_due_people(self, notion_post):
         return find_due_people(
@@ -1184,7 +1252,7 @@ class PeopleDueRobustnessTests(unittest.TestCase):
             ]
         )
         post_slack_message = Mock(
-            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
 
         handle_people_command(
@@ -1223,7 +1291,7 @@ class PeopleDueRobustnessTests(unittest.TestCase):
         unauthorized.raise_for_status.side_effect = NotionHttpError(401)
         notion_post = Mock(return_value=unauthorized)
         post_slack_message = Mock(
-            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
         sleep = Mock()
 
@@ -1244,7 +1312,7 @@ class PeopleDueRobustnessTests(unittest.TestCase):
         failing.raise_for_status.side_effect = NotionHttpError(503)
         notion_post = Mock(return_value=failing)
         post_slack_message = Mock(
-            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
         sleep = Mock()
 
@@ -1263,7 +1331,7 @@ class PeopleDueRobustnessTests(unittest.TestCase):
         malformed.json.return_value = {"results": "not-a-list-of-people"}
         notion_post = Mock(return_value=malformed)
         post_slack_message = Mock(
-            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
 
         handle_people_command(

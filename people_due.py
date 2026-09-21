@@ -139,20 +139,27 @@ def handle_people_due(post_slack_message, notion_post, environment, today, sleep
 
     if due_people:
         message = format_due_people(due_people)
+        blocks = build_due_people_blocks(due_people)
         if is_incomplete:
             message = f"{message}\n\n{INCOMPLETE_SCAN_MESSAGE}"
+            blocks.append(plain_section_block(INCOMPLETE_SCAN_MESSAGE))
     elif is_incomplete:
         # The bounded scan is not complete, so the normal empty-state claim
         # would be misleading.
         message = INCOMPLETE_SCAN_MESSAGE
+        blocks = None
     else:
         message = NO_DUE_PERSON_MESSAGE
+        blocks = None
 
     if skipped_person_count:
         noun = "person" if skipped_person_count == 1 else "people"
-        message = f"{message}\n\nSkipped {skipped_person_count} malformed {noun}."
+        skipped_message = f"Skipped {skipped_person_count} malformed {noun}."
+        message = f"{message}\n\n{skipped_message}"
+        if blocks:
+            blocks.append(plain_section_block(skipped_message))
 
-    post_slack_message(message, thread_ts=root_message["ts"])
+    post_slack_message(message, thread_ts=root_message["ts"], blocks=blocks)
 
 
 def post_validation_response(message, post_slack_message, post_ephemeral_response):
@@ -583,18 +590,45 @@ def format_due_person(due_person):
                 f"Next contact due: {due_person.next_contact_due.isoformat()}",
             ]
         )
-    lines.append(format_suggest_hint(due_person.person))
     return "\n".join(lines)
 
 
-def format_suggest_hint(person):
-    """A copy-runnable pointer at the existing suggest command.
+PEOPLE_SUGGEST_ACTION_ID = "people_suggest"
 
-    The current Slack transport only supports slash commands and plain
-    messages; there is no Interactivity endpoint for buttons or action
-    links (see api/slack-request.js). Rather than add that infrastructure,
-    reuse Slice 1's `/people suggest <person>` verbatim as inline code, so
-    the Person can be invoked with no new mechanism and no duplicated
-    resolution or Gemini logic.
+
+def suggest_button(person):
+    """A Block Kit button that, on click, invokes /people suggest <name>.
+
+    The button's value is the Person's exact Name, so a click is handled by
+    api/slack-request.js and main.py exactly like a typed
+    `/people suggest <person>` command - same Person resolution, same
+    Gemini prompting, no duplicated logic.
     """
-    return f"Suggest a message: `/people suggest {person.name}`"
+    return {
+        "type": "button",
+        "text": {"type": "plain_text", "text": "Suggest message"},
+        "action_id": PEOPLE_SUGGEST_ACTION_ID,
+        "value": person.name,
+    }
+
+
+def due_person_block(due_person):
+    return {
+        "type": "section",
+        "text": {"type": "mrkdwn", "text": format_due_person(due_person)},
+        "accessory": suggest_button(due_person.person),
+    }
+
+
+def plain_section_block(text):
+    return {"type": "section", "text": {"type": "mrkdwn", "text": text}}
+
+
+def build_due_people_blocks(due_people):
+    displayed = due_people[:MAX_DISPLAYED_PEOPLE]
+    blocks = [due_person_block(due_person) for due_person in displayed]
+
+    remainder = len(due_people) - len(displayed)
+    if remainder > 0:
+        blocks.append(plain_section_block(f"+{remainder} more"))
+    return blocks

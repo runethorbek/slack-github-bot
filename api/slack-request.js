@@ -2,6 +2,9 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 const MAX_REQUEST_AGE_SECONDS = 5 * 60;
 
+// Matches PEOPLE_SUGGEST_ACTION_ID in people_due.py.
+const PEOPLE_SUGGEST_ACTION_ID = "people_suggest";
+
 export function hasValidSlackSignature(
   rawBody,
   headers,
@@ -114,11 +117,44 @@ export async function handleSlackRequest(
       });
     }
 
+    const formData = new URLSearchParams(bodyText);
+
+    // -------------------------------------------------------
+    // Slack interactivity (Block Kit button click)
+    // -------------------------------------------------------
+    //
+    // Interactive component clicks are posted with the same content-type as
+    // slash commands, as a single "payload" field containing JSON, instead
+    // of the flat command/text fields. Handle that shape first so it never
+    // falls through into the slash-command branch below with an empty
+    // command/text.
+    const interactionPayload = formData.get("payload");
+    if (interactionPayload !== null) {
+      const body = JSON.parse(interactionPayload);
+      const action = body?.actions?.[0];
+      const personName =
+        action?.action_id === PEOPLE_SUGGEST_ACTION_ID ? action.value : "";
+
+      if (body?.type === "block_actions" && personName) {
+        defer(
+          triggerGitHub({
+            command: "/people",
+            text: `suggest ${personName}`,
+            response_url: body.response_url ?? "",
+            channel_id: body.channel?.id ?? "",
+            user_id: body.user?.id ?? "",
+            thread_ts: "",
+            slack_event_type: "block_actions",
+          })
+        );
+      }
+
+      return new Response("", { status: 200 });
+    }
+
     // -------------------------------------------------------
     // Slack slash command
     // -------------------------------------------------------
-
-    const formData = new URLSearchParams(bodyText);
 
     const command = formData.get("command") ?? "";
     const text = formData.get("text") ?? "";

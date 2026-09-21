@@ -111,6 +111,91 @@ test("a valid signed /people due request preserves the command dispatch", async 
   assert.equal(dependencies.dispatched[0].text, "due");
 });
 
+test("a valid people_suggest button click dispatches the same command a typed /people suggest would", async () => {
+  const body = new URLSearchParams({
+    payload: JSON.stringify({
+      type: "block_actions",
+      actions: [{ action_id: "people_suggest", value: "Jane Doe" }],
+      response_url: "https://hooks.slack.test/interaction",
+      channel: { id: "C123" },
+      user: { id: "U123" },
+    }),
+  }).toString();
+  const dependencies = testDependencies();
+
+  const response = await handleSlackRequest(
+    slackRequest(body),
+    dependencies.options
+  );
+  await Promise.all(dependencies.deferred);
+
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), "");
+  assert.deepEqual(dependencies.dispatched, [
+    {
+      command: "/people",
+      text: "suggest Jane Doe",
+      response_url: "https://hooks.slack.test/interaction",
+      channel_id: "C123",
+      user_id: "U123",
+      thread_ts: "",
+      slack_event_type: "block_actions",
+    },
+  ]);
+});
+
+test("block_actions clicks with an unrecognized action or empty value are acknowledged without dispatch", async (t) => {
+  const cases = [
+    [
+      "unrecognized action_id",
+      { type: "block_actions", actions: [{ action_id: "some_other_button", value: "Jane Doe" }] },
+    ],
+    [
+      "empty value",
+      { type: "block_actions", actions: [{ action_id: "people_suggest", value: "" }] },
+    ],
+    ["no actions", { type: "block_actions", actions: [] }],
+    ["a different interaction type", { type: "view_submission", actions: [] }],
+  ];
+
+  for (const [name, payload] of cases) {
+    await t.test(name, async () => {
+      const body = new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
+      const dependencies = testDependencies();
+
+      const response = await handleSlackRequest(
+        slackRequest(body),
+        dependencies.options
+      );
+      await Promise.all(dependencies.deferred);
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(dependencies.dispatched, []);
+      assert.deepEqual(dependencies.deferred, []);
+    });
+  }
+});
+
+test("a malformed interaction payload fails without dispatch", async () => {
+  const body = new URLSearchParams({ payload: "{not-json" }).toString();
+  const dependencies = testDependencies();
+
+  const originalConsoleError = console.error;
+  console.error = () => {};
+  try {
+    const response = await handleSlackRequest(
+      slackRequest(body),
+      dependencies.options
+    );
+
+    assert.equal(response.status, 500);
+    assert.deepEqual(dependencies.dispatched, []);
+    assert.deepEqual(dependencies.deferred, []);
+  } finally {
+    console.error = originalConsoleError;
+  }
+});
+
 test("authenticated slash commands receive an empty acknowledgement", async (t) => {
   const commands = [
     ["/tasks", "list"],
