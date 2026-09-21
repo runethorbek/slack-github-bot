@@ -298,7 +298,9 @@ test("valid signed /testbot and thread events preserve their dispatches", async 
         text: "follow up",
         channel: "C123",
         user: "U123",
+        ts: "123.789",
         thread_ts: "123.456",
+        channel_type: "channel",
       },
     });
     const dependencies = testDependencies();
@@ -315,11 +317,81 @@ test("valid signed /testbot and thread events preserve their dispatches", async 
         text: "follow up",
         channel_id: "C123",
         user_id: "U123",
+        event_ts: "123.789",
         thread_ts: "123.456",
+        channel_type: "channel",
         slack_event_type: "message",
       },
     ]);
   });
+});
+
+test("root and follow-up DMs preserve identity and conversation timestamps", async (t) => {
+  const cases = [
+    {
+      name: "root DM",
+      event: {
+        type: "message",
+        text: "private root",
+        channel: "D123",
+        user: "U123",
+        ts: "100.001",
+        channel_type: "im",
+      },
+      expectedThreadTs: "",
+    },
+    {
+      name: "DM follow-up",
+      event: {
+        type: "message",
+        text: "private follow-up",
+        channel: "D123",
+        user: "U123",
+        ts: "100.002",
+        thread_ts: "100.001",
+        channel_type: "im",
+      },
+      expectedThreadTs: "100.001",
+    },
+    {
+      name: "second root DM",
+      event: {
+        type: "message",
+        text: "separate private root",
+        channel: "D123",
+        user: "U123",
+        ts: "200.001",
+        channel_type: "im",
+      },
+      expectedThreadTs: "",
+    },
+  ];
+
+  for (const { name, event, expectedThreadTs } of cases) {
+    await t.test(name, async () => {
+      const body = JSON.stringify({ type: "event_callback", event });
+      const dependencies = testDependencies();
+
+      const response = await handleSlackRequest(
+        slackRequest(body, { contentType: "application/json" }),
+        dependencies.options
+      );
+      await Promise.all(dependencies.deferred);
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(dependencies.dispatched, [
+        {
+          text: event.text,
+          channel_id: "D123",
+          user_id: "U123",
+          event_ts: event.ts,
+          thread_ts: expectedThreadTs,
+          channel_type: "im",
+          slack_event_type: "message",
+        },
+      ]);
+    });
+  }
 });
 
 test("valid URL verification is authenticated and does not dispatch", async () => {
@@ -466,6 +538,19 @@ test("bot messages and top-level messages are acknowledged without dispatch", as
         text: "ordinary channel message",
         channel: "C123",
         user: "U123",
+        ts: "123.456",
+        channel_type: "channel",
+      },
+    ],
+    [
+      "channel type takes precedence over an ID prefix",
+      {
+        type: "message",
+        text: "ordinary channel message",
+        channel: "D-prefixed-channel",
+        user: "U123",
+        ts: "123.456",
+        channel_type: "channel",
       },
     ],
   ];

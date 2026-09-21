@@ -7,6 +7,135 @@ from unittest.mock import Mock, patch
 
 
 class MainRoutingTests(unittest.TestCase):
+    def test_authorized_root_dm_replies_under_event_timestamp_without_private_processing(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        private_message = "private root message"
+        environment = {
+            "SLACK_TEXT": private_message,
+            "SLACK_CHANNEL_ID": "D-private",
+            "SLACK_USER_ID": "U-authorized",
+            "SLACK_EVENT_TS": "100.001",
+            "SLACK_THREAD_TS": "",
+            "SLACK_CHANNEL_TYPE": "im",
+            "SLACK_EVENT_TYPE": "message",
+            "SLACK_BOT_TOKEN": "test-slack-token",
+            "AUTHORIZED_SLACK_USER_ID": "U-authorized",
+        }
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(
+                sys.modules,
+                {
+                    "requests": requests_module,
+                    "google": google_module,
+                    "google.genai": genai_module,
+                },
+            ),
+            patch("builtins.print") as print_mock,
+            self.assertRaises(SystemExit) as exit_context,
+        ):
+            runpy.run_module("main", run_name="__main__")
+
+        self.assertEqual(exit_context.exception.code, 0)
+        requests_module.post.assert_called_once_with(
+            "https://slack.com/api/chat.postMessage",
+            headers={
+                "Authorization": "Bearer test-slack-token",
+                "Content-Type": "application/json",
+            },
+            json={
+                "channel": "D-private",
+                "text": "DM conversation received.",
+                "mrkdwn": True,
+                "thread_ts": "100.001",
+            },
+            timeout=10,
+        )
+        requests_module.get.assert_not_called()
+        genai_module.Client.assert_not_called()
+        logged_text = " ".join(
+            str(argument)
+            for call in print_mock.call_args_list
+            for argument in call.args
+        )
+        self.assertNotIn(private_message, logged_text)
+
+    def test_authorized_dm_follow_up_preserves_existing_thread_timestamp(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        environment = {
+            "SLACK_TEXT": "private follow-up",
+            "SLACK_CHANNEL_ID": "D-private",
+            "SLACK_USER_ID": "U-authorized",
+            "SLACK_EVENT_TS": "100.002",
+            "SLACK_THREAD_TS": "100.001",
+            "SLACK_CHANNEL_TYPE": "im",
+            "SLACK_EVENT_TYPE": "message",
+            "SLACK_BOT_TOKEN": "test-slack-token",
+            "AUTHORIZED_SLACK_USER_ID": "U-authorized",
+        }
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(
+                sys.modules,
+                {
+                    "requests": requests_module,
+                    "google": google_module,
+                    "google.genai": genai_module,
+                },
+            ),
+            patch("builtins.print"),
+            self.assertRaises(SystemExit) as exit_context,
+        ):
+            runpy.run_module("main", run_name="__main__")
+
+        self.assertEqual(exit_context.exception.code, 0)
+        self.assertEqual(
+            requests_module.post.call_args.kwargs["json"]["thread_ts"],
+            "100.001",
+        )
+        requests_module.get.assert_not_called()
+        genai_module.Client.assert_not_called()
+
+    def test_unauthorized_dm_uses_exact_user_id_comparison_and_stops_before_private_processing(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        environment = {
+            "SLACK_COMMAND": "/people",
+            "SLACK_TEXT": "due",
+            "SLACK_CHANNEL_ID": "D-private",
+            "SLACK_USER_ID": "u-authorized",
+            "SLACK_EVENT_TS": "100.001",
+            "SLACK_THREAD_TS": "",
+            "SLACK_CHANNEL_TYPE": "im",
+            "SLACK_EVENT_TYPE": "message",
+            "SLACK_BOT_TOKEN": "test-slack-token",
+            "AUTHORIZED_SLACK_USER_ID": "U-authorized",
+            "NOTION_API_KEY": "must-not-be-used",
+            "NOTION_PEOPLE_DATA_SOURCE_ID": "must-not-be-used",
+            "NOTION_INTERACTIONS_DATA_SOURCE_ID": "must-not-be-used",
+        }
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(
+                sys.modules,
+                {
+                    "requests": requests_module,
+                    "google": google_module,
+                    "google.genai": genai_module,
+                },
+            ),
+            patch("builtins.print"),
+            self.assertRaises(SystemExit) as exit_context,
+        ):
+            runpy.run_module("main", run_name="__main__")
+
+        self.assertEqual(exit_context.exception.code, 0)
+        requests_module.post.assert_not_called()
+        requests_module.get.assert_not_called()
+        genai_module.Client.assert_not_called()
+
     def test_people_due_exits_before_gemini_and_only_queries_notion(self):
         requests_module, google_module, genai_module = self.fake_modules()
         root_response = Mock()

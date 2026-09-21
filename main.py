@@ -14,11 +14,15 @@ from tasks_list import handle_tasks_command
 text = os.environ["SLACK_TEXT"]
 command = os.environ.get("SLACK_COMMAND", "")
 channel_id = os.environ["SLACK_CHANNEL_ID"]
+user_id = os.environ.get("SLACK_USER_ID", "")
 slack_token = os.environ["SLACK_BOT_TOKEN"]
 
 event_type = os.environ.get("SLACK_EVENT_TYPE", "slash_command")
+event_ts = os.environ.get("SLACK_EVENT_TS", "")
 thread_ts = os.environ.get("SLACK_THREAD_TS", "")
+channel_type = os.environ.get("SLACK_CHANNEL_TYPE", "")
 response_url = os.environ.get("SLACK_RESPONSE_URL", "")
+authorized_slack_user_id = os.environ.get("AUTHORIZED_SLACK_USER_ID", "")
 
 
 # ---------------------------------------------------------
@@ -140,6 +144,10 @@ def raise_gemini_credential_error(error):
         raise RuntimeError(f"Gemini authentication failed (HTTP {status_code}).") from None
 
 
+def is_authorized_slack_user(candidate_user_id, configured_user_id):
+    return bool(configured_user_id) and candidate_user_id == configured_user_id
+
+
 GEMINI_MODEL = "gemini-3.5-flash-lite"
 
 
@@ -157,6 +165,28 @@ def generate_gemini_text(prompt):
         raise
 
     return response.output_text.strip()
+
+
+# ---------------------------------------------------------
+# Private DM tracer
+# ---------------------------------------------------------
+
+if event_type == "message" and channel_type == "im":
+    if not is_authorized_slack_user(user_id, authorized_slack_user_id):
+        print("Unauthorized Slack DM ignored")
+        sys.exit(0)
+
+    conversation_root_ts = thread_ts or event_ts
+
+    if not conversation_root_ts:
+        raise RuntimeError("Received Slack DM event without a conversation root timestamp")
+
+    post_slack_message(
+        "DM conversation received.",
+        thread_ts=conversation_root_ts,
+    )
+    print("Authorized Slack DM response posted")
+    sys.exit(0)
 
 
 # ---------------------------------------------------------
@@ -285,12 +315,6 @@ if (
     sys.exit(0)
 
 conversation = build_conversation(messages)
-
-
-# Useful while developing.
-print("=== SLACK THREAD ===")
-print(conversation)
-print("====================")
 
 
 # ---------------------------------------------------------

@@ -83,11 +83,13 @@ export async function handleSlackRequest(
 
         // Vi er kun interesserede i message-events
         if (event?.type === "message") {
-          // Hvis beskeden IKKE er i en thread,
-          // ignorerer vi den foreløbig.
-          //
-          // Nye opgaver starter via /testbot.
-          if (!event.thread_ts) {
+          const channelType = event.channel_type ?? "";
+          const isDirectMessage = channelType === "im";
+
+          // Root messages in ordinary channels are still ignored. A root DM
+          // is forwarded so Python can authorize it and start a conversation
+          // rooted at event.ts.
+          if (!event.thread_ts && !isDirectMessage) {
             return new Response("", {
               status: 200,
             });
@@ -98,9 +100,11 @@ export async function handleSlackRequest(
               text: event.text ?? "",
               channel_id: event.channel ?? "",
               user_id: event.user ?? "",
+              event_ts: event.ts ?? "",
 
               // thread_ts peger på root-beskeden
-              thread_ts: event.thread_ts,
+              thread_ts: event.thread_ts ?? "",
+              channel_type: channelType,
 
               slack_event_type: "message",
             })

@@ -10,6 +10,77 @@ from unittest.mock import Mock, patch
 
 
 class SlackToPythonContractTests(unittest.TestCase):
+    def test_signed_root_dm_reaches_authorized_python_route_with_transport_identity(self):
+        payload = self.capture_javascript_dm_dispatch()
+        self.assertEqual(payload["user_id"], "U-authorized")
+        self.assertEqual(payload["channel_id"], "D-private")
+        self.assertEqual(payload["event_ts"], "100.001")
+        self.assertEqual(payload["thread_ts"], "")
+        self.assertEqual(payload["channel_type"], "im")
+
+        requests_module, google_module, genai_module = self.fake_python_modules()
+        environment = {
+            "SLACK_TEXT": payload["text"],
+            "SLACK_CHANNEL_ID": payload["channel_id"],
+            "SLACK_USER_ID": payload["user_id"],
+            "SLACK_EVENT_TS": payload["event_ts"],
+            "SLACK_THREAD_TS": payload["thread_ts"],
+            "SLACK_CHANNEL_TYPE": payload["channel_type"],
+            "SLACK_EVENT_TYPE": payload["slack_event_type"],
+            "SLACK_BOT_TOKEN": "fake-slack-token",
+            "AUTHORIZED_SLACK_USER_ID": "U-authorized",
+        }
+
+        slack_response = Mock()
+        slack_response.json.return_value = {"ok": True}
+        requests_module.post.side_effect = None
+        requests_module.post.return_value = slack_response
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(
+                sys.modules,
+                {
+                    "requests": requests_module,
+                    "google": google_module,
+                    "google.genai": genai_module,
+                },
+            ),
+            patch("builtins.print"),
+            self.assertRaises(SystemExit) as exit_context,
+        ):
+            runpy.run_module("main", run_name="__main__")
+
+        self.assertEqual(exit_context.exception.code, 0)
+        self.assertEqual(
+            requests_module.post.call_args.kwargs["json"],
+            {
+                "channel": "D-private",
+                "text": "DM conversation received.",
+                "mrkdwn": True,
+                "thread_ts": "100.001",
+            },
+        )
+        requests_module.get.assert_not_called()
+        genai_module.Client.assert_not_called()
+
+    def test_workflow_maps_dm_identity_and_authorization_configuration(self):
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "slack-message.yml"
+        ).read_text(encoding="utf-8")
+
+        expected_mappings = [
+            "SLACK_USER_ID: ${{ github.event.client_payload.user_id }}",
+            "SLACK_EVENT_TS: ${{ github.event.client_payload.event_ts }}",
+            "SLACK_CHANNEL_TYPE: ${{ github.event.client_payload.channel_type }}",
+            "AUTHORIZED_SLACK_USER_ID: ${{ secrets.AUTHORIZED_SLACK_USER_ID }}",
+        ]
+        for mapping in expected_mappings:
+            self.assertIn(mapping, workflow)
+
     def test_authenticated_tasks_dispatch_reaches_notion_and_slack_without_gemini(self):
         payload = self.capture_javascript_dispatch()
         requests_module, google_module, genai_module = self.fake_python_modules()
@@ -109,6 +180,58 @@ class SlackToPythonContractTests(unittest.TestCase):
         self.assertEqual(
             reply_text, "Suggested message for Jane Doe:\n\nHey Jane, been a while!"
         )
+
+    @staticmethod
+    def capture_javascript_dm_dispatch():
+        script = r"""
+import { createHmac } from "node:crypto";
+import { handleSlackRequest } from "./api/slack-request.js";
+
+const signingSecret = "fake-signing-secret";
+const timestamp = 1_700_000_000;
+const body = JSON.stringify({
+  type: "event_callback",
+  event: {
+    type: "message",
+    text: "private root",
+    channel: "D-private",
+    user: "U-authorized",
+    ts: "100.001",
+    channel_type: "im",
+  },
+});
+const signature = `v0=${createHmac("sha256", signingSecret)
+  .update(`v0:${timestamp}:${body}`)
+  .digest("hex")}`;
+const request = new Request("https://example.test/api/slack", {
+  method: "POST",
+  headers: {
+    "content-type": "application/json",
+    "x-slack-request-timestamp": String(timestamp),
+    "x-slack-signature": signature,
+  },
+  body,
+});
+const dispatched = [];
+const deferred = [];
+await handleSlackRequest(request, {
+  signingSecret,
+  now: () => timestamp * 1000,
+  triggerGitHub: async (payload) => dispatched.push(payload),
+  defer: (promise) => deferred.push(promise),
+});
+await Promise.all(deferred);
+process.stdout.write(JSON.stringify(dispatched[0]));
+"""
+        repository_root = Path(__file__).resolve().parents[1]
+        completed = subprocess.run(
+            ["node", "--input-type=module", "--eval", script],
+            cwd=repository_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return json.loads(completed.stdout)
 
     @staticmethod
     def capture_javascript_block_action_dispatch():
