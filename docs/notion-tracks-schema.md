@@ -1,6 +1,8 @@
 # Notion Tracks Schema
 
-This document describes the schema of the Tracks data source related to Tasks.
+This document describes the schema of the Tracks data source, related to
+Tasks, People, and Interactions. Re-confirmed directly from the live
+Notion database.
 
 ## Properties
 
@@ -8,26 +10,46 @@ This document describes the schema of the Tracks data source related to Tasks.
 
 Type: `title`
 
-Required. The Track name shown by `/tasks list`.
+Required. The Track name shown by `/tasks list` and by the `/people
+suggest` recap.
 
 ### Status
 
 Type: `status`
 
-Allowed values:
+Allowed values (as previously documented; not re-confirmed in the latest
+schema pass):
 
 * `Ikke started` (To-do)
 * `I gang` (In progress)
 * `Afsluttet` (Complete)
 
-This property is not used by `/tasks list`.
+This property is not used by `/tasks list` or `/people suggest`.
 
-### Description
+### Type
+
+Type: `select`
+
+Allowed values:
+
+* `Engagement`
+* `Channel`
+* `Capability`
+* `Outcome`
+
+This property is not currently used by any command.
+
+### Purpose
 
 Type: `text`
 
-This property is not used by `/tasks list` and must not be sent to Slack or
-written to logs.
+Free-text purpose of the Track. Not currently used by any command; must
+not be sent to Slack or written to logs if that changes, consistent with
+this data source's other free-text fields.
+
+(This property was previously documented here as `Description`; the live
+schema now shows `Purpose` instead — confirm whether it was renamed or
+whether `Description` still exists separately.)
 
 ### Priority
 

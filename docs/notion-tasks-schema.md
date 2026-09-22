@@ -30,6 +30,13 @@ Type: `relation`
 
 Relation to the relevant Track.
 
+### People
+
+Type: `relation`
+
+Relation to the relevant Person/People. Not currently used by `/tasks
+list`.
+
 ### Priority
 
 Type: `select`
