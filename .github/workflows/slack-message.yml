@@ -18,11 +18,37 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Prepare Slack response URL
+      - name: Prepare Slack response URL and mask sensitive payload fields
         run: |
-          response_url="$(node -e 'const fs = require("fs"); const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, "utf8")); process.stdout.write(event.client_payload.response_url || "");')"
-          echo "::add-mask::$response_url"
-          echo "SLACK_RESPONSE_URL=$response_url" >> "$GITHUB_ENV"
+          # github.event.client_payload.* values are not secrets.* context,
+          # so unlike SLACK_BOT_TOKEN etc. below, GitHub does not auto-mask
+          # them - and it prints every step's resolved `env:` block into its
+          # log. Without an explicit ::add-mask:: here, the "Run Python bot"
+          # step's log would show these values (Slack text, person name,
+          # interaction type, notes) in plaintext, exactly like response_url
+          # would without the mask already applied below.
+          node -e '
+            const fs = require("fs");
+            const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
+            const payload = event.client_payload || {};
+            const out = ["RESPONSE_URL\t" + (payload.response_url || "")];
+            for (const field of ["text", "person", "interaction_type", "notes"]) {
+              const value = payload[field];
+              if (typeof value === "string" && value) {
+                for (const line of value.split("\n")) {
+                  if (line) out.push("MASK\t" + line);
+                }
+              }
+            }
+            process.stdout.write(out.join("\n") + "\n");
+          ' | while IFS=$'\t' read -r kind value; do
+            if [ "$kind" = "RESPONSE_URL" ]; then
+              echo "::add-mask::$value"
+              echo "SLACK_RESPONSE_URL=$value" >> "$GITHUB_ENV"
+            else
+              echo "::add-mask::$value"
+            fi
+          done
 
       - name: Run Python bot
         env:
