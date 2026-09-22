@@ -626,7 +626,11 @@ function addInteractionButtonClickBody(overrides = {}) {
       actions: [
         {
           action_id: "people_add_interaction",
-          value: JSON.stringify({ page_id: "person-page-id", name: "Jane Doe" }),
+          value: JSON.stringify({
+            page_id: "person-page-id",
+            name: "Jane Doe",
+            types: ["Coffee", "Walk"],
+          }),
         },
       ],
       channel: { id: "C123" },
@@ -665,12 +669,12 @@ test("clicking Add Interaction opens a modal carrying the Person page id and thr
 
   const typeBlock = view.blocks.find((block) => block.block_id === "type_block");
   assert.equal(typeBlock.element.type, "static_select");
-  assert.ok(typeBlock.element.options.length > 0);
-  assert.ok(
-    typeBlock.element.options.every(
-      (option) => option.text.text === option.value
-    )
-  );
+  // Rendered from the button's own "types", resolved from the live Notion
+  // schema by people_suggest.py - not a hardcoded list in this file.
+  assert.deepEqual(typeBlock.element.options, [
+    { text: { type: "plain_text", text: "Coffee" }, value: "Coffee" },
+    { text: { type: "plain_text", text: "Walk" }, value: "Walk" },
+  ]);
 
   // The button value carried no "tracks", so the Track field must not be
   // offered at all (Slack rejects a static_select with no options).
@@ -688,6 +692,7 @@ test("a button value carrying Track options renders a Track selector with no def
         value: JSON.stringify({
           page_id: "person-page-id",
           name: "Jane Doe",
+          types: ["Coffee"],
           tracks: [
             { id: "track-1", name: "AI Network" },
             { id: "track-2", name: "Investors" },
@@ -719,6 +724,7 @@ test("a button value carrying a default_track_id preselects that Track option", 
         value: JSON.stringify({
           page_id: "person-page-id",
           name: "Jane Doe",
+          types: ["Coffee"],
           tracks: [
             { id: "track-1", name: "AI Network" },
             { id: "track-2", name: "Investors" },
@@ -748,6 +754,7 @@ test("a default_track_id that is not among the offered tracks is not preselected
         value: JSON.stringify({
           page_id: "person-page-id",
           name: "Jane Doe",
+          types: ["Coffee"],
           tracks: [{ id: "track-1", name: "AI Network" }],
           default_track_id: "stale-track-id",
         }),
@@ -777,6 +784,30 @@ test("a suggestion message that is itself a thread root falls back to its own ts
 
 test("an Add Interaction click without a trigger_id does not open a modal", async () => {
   const body = addInteractionButtonClickBody({ trigger_id: undefined });
+  const dependencies = testDependencies();
+
+  const response = await handleSlackRequest(
+    slackRequest(body),
+    dependencies.options
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(dependencies.openedModals, []);
+});
+
+test("an Add Interaction click carrying no Type options does not open a modal", async () => {
+  // people_suggest.py never builds this button without Type options (see
+  // build_suggestion_blocks), but a stale or tampered payload must still
+  // fail closed rather than open a modal Slack would reject anyway (a
+  // static_select cannot have zero options).
+  const body = addInteractionButtonClickBody({
+    actions: [
+      {
+        action_id: "people_add_interaction",
+        value: JSON.stringify({ page_id: "person-page-id", name: "Jane Doe" }),
+      },
+    ],
+  });
   const dependencies = testDependencies();
 
   const response = await handleSlackRequest(

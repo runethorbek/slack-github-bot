@@ -5,26 +5,38 @@ from unittest.mock import Mock
 
 from people_interaction import (
     ADD_INTERACTION_ACTION_ID,
-    ALLOWED_INTERACTION_TYPES,
+    AddInteractionCommandError,
     INTERACTION_ADDED_MESSAGE_TEMPLATE,
     INTERACTION_FAILURE_MESSAGE,
     INTERACTION_INVALID_MESSAGE,
     add_interaction_button,
+    fetch_available_interaction_types,
     fetch_available_tracks,
     handle_add_interaction_submission,
+    is_valid_interaction_type,
     is_valid_track,
 )
 
 
 FIXED_TODAY = date(2026, 9, 22)
 
+# The live Interactions "Type" select property, as it would come back from
+# Notion's "retrieve a data source" endpoint. Deliberately includes a value
+# ("Video call") absent from every hardcoded list this feature used to
+# carry, so tests built on this fixture demonstrate a schema-driven Type
+# becoming available without any code change.
+TYPE_SELECT_OPTIONS = [{"name": "Coffee"}, {"name": "Walk"}, {"name": "Video call"}]
 
-def schema_response(title_property_name="Title of interaction"):
+
+def schema_response(title_property_name="Title of interaction", type_options=None):
     response = Mock()
     response.json.return_value = {
         "properties": {
             "People": {"type": "relation"},
-            "Type": {"type": "select"},
+            "Type": {
+                "type": "select",
+                "select": {"options": type_options or TYPE_SELECT_OPTIONS},
+            },
             "Date": {"type": "date"},
             "Notes": {"type": "rich_text"},
             title_property_name: {"type": "title"},
@@ -41,12 +53,14 @@ def ok_response():
 
 def schema_response_missing_title():
     # No property has type "title": the schema fetch cannot resolve where to
-    # write a required title, and must not crash the caller.
+    # write a required title, and must not crash the caller. The Type
+    # property is otherwise valid, so this isolates the title-resolution
+    # failure from Type validation.
     response = Mock()
     response.json.return_value = {
         "properties": {
             "People": {"type": "relation"},
-            "Type": {"type": "select"},
+            "Type": {"type": "select", "select": {"options": TYPE_SELECT_OPTIONS}},
         }
     }
     return response
@@ -115,6 +129,117 @@ class AddInteractionButtonTests(unittest.TestCase):
         )
 
         self.assertNotIn("default_track_id", json.loads(button["value"]))
+
+    def test_no_interaction_types_omits_types_field(self):
+        button = add_interaction_button(
+            "person-page-id", "Jane Doe", interaction_types=()
+        )
+
+        self.assertNotIn("types", json.loads(button["value"]))
+
+    def test_interaction_types_are_carried_in_the_value(self):
+        button = add_interaction_button(
+            "person-page-id",
+            "Jane Doe",
+            interaction_types=["Coffee", "Walk"],
+        )
+
+        self.assertEqual(json.loads(button["value"])["types"], ["Coffee", "Walk"])
+
+
+class FetchAvailableInteractionTypesTests(unittest.TestCase):
+    def test_resolves_option_names_from_the_live_schema(self):
+        notion_get = Mock(return_value=schema_response())
+
+        types_ = fetch_available_interaction_types(
+            notion_get, "secret", "interactions-id", Mock()
+        )
+
+        self.assertEqual(types_, ["Coffee", "Walk", "Video call"])
+
+    def test_a_type_added_in_notion_is_available_without_any_code_change(self):
+        # Demonstrates the issue #17 guarantee directly: a value never
+        # present in any hardcoded list this feature used to carry becomes
+        # available purely because the mocked schema response says so.
+        notion_get = Mock(
+            return_value=schema_response(
+                type_options=[{"name": "Brand New Type From Notion"}]
+            )
+        )
+
+        types_ = fetch_available_interaction_types(
+            notion_get, "secret", "interactions-id", Mock()
+        )
+
+        self.assertEqual(types_, ["Brand New Type From Notion"])
+
+    def test_missing_type_property_is_a_failure(self):
+        response = Mock()
+        response.json.return_value = {"properties": {"People": {"type": "relation"}}}
+        notion_get = Mock(return_value=response)
+
+        with self.assertRaises(AddInteractionCommandError):
+            fetch_available_interaction_types(
+                notion_get, "secret", "interactions-id", Mock()
+            )
+
+    def test_type_property_not_a_select_is_a_failure(self):
+        response = Mock()
+        response.json.return_value = {"properties": {"Type": {"type": "rich_text"}}}
+        notion_get = Mock(return_value=response)
+
+        with self.assertRaises(AddInteractionCommandError):
+            fetch_available_interaction_types(
+                notion_get, "secret", "interactions-id", Mock()
+            )
+
+    def test_select_property_without_options_is_a_failure(self):
+        response = Mock()
+        response.json.return_value = {"properties": {"Type": {"type": "select"}}}
+        notion_get = Mock(return_value=response)
+
+        with self.assertRaises(AddInteractionCommandError):
+            fetch_available_interaction_types(
+                notion_get, "secret", "interactions-id", Mock()
+            )
+
+    def test_malformed_option_entries_are_skipped(self):
+        response = Mock()
+        response.json.return_value = {
+            "properties": {
+                "Type": {
+                    "type": "select",
+                    "select": {"options": [{"name": "Coffee"}, {}, "not-a-dict"]},
+                }
+            }
+        }
+        notion_get = Mock(return_value=response)
+
+        types_ = fetch_available_interaction_types(
+            notion_get, "secret", "interactions-id", Mock()
+        )
+
+        self.assertEqual(types_, ["Coffee"])
+
+
+class IsValidInteractionTypeTests(unittest.TestCase):
+    def test_type_present_among_live_options_is_valid(self):
+        notion_get = Mock(return_value=schema_response())
+
+        self.assertTrue(
+            is_valid_interaction_type(
+                "Coffee", notion_get, "secret", "interactions-id", Mock()
+            )
+        )
+
+    def test_type_not_among_live_options_is_invalid(self):
+        notion_get = Mock(return_value=schema_response())
+
+        self.assertFalse(
+            is_valid_interaction_type(
+                "Linkedon", notion_get, "secret", "interactions-id", Mock()
+            )
+        )
 
 
 class FetchAvailableTracksTests(unittest.TestCase):
@@ -287,7 +412,7 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
 
     def test_unknown_type_is_rejected_before_any_notion_write(self):
         notion_post = Mock()
-        notion_get = Mock()
+        notion_get = Mock(return_value=schema_response())
         post_slack_message = Mock()
 
         handle_add_interaction_submission(
@@ -304,13 +429,15 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
             sleep=Mock(),
         )
 
+        # The live schema is read to check the submitted Type, but the
+        # Interaction is never written.
+        notion_get.assert_called_once()
         notion_post.assert_not_called()
-        notion_get.assert_not_called()
         post_slack_message.assert_called_once_with(INTERACTION_INVALID_MESSAGE, thread_ts=None)
 
     def test_empty_type_is_rejected(self):
         notion_post = Mock()
-        notion_get = Mock()
+        notion_get = Mock(return_value=schema_response())
         post_slack_message = Mock()
 
         handle_add_interaction_submission(
@@ -329,6 +456,34 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
 
         notion_post.assert_not_called()
         post_slack_message.assert_called_once_with(INTERACTION_INVALID_MESSAGE, thread_ts=None)
+
+    def test_type_validation_failure_produces_a_safe_message_without_a_write(self):
+        # The Type schema fetch itself can fail (a Notion outage, a
+        # malformed response); this must be caught exactly like any other
+        # Notion failure, and must never fall back to accepting or
+        # guessing a Type.
+        failing = Mock()
+        failing.raise_for_status.side_effect = Exception("boom")
+        notion_get = Mock(return_value=failing)
+        notion_post = Mock()
+        post_slack_message = Mock()
+
+        handle_add_interaction_submission(
+            "person-page-id",
+            "Jane Doe",
+            "Coffee",
+            "Notes",
+            "2026-09-22",
+            "",
+            post_slack_message,
+            notion_post,
+            notion_get,
+            self.environment(),
+            sleep=Mock(),
+        )
+
+        notion_post.assert_not_called()
+        post_slack_message.assert_called_once_with(INTERACTION_FAILURE_MESSAGE, thread_ts=None)
 
     def test_malformed_date_is_rejected_before_any_notion_write(self):
         notion_post = Mock()
@@ -489,7 +644,7 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
             "",
             post_slack_message,
             Mock(),
-            Mock(),
+            Mock(return_value=schema_response()),
             self.environment(),
             thread_ts="100.001",
             sleep=Mock(),
@@ -497,24 +652,6 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
 
         post_slack_message.assert_called_once_with(
             INTERACTION_INVALID_MESSAGE, thread_ts="100.001"
-        )
-
-    def test_allowed_types_match_the_expected_current_values(self):
-        # Pinned so a future change to this allowlist is a deliberate,
-        # reviewed edit rather than an accidental one.
-        self.assertEqual(
-            ALLOWED_INTERACTION_TYPES,
-            (
-                "Coffee",
-                "Network Meeting",
-                "Meeting",
-                "LinkedIn Message",
-                "Online meeting",
-                "Lunch",
-                "LinkedIn invite",
-                "Walk",
-                "Phone call",
-            ),
         )
 
     def test_no_track_selected_writes_an_empty_track_relation(self):
@@ -577,7 +714,7 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
         notion_post = Mock(
             return_value=tracks_response([track_page("track-1", "AI Network")])
         )
-        notion_get = Mock()
+        notion_get = Mock(return_value=schema_response())
         post_slack_message = Mock()
 
         handle_add_interaction_submission(
@@ -594,15 +731,16 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
             sleep=Mock(),
         )
 
-        # Only the validation query happened; the Interaction page was never
-        # created, and the title-property schema fetch never ran.
+        # Type validation (notion_get) and the Track validation query
+        # (notion_post) both ran; the Interaction page was never created,
+        # and the title-property schema fetch never ran.
         notion_post.assert_called_once()
-        notion_get.assert_not_called()
+        notion_get.assert_called_once()
         post_slack_message.assert_called_once_with(INTERACTION_INVALID_MESSAGE, thread_ts=None)
 
     def test_a_track_id_with_no_tracks_data_source_configured_is_rejected(self):
         notion_post = Mock()
-        notion_get = Mock()
+        notion_get = Mock(return_value=schema_response())
         post_slack_message = Mock()
 
         handle_add_interaction_submission(
@@ -626,7 +764,7 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
         failing = Mock()
         failing.raise_for_status.side_effect = Exception("boom")
         notion_post = Mock(return_value=failing)
-        notion_get = Mock()
+        notion_get = Mock(return_value=schema_response())
         post_slack_message = Mock()
 
         handle_add_interaction_submission(
@@ -643,7 +781,9 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
             sleep=Mock(),
         )
 
-        notion_get.assert_not_called()
+        # Type validation ran (and passed); the title-property schema fetch
+        # never ran because Track validation failed first.
+        notion_get.assert_called_once()
         post_slack_message.assert_called_once_with(INTERACTION_FAILURE_MESSAGE, thread_ts=None)
 
     @staticmethod

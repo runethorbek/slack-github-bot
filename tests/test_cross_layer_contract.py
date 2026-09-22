@@ -10,38 +10,15 @@ from unittest.mock import Mock, patch
 
 
 class SlackToPythonContractTests(unittest.TestCase):
-    def test_js_interaction_type_dropdown_matches_the_python_allowlist_exactly(self):
-        """The Slack dropdown is display-only; Python is the security boundary.
-
-        If these two lists ever drift, either the dropdown could stop
-        offering a legitimate value, or - the unsafe direction - Python's
-        allowlist could end up silently narrower than what the modal
-        offers. Pinning them equal makes drift a visible, reviewed change.
-        """
-        from people_interaction import ALLOWED_INTERACTION_TYPES
-
-        script = r"""
-import { readFileSync } from "node:fs";
-
-const source = readFileSync("api/slack-request.js", "utf8");
-const match = source.match(/const INTERACTION_TYPE_OPTIONS = (\[[\s\S]*?\]);/);
-if (!match) {
-  throw new Error("INTERACTION_TYPE_OPTIONS not found");
-}
-const options = JSON.parse(match[1].replace(/,(\s*\])/g, "$1"));
-process.stdout.write(JSON.stringify(options));
-"""
-        repository_root = Path(__file__).resolve().parents[1]
-        completed = subprocess.run(
-            ["node", "--input-type=module", "--eval", script],
-            cwd=repository_root,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        js_options = json.loads(completed.stdout)
-
-        self.assertEqual(tuple(js_options), ALLOWED_INTERACTION_TYPES)
+    # There is no longer a hardcoded Interaction Type list in either
+    # language to pin against each other (issue #17): Notion's live Type
+    # select schema is the single source of truth, read by
+    # people_interaction.fetch_available_interaction_types and carried
+    # into the modal opaquely via the Add Interaction button's "types"
+    # value, exactly like Track options already were. The dropdown
+    # rendering itself is covered in tests/slack-request.test.js; the
+    # schema read and the write-path validation are covered in
+    # tests/test_people_interaction.py.
 
     def test_signed_root_dm_reaches_authorized_python_route_with_transport_identity(self):
         payload = self.capture_javascript_dm_dispatch()
@@ -348,13 +325,24 @@ process.stdout.write(JSON.stringify(dispatched[0]));
         reply_response = Mock()
         reply_response.json.return_value = {"ok": True}
 
+        # Type schema read for the Add Interaction button (issue #17): the
+        # only Notion GET this route makes when there are no Track ids to
+        # resolve.
+        type_schema_response = Mock()
+        type_schema_response.json.return_value = {
+            "properties": {
+                "Type": {
+                    "type": "select",
+                    "select": {"options": [{"name": "Coffee"}, {"name": "Walk"}]},
+                },
+            }
+        }
+
         requests_module = types.ModuleType("requests")
         requests_module.post = Mock(
             side_effect=[root_response, people_response, interactions_response, reply_response]
         )
-        requests_module.get = Mock(
-            side_effect=AssertionError("No Notion GET calls expected for /people suggest")
-        )
+        requests_module.get = Mock(return_value=type_schema_response)
 
         generated_response = Mock()
         generated_response.output_text = "Hey Jane, been a while!\n"

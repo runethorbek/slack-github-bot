@@ -12,6 +12,7 @@ from people_interaction import (
     AddInteractionCommandError,
     INTERACTION_TRACK_PROPERTY,
     add_interaction_button,
+    fetch_available_interaction_types,
     fetch_available_tracks,
 )
 from tasks_list import (
@@ -27,6 +28,9 @@ from tasks_list import (
 
 PEOPLE_SUGGEST_FAILURE_MESSAGE = (
     "Unable to prepare a suggested message right now. Please try again later."
+)
+INTERACTION_TYPE_UNAVAILABLE_NOTE = (
+    "Add interaction is unavailable right now (couldn't load Notion Type options)."
 )
 MAX_SUGGESTION_INTERACTIONS = 5
 
@@ -200,19 +204,55 @@ def handle_people_suggest(
     default_track_id = (
         profile.track_ids[0] if len(profile.track_ids) == 1 else None
     )
+    selectable_interaction_types = fetch_selectable_interaction_types(
+        notion_get, environment, sleep
+    )
 
     recap = generate_text(
         build_recap_prompt(profile, interactions, track_names)
     ).strip()
     answer = generate_text(build_suggestion_prompt(profile, interactions)).strip()
     message = format_suggestion_message(profile.name, answer)
+    reply_text = format_full_reply(recap, message)
+    if not selectable_interaction_types:
+        reply_text = f"{reply_text}\n\n{INTERACTION_TYPE_UNAVAILABLE_NOTE}"
     post_slack_message(
-        format_full_reply(recap, message),
+        reply_text,
         thread_ts=root_message["ts"],
         blocks=build_suggestion_blocks(
-            profile, recap, message, selectable_tracks, default_track_id
+            profile,
+            recap,
+            message,
+            selectable_tracks,
+            default_track_id,
+            selectable_interaction_types,
         ),
     )
+
+
+def fetch_selectable_interaction_types(notion_get, environment, sleep):
+    """Fetch the live Interaction Type options for the Add Interaction button.
+
+    Unlike Track (optional), a Type is required for every Interaction
+    write, so a fetch failure here must not silently offer a button that
+    could open a modal with no valid Type field. An empty result - whether
+    from a Notion failure or a misconfigured schema - means the caller
+    must omit the Add Interaction button entirely (see
+    build_suggestion_blocks) rather than show one that cannot safely open
+    a modal, satisfying "do not open a modal that permits an unchecked
+    write" without needing the Vercel webhook to touch Notion itself.
+    """
+    if notion_get is None:
+        return []
+    try:
+        return fetch_available_interaction_types(
+            notion_get,
+            environment["NOTION_API_KEY"],
+            environment["NOTION_INTERACTIONS_DATA_SOURCE_ID"],
+            sleep,
+        )
+    except (TaskListCommandError, AddInteractionCommandError, NotionAuthenticationError):
+        return []
 
 
 def fetch_selectable_tracks(notion_post, environment, sleep):
@@ -543,7 +583,12 @@ def format_full_reply(recap, message):
 
 
 def build_suggestion_blocks(
-    profile, recap, message_text, tracks=(), default_track_id=None
+    profile,
+    recap,
+    message_text,
+    tracks=(),
+    default_track_id=None,
+    interaction_types=(),
 ):
     blocks = []
     if recap:
@@ -565,16 +610,24 @@ def build_suggestion_blocks(
             },
         }
     )
-    blocks.append(
-        {
-            "type": "actions",
-            "elements": [
-                add_interaction_button(
-                    profile.page_id, profile.name, tracks, default_track_id
-                )
-            ],
-        }
-    )
+    # A Type dropdown is required for a usable Add Interaction modal, so the
+    # button itself is only offered when there is at least one live Type
+    # option to populate it with - see fetch_selectable_interaction_types.
+    if interaction_types:
+        blocks.append(
+            {
+                "type": "actions",
+                "elements": [
+                    add_interaction_button(
+                        profile.page_id,
+                        profile.name,
+                        tracks,
+                        default_track_id,
+                        interaction_types,
+                    )
+                ],
+            }
+        )
     return blocks
 
 

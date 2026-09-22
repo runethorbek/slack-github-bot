@@ -1022,6 +1022,7 @@ class PeopleDueSuggestButtonTests(unittest.TestCase):
             side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
         generate_text = Mock(return_value="Hey Jane, been a while!")
+        notion_get = Mock(return_value=self.type_schema_response())
 
         handled = handle_people_command(
             command,
@@ -1032,6 +1033,7 @@ class PeopleDueSuggestButtonTests(unittest.TestCase):
             generate_text=generate_text,
             today=FIXED_TODAY,
             sleep=Mock(),
+            notion_get=notion_get,
         )
 
         self.assertTrue(handled)
@@ -1063,7 +1065,12 @@ class PeopleDueSuggestButtonTests(unittest.TestCase):
                 "Navn": {"type": "title", "title": [{"plain_text": "AI Network"}]},
             }
         }
-        notion_get = Mock(return_value=track_response)
+        type_schema_url = "https://api.notion.com/v1/data_sources/interactions-id"
+        notion_get = Mock(
+            side_effect=lambda url, **kwargs: (
+                self.type_schema_response() if url == type_schema_url else track_response
+            )
+        )
 
         handle_people_command(
             "/people",
@@ -1077,11 +1084,27 @@ class PeopleDueSuggestButtonTests(unittest.TestCase):
             notion_get=notion_get,
         )
 
-        notion_get.assert_called_once()
-        self.assertEqual(
-            notion_get.call_args.args[0],
-            "https://api.notion.com/v1/pages/track-1",
-        )
+        # One GET for the Track name, one for the unrelated Add Interaction
+        # Type-schema fetch.
+        track_calls = [
+            call
+            for call in notion_get.call_args_list
+            if call.args[0] == "https://api.notion.com/v1/pages/track-1"
+        ]
+        self.assertEqual(len(track_calls), 1)
+
+    @staticmethod
+    def type_schema_response():
+        response = Mock()
+        response.json.return_value = {
+            "properties": {
+                "Type": {
+                    "type": "select",
+                    "select": {"options": [{"name": "Coffee"}]},
+                }
+            }
+        }
+        return response
 
     @staticmethod
     def due_person(

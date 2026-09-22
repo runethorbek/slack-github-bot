@@ -30,23 +30,12 @@ INTERACTION_TRACK_PROPERTY = "Track"
 # cap.
 MAX_TRACK_OPTIONS = 25
 
-# The write path below independently validates a submitted Type against this
-# exact allowlist before ever calling Notion, so a manipulated payload can
-# never create a new Notion select option. Mirrored (for display only, not
-# for validation) as INTERACTION_TYPE_OPTIONS in api/slack-request.js.
-#
-# Confirmed against the live Interactions "Type" select property.
-ALLOWED_INTERACTION_TYPES = (
-    "Coffee",
-    "Network Meeting",
-    "Meeting",
-    "LinkedIn Message",
-    "Online meeting",
-    "Lunch",
-    "LinkedIn invite",
-    "Walk",
-    "Phone call",
-)
+# Notion property name for the Interactions Type select, exactly as named
+# in the live schema (docs/notion-interactions-schema.md). Notion is the
+# only source of truth for the allowed values - see
+# fetch_available_interaction_types / is_valid_interaction_type below -
+# rather than a duplicated hardcoded list here.
+INTERACTION_TYPE_PROPERTY = "Type"
 
 INTERACTION_ADDED_MESSAGE_TEMPLATE = "Interaction added for {name}."
 INTERACTION_INVALID_MESSAGE = "Unable to add that interaction. Please try again."
@@ -59,19 +48,32 @@ class AddInteractionCommandError(Exception):
     """An Interaction write failure that is safe to expose generically."""
 
 
-def add_interaction_button(person_page_id, person_name, tracks=(), default_track_id=None):
+def add_interaction_button(
+    person_page_id,
+    person_name,
+    tracks=(),
+    default_track_id=None,
+    interaction_types=(),
+):
     """A Block Kit button carrying the stable Person page id forward.
 
     The value is opaque structured JSON (not free text), so the Slack
     interaction payload - not a re-typed or re-resolved name - is the only
     source of Person identity used later by the write path. ``tracks`` (a
-    sequence of {"id", "name"} options already resolved from Notion) and
-    ``default_track_id`` are carried the same way, so the Vercel webhook
-    that opens the modal never needs Notion access of its own - it only
-    ever renders data Python already resolved. When there are no tracks to
-    offer, both are simply omitted rather than sent as empty placeholders.
+    sequence of {"id", "name"} options already resolved from Notion),
+    ``default_track_id``, and ``interaction_types`` (a sequence of Type
+    name strings already resolved from the live Notion schema) are carried
+    the same way, so the Vercel webhook that opens the modal never needs
+    Notion access of its own - it only ever renders data Python already
+    resolved. When there are no tracks (or Type options) to offer, the
+    corresponding fields are simply omitted rather than sent as empty
+    placeholders; a caller must not offer this button at all when
+    ``interaction_types`` is empty, since unlike Track the Type dropdown
+    is required for a usable modal (see build_suggestion_blocks).
     """
     value = {"page_id": person_page_id, "name": person_name}
+    if interaction_types:
+        value["types"] = list(interaction_types)
     if tracks:
         value["tracks"] = list(tracks)
         if default_track_id:
@@ -144,6 +146,60 @@ def is_valid_track(track_id, notion_post, api_key, tracks_data_source_id, sleep)
     return any(option["id"] == track_id for option in available_tracks)
 
 
+def fetch_available_interaction_types(
+    notion_get, api_key, interactions_data_source_id, sleep
+):
+    """Read the live allowed Interaction Type values from the Notion schema.
+
+    Notion is the only source of truth for Type values - no duplicated
+    hardcoded list is kept in application code. Used both to offer the
+    Type dropdown (fetched ahead of time by people_suggest.py, exactly
+    like fetch_available_tracks) and, independently, to validate a
+    submitted Type against the current schema before any write. A
+    malformed schema response (the Type property missing, not a select,
+    or without a readable options list) is a failure, not an empty
+    allowlist, so it cannot be mistaken for "no Types configured."
+    """
+    response = call_notion_with_retries(
+        lambda: notion_get(
+            f"https://api.notion.com/v1/data_sources/{interactions_data_source_id}",
+            headers=notion_headers(api_key),
+            timeout=10,
+        ),
+        sleep,
+        credential_failure_status_codes=(401,),
+    )
+    try:
+        type_property = response.json()["properties"][INTERACTION_TYPE_PROPERTY]
+        if type_property.get("type") != "select":
+            raise AddInteractionCommandError()
+        options = type_property["select"]["options"]
+        return [
+            option["name"]
+            for option in options
+            if isinstance(option, dict) and option.get("name")
+        ]
+    except (AttributeError, KeyError, TypeError, ValueError) as error:
+        raise AddInteractionCommandError() from error
+
+
+def is_valid_interaction_type(
+    interaction_type, notion_get, api_key, interactions_data_source_id, sleep
+):
+    """Confirm a submitted Type is currently among the live Notion options.
+
+    The Type dropdown is only a usability guardrail; this re-check against
+    the live schema at write time is the hard guardrail, so a stale
+    dropdown (opened before a Type was renamed or removed in Notion) or a
+    manipulated payload can never write an unknown Type or create a new
+    Notion select option.
+    """
+    available_types = fetch_available_interaction_types(
+        notion_get, api_key, interactions_data_source_id, sleep
+    )
+    return interaction_type in available_types
+
+
 def handle_add_interaction_submission(
     person_page_id,
     person_name,
@@ -178,10 +234,6 @@ def handle_add_interaction_submission(
         # guessing a Person.
         return
 
-    if interaction_type not in ALLOWED_INTERACTION_TYPES:
-        post_slack_message(INTERACTION_INVALID_MESSAGE, thread_ts=thread_ts)
-        return
-
     try:
         interaction_date = (
             date.fromisoformat(date_value)
@@ -193,6 +245,16 @@ def handle_add_interaction_submission(
         return
 
     try:
+        if not is_valid_interaction_type(
+            interaction_type,
+            notion_get,
+            environment["NOTION_API_KEY"],
+            environment["NOTION_INTERACTIONS_DATA_SOURCE_ID"],
+            sleep,
+        ):
+            post_slack_message(INTERACTION_INVALID_MESSAGE, thread_ts=thread_ts)
+            return
+
         if track_id and not is_valid_track(
             track_id,
             notion_post,

@@ -111,6 +111,35 @@ def notion_get_response(json_body):
     return response
 
 
+def interaction_type_schema_response(options=("Coffee",)):
+    return notion_get_response(
+        {
+            "properties": {
+                "Type": {
+                    "type": "select",
+                    "select": {"options": [{"name": option} for option in options]},
+                }
+            }
+        }
+    )
+
+
+INTERACTIONS_TYPE_SCHEMA_URL = "https://api.notion.com/v1/data_sources/interactions-id"
+
+
+def notion_get_with_type_schema(track_page_response, type_options=("Coffee",)):
+    """A notion_get that answers both Track-page GETs and the Add
+    Interaction button's Type-schema GET from a single mock, routed by URL
+    - the two are otherwise indistinguishable to a flat Mock(return_value=).
+    """
+    type_response = interaction_type_schema_response(type_options)
+
+    def get(url, **kwargs):
+        return type_response if url == INTERACTIONS_TYPE_SCHEMA_URL else track_page_response
+
+    return Mock(side_effect=get)
+
+
 class ResolvePersonTests(unittest.TestCase):
     def test_exact_match_resolves(self):
         notion_post = Mock(
@@ -531,6 +560,7 @@ class HandlePeopleSuggestTests(unittest.TestCase):
             self.environment(),
             today=FIXED_TODAY,
             sleep=Mock(),
+            notion_get=Mock(return_value=interaction_type_schema_response()),
         )
 
         self.assertEqual(generate_text.call_count, 2)
@@ -565,6 +595,7 @@ class HandlePeopleSuggestTests(unittest.TestCase):
             self.environment(),
             today=FIXED_TODAY,
             sleep=Mock(),
+            notion_get=Mock(return_value=interaction_type_schema_response()),
         )
 
         blocks = post_slack_message.call_args_list[-1].kwargs["blocks"]
@@ -572,7 +603,8 @@ class HandlePeopleSuggestTests(unittest.TestCase):
         button = actions_block["elements"][0]
         self.assertEqual(button["action_id"], ADD_INTERACTION_ACTION_ID)
         self.assertEqual(
-            json.loads(button["value"]), {"page_id": "p1", "name": "Jane Doe"}
+            json.loads(button["value"]),
+            {"page_id": "p1", "name": "Jane Doe", "types": ["Coffee"]},
         )
 
     def test_reply_includes_a_context_recap_block_before_the_message_block(self):
@@ -832,7 +864,9 @@ class HandlePeopleSuggestTests(unittest.TestCase):
                 ),
             ]
         )
-        notion_get = Mock(return_value=notion_get_response(track_page("AI Network")))
+        notion_get = notion_get_with_type_schema(
+            notion_get_response(track_page("AI Network"))
+        )
         post_slack_message = Mock(
             side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
@@ -852,11 +886,14 @@ class HandlePeopleSuggestTests(unittest.TestCase):
         recap_prompt = generate_text.call_args_list[0].args[0]
         self.assertIn("RELEVANT TRACKS:", recap_prompt)
         self.assertIn("- AI Network", recap_prompt)
-        notion_get.assert_called_once()
-        self.assertEqual(
-            notion_get.call_args.args[0],
-            "https://api.notion.com/v1/pages/track-1",
-        )
+        # Bounded to one GET per distinct Track id (a second notion_get call
+        # is the unrelated Add Interaction Type-schema fetch).
+        track_calls = [
+            call
+            for call in notion_get.call_args_list
+            if call.args[0] == "https://api.notion.com/v1/pages/track-1"
+        ]
+        self.assertEqual(len(track_calls), 1)
 
     def test_multiple_interactions_referencing_the_same_track_resolve_it_once(self):
         notion_post = Mock(
@@ -870,7 +907,9 @@ class HandlePeopleSuggestTests(unittest.TestCase):
                 ),
             ]
         )
-        notion_get = Mock(return_value=notion_get_response(track_page("AI Network")))
+        notion_get = notion_get_with_type_schema(
+            notion_get_response(track_page("AI Network"))
+        )
         post_slack_message = Mock(
             side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
@@ -887,8 +926,15 @@ class HandlePeopleSuggestTests(unittest.TestCase):
             notion_get=notion_get,
         )
 
-        # Bounded to one GET per distinct Track id, never per Interaction.
-        notion_get.assert_called_once()
+        # Bounded to one GET per distinct Track id, never per Interaction (a
+        # second notion_get call is the unrelated Add Interaction
+        # Type-schema fetch).
+        track_calls = [
+            call
+            for call in notion_get.call_args_list
+            if call.args[0] == "https://api.notion.com/v1/pages/track-1"
+        ]
+        self.assertEqual(len(track_calls), 1)
 
     def test_multiple_relevant_tracks_are_all_included(self):
         notion_post = Mock(
@@ -932,7 +978,7 @@ class HandlePeopleSuggestTests(unittest.TestCase):
                 notion_response([interaction_page("2026-08-01", title="Coffee")]),
             ]
         )
-        notion_get = Mock()
+        notion_get = Mock(return_value=interaction_type_schema_response())
         post_slack_message = Mock(
             side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
@@ -951,7 +997,10 @@ class HandlePeopleSuggestTests(unittest.TestCase):
 
         recap_prompt = generate_text.call_args_list[0].args[0]
         self.assertNotIn("RELEVANT TRACKS", recap_prompt)
-        notion_get.assert_not_called()
+        # The only notion_get call is the unrelated Add Interaction
+        # Type-schema fetch, not a Track request.
+        notion_get.assert_called_once()
+        self.assertEqual(notion_get.call_args.args[0], INTERACTIONS_TYPE_SCHEMA_URL)
 
     def test_malformed_track_relation_is_treated_as_no_track(self):
         person = person_page("p1", "Jane Doe")
@@ -962,7 +1011,7 @@ class HandlePeopleSuggestTests(unittest.TestCase):
                 notion_response([]),
             ]
         )
-        notion_get = Mock()
+        notion_get = Mock(return_value=interaction_type_schema_response())
         post_slack_message = Mock(
             side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
@@ -981,7 +1030,10 @@ class HandlePeopleSuggestTests(unittest.TestCase):
 
         recap_prompt = generate_text.call_args_list[0].args[0]
         self.assertNotIn("RELEVANT TRACKS", recap_prompt)
-        notion_get.assert_not_called()
+        # The only notion_get call is the unrelated Add Interaction
+        # Type-schema fetch, not a Track request.
+        notion_get.assert_called_once()
+        self.assertEqual(notion_get.call_args.args[0], INTERACTIONS_TYPE_SCHEMA_URL)
 
     def test_unresolvable_track_is_omitted_without_inventing_a_name(self):
         notion_post = Mock(
@@ -1107,6 +1159,7 @@ class AddInteractionTrackSelectorTests(unittest.TestCase):
             self.environment(),
             today=FIXED_TODAY,
             sleep=Mock(),
+            notion_get=Mock(return_value=interaction_type_schema_response()),
         )
 
         button = self.add_interaction_button(post_slack_message)
@@ -1140,6 +1193,7 @@ class AddInteractionTrackSelectorTests(unittest.TestCase):
             self.environment(),
             today=FIXED_TODAY,
             sleep=Mock(),
+            notion_get=Mock(return_value=interaction_type_schema_response()),
         )
 
         button = self.add_interaction_button(post_slack_message)
@@ -1174,6 +1228,7 @@ class AddInteractionTrackSelectorTests(unittest.TestCase):
             self.environment(),
             today=FIXED_TODAY,
             sleep=Mock(),
+            notion_get=Mock(return_value=interaction_type_schema_response()),
         )
 
         button = self.add_interaction_button(post_slack_message)
@@ -1209,10 +1264,14 @@ class AddInteractionTrackSelectorTests(unittest.TestCase):
             environment,
             today=FIXED_TODAY,
             sleep=Mock(),
+            notion_get=Mock(return_value=interaction_type_schema_response()),
         )
 
         button = self.add_interaction_button(post_slack_message)
-        self.assertEqual(json.loads(button["value"]), {"page_id": "p1", "name": "Jane Doe"})
+        self.assertEqual(
+            json.loads(button["value"]),
+            {"page_id": "p1", "name": "Jane Doe", "types": ["Coffee"]},
+        )
         # No extra Notion call was made to list Tracks.
         self.assertEqual(notion_post.call_count, 2)
 
@@ -1239,11 +1298,15 @@ class AddInteractionTrackSelectorTests(unittest.TestCase):
             self.environment(),
             today=FIXED_TODAY,
             sleep=Mock(),
+            notion_get=Mock(return_value=interaction_type_schema_response()),
         )
 
         # The reply still goes out; Track selection is simply unavailable.
         button = self.add_interaction_button(post_slack_message)
-        self.assertEqual(json.loads(button["value"]), {"page_id": "p1", "name": "Jane Doe"})
+        self.assertEqual(
+            json.loads(button["value"]),
+            {"page_id": "p1", "name": "Jane Doe", "types": ["Coffee"]},
+        )
 
     def test_a_track_listing_credential_failure_does_not_break_the_rest_of_the_reply(self):
         # A 401/403 from Notion raises NotionAuthenticationError, a distinct
@@ -1275,10 +1338,14 @@ class AddInteractionTrackSelectorTests(unittest.TestCase):
             self.environment(),
             today=FIXED_TODAY,
             sleep=Mock(),
+            notion_get=Mock(return_value=interaction_type_schema_response()),
         )
 
         button = self.add_interaction_button(post_slack_message)
-        self.assertEqual(json.loads(button["value"]), {"page_id": "p1", "name": "Jane Doe"})
+        self.assertEqual(
+            json.loads(button["value"]),
+            {"page_id": "p1", "name": "Jane Doe", "types": ["Coffee"]},
+        )
         output = post_slack_message.call_args_list[-1].args[0]
         self.assertIn("Suggested message for Jane Doe:", output)
 

@@ -221,7 +221,13 @@ class MainRoutingTests(unittest.TestCase):
         requests_module, google_module, genai_module = self.fake_modules()
         schema_response = Mock()
         schema_response.json.return_value = {
-            "properties": {"Title of interaction": {"type": "title"}}
+            "properties": {
+                "Title of interaction": {"type": "title"},
+                "Type": {
+                    "type": "select",
+                    "select": {"options": [{"name": "Coffee"}]},
+                },
+            }
         }
         requests_module.get.return_value = schema_response
         create_response = Mock()
@@ -278,7 +284,13 @@ class MainRoutingTests(unittest.TestCase):
         requests_module, google_module, genai_module = self.fake_modules()
         schema_response = Mock()
         schema_response.json.return_value = {
-            "properties": {"Title of interaction": {"type": "title"}}
+            "properties": {
+                "Title of interaction": {"type": "title"},
+                "Type": {
+                    "type": "select",
+                    "select": {"options": [{"name": "Coffee"}]},
+                },
+            }
         }
         requests_module.get.return_value = schema_response
         tracks_response = Mock()
@@ -348,6 +360,13 @@ class MainRoutingTests(unittest.TestCase):
 
     def test_authorized_add_interaction_submission_rejects_a_track_not_among_live_tracks(self):
         requests_module, google_module, genai_module = self.fake_modules()
+        type_schema_response = Mock()
+        type_schema_response.json.return_value = {
+            "properties": {
+                "Type": {"type": "select", "select": {"options": [{"name": "Coffee"}]}}
+            }
+        }
+        requests_module.get.return_value = type_schema_response
         tracks_response = Mock()
         tracks_response.json.return_value = {"results": [], "has_more": False}
         reply_response = Mock()
@@ -369,7 +388,7 @@ class MainRoutingTests(unittest.TestCase):
             "SLACK_INTERACTION_DATE": "2026-09-22",
             "SLACK_INTERACTION_TRACK_ID": "forged-track-id",
             "NOTION_API_KEY": "test-notion-token",
-            "NOTION_INTERACTIONS_DATA_SOURCE_ID": "must-not-be-used",
+            "NOTION_INTERACTIONS_DATA_SOURCE_ID": "interactions-id",
             "NOTION_TRACKS_DATA_SOURCE_ID": "tracks-id",
         }
 
@@ -389,13 +408,27 @@ class MainRoutingTests(unittest.TestCase):
             runpy.run_module("main", run_name="__main__")
 
         self.assertEqual(exit_context.exception.code, 0)
-        requests_module.get.assert_not_called()
+        # The Type-schema GET ran (Type validation), but the title-property
+        # GET never did - Track rejection happens first among the two
+        # notion_post-based checks/writes, none of which ran either besides
+        # the Track validation query itself.
+        requests_module.get.assert_called_once()
         genai_module.Client.assert_not_called()
         reply_text = requests_module.post.call_args_list[-1].kwargs["json"]["text"]
         self.assertEqual(reply_text, "Unable to add that interaction. Please try again.")
 
     def test_add_interaction_invalid_type_is_rejected_before_notion(self):
+        # "Before Notion" now means before any Notion *write*: rejecting an
+        # unknown Type still requires reading the live Type schema (issue
+        # #17), since Notion - not a hardcoded list - is the hard guardrail.
         requests_module, google_module, genai_module = self.fake_modules()
+        type_schema_response = Mock()
+        type_schema_response.json.return_value = {
+            "properties": {
+                "Type": {"type": "select", "select": {"options": [{"name": "Coffee"}]}}
+            }
+        }
+        requests_module.get.return_value = type_schema_response
         environment = {
             "SLACK_EVENT_TYPE": "view_submission",
             "SLACK_TEXT": "",
@@ -409,8 +442,8 @@ class MainRoutingTests(unittest.TestCase):
             "SLACK_INTERACTION_TYPE": "Linkedon",
             "SLACK_INTERACTION_NOTES": "Notes",
             "SLACK_INTERACTION_DATE": "2026-09-22",
-            "NOTION_API_KEY": "must-not-be-used",
-            "NOTION_INTERACTIONS_DATA_SOURCE_ID": "must-not-be-used",
+            "NOTION_API_KEY": "test-notion-token",
+            "NOTION_INTERACTIONS_DATA_SOURCE_ID": "interactions-id",
         }
         reply_response = Mock()
         reply_response.json.return_value = {"ok": True}
@@ -432,7 +465,9 @@ class MainRoutingTests(unittest.TestCase):
             runpy.run_module("main", run_name="__main__")
 
         self.assertEqual(exit_context.exception.code, 0)
-        requests_module.get.assert_not_called()
+        # Only the Type-schema GET happened; the Interaction was never
+        # written (no POST to /v1/pages).
+        requests_module.get.assert_called_once()
         genai_module.Client.assert_not_called()
         requests_module.post.assert_called_once()
         reply_text = requests_module.post.call_args.kwargs["json"]["text"]
@@ -671,6 +706,13 @@ class MainRoutingTests(unittest.TestCase):
             interactions_response,
             reply_response,
         ]
+        type_schema_response = Mock()
+        type_schema_response.json.return_value = {
+            "properties": {
+                "Type": {"type": "select", "select": {"options": [{"name": "Coffee"}]}}
+            }
+        }
+        requests_module.get.return_value = type_schema_response
 
         client = Mock()
         client.interactions.create.return_value.output_text = "Hey Jane!"
@@ -707,7 +749,8 @@ class MainRoutingTests(unittest.TestCase):
             runpy.run_module("main", run_name="__main__")
 
         self.assertEqual(exit_context.exception.code, 0)
-        requests_module.get.assert_not_called()
+        # The only GET is the Add Interaction button's Type-schema fetch.
+        requests_module.get.assert_called_once()
         # One Gemini call drafts the recap, another drafts the reconnect
         # message; each currently creates its own Client, as before.
         self.assertEqual(genai_module.Client.call_count, 2)

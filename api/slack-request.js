@@ -10,22 +10,6 @@ const PEOPLE_SUGGEST_ACTION_ID = "people_suggest";
 const ADD_INTERACTION_ACTION_ID = "people_add_interaction";
 const ADD_INTERACTION_CALLBACK_ID = "add_interaction_modal";
 
-// Display-only mirror of ALLOWED_INTERACTION_TYPES in people_interaction.py.
-// The Python write path independently validates the submitted value against
-// that list before ever calling Notion; this array only controls what the
-// Slack dropdown offers, so it is not itself a security boundary.
-const INTERACTION_TYPE_OPTIONS = [
-  "Coffee",
-  "Network Meeting",
-  "Meeting",
-  "LinkedIn Message",
-  "Online meeting",
-  "Lunch",
-  "LinkedIn invite",
-  "Walk",
-  "Phone call",
-];
-
 function copenhagenToday(now) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Copenhagen",
@@ -53,6 +37,13 @@ function parseTrackOptions(value) {
   return tracks;
 }
 
+function parseInteractionTypeOptions(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((entry) => typeof entry === "string" && entry);
+}
+
 function parseAddInteractionButtonValue(value) {
   try {
     const parsed = JSON.parse(value);
@@ -65,14 +56,15 @@ function parseAddInteractionButtonValue(value) {
       return {
         pageId: parsed.page_id,
         name: parsed.name,
-        // Both already resolved from Notion by people_suggest.py and
-        // carried forward opaquely, exactly like page_id/name above - this
-        // handler never queries Notion itself.
+        // All of these are already resolved from Notion by
+        // people_suggest.py and carried forward opaquely, exactly like
+        // page_id/name above - this handler never queries Notion itself.
         tracks: parseTrackOptions(parsed.tracks),
         defaultTrackId:
           typeof parsed?.default_track_id === "string" && parsed.default_track_id
             ? parsed.default_track_id
             : null,
+        types: parseInteractionTypeOptions(parsed.types),
       };
     }
   } catch {
@@ -115,6 +107,7 @@ function buildAddInteractionView(
   userId,
   threadTs,
   today,
+  interactionTypes,
   tracks = [],
   defaultTrackId = null
 ) {
@@ -130,7 +123,13 @@ function buildAddInteractionView(
       element: {
         type: "static_select",
         action_id: "type_select",
-        options: INTERACTION_TYPE_OPTIONS.map((option) => ({
+        // Resolved from the live Notion Type schema by people_suggest.py
+        // and carried forward via the button's value - see
+        // parseInteractionTypeOptions above. This dropdown is only a
+        // usability guardrail; people_interaction.py independently
+        // re-validates the submitted value against Notion before any
+        // write.
+        options: interactionTypes.map((option) => ({
           text: { type: "plain_text", text: option },
           value: option,
         })),
@@ -372,7 +371,12 @@ export async function handleSlackRequest(
           !request.headers.get("x-slack-retry-num")
         ) {
           const person = parseAddInteractionButtonValue(action.value ?? "");
-          if (person && openModal) {
+          // Slack rejects a static_select with an empty options array, so a
+          // button value with no Type options (which people_suggest.py
+          // never produces - see build_suggestion_blocks) must not reach
+          // openModal at all, rather than open a modal with a broken Type
+          // field.
+          if (person && person.types.length > 0 && openModal) {
             const channelId = body.channel?.id ?? "";
             const threadTs = body.message?.thread_ts || body.message?.ts || "";
             await openModal(
@@ -384,6 +388,7 @@ export async function handleSlackRequest(
                 body.user?.id ?? "",
                 threadTs,
                 copenhagenToday(now),
+                person.types,
                 person.tracks,
                 person.defaultTrackId
               )
