@@ -34,6 +34,11 @@ jobs:
           SLACK_THREAD_TS: ${{ github.event.client_payload.thread_ts }}
           SLACK_CHANNEL_TYPE: ${{ github.event.client_payload.channel_type }}
           SLACK_EVENT_TYPE: ${{ github.event.client_payload.slack_event_type }}
+          SLACK_PERSON_PAGE_ID: ${{ github.event.client_payload.person_page_id }}
+          SLACK_PERSON_NAME: ${{ github.event.client_payload.person_name }}
+          SLACK_INTERACTION_TYPE: ${{ github.event.client_payload.interaction_type }}
+          SLACK_INTERACTION_NOTES: ${{ github.event.client_payload.notes }}
+          SLACK_INTERACTION_DATE: ${{ github.event.client_payload.date }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           AUTHORIZED_SLACK_USER_ID: ${{ secrets.AUTHORIZED_SLACK_USER_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

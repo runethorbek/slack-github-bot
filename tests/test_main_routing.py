@@ -177,6 +177,148 @@ class MainRoutingTests(unittest.TestCase):
                 requests_module.get.assert_not_called()
                 genai_module.Client.assert_not_called()
 
+    def test_unauthorized_add_interaction_submission_stops_before_notion(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        environment = {
+            "SLACK_EVENT_TYPE": "view_submission",
+            "SLACK_TEXT": "",
+            "SLACK_CHANNEL_ID": "D-private",
+            "SLACK_USER_ID": "U-other",
+            "SLACK_CHANNEL_TYPE": "im",
+            "SLACK_BOT_TOKEN": "test-slack-token",
+            "AUTHORIZED_SLACK_USER_ID": "U-authorized",
+            "TASKS_SLACK_CHANNEL_ID": "C-allowed",
+            "SLACK_PERSON_PAGE_ID": "person-page-id",
+            "SLACK_PERSON_NAME": "Jane Doe",
+            "SLACK_INTERACTION_TYPE": "Coffee",
+            "SLACK_INTERACTION_NOTES": "Notes",
+            "SLACK_INTERACTION_DATE": "2026-09-22",
+            "NOTION_API_KEY": "must-not-be-used",
+            "NOTION_INTERACTIONS_DATA_SOURCE_ID": "must-not-be-used",
+        }
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(
+                sys.modules,
+                {
+                    "requests": requests_module,
+                    "google": google_module,
+                    "google.genai": genai_module,
+                },
+            ),
+            patch("builtins.print"),
+            self.assertRaises(SystemExit) as exit_context,
+        ):
+            runpy.run_module("main", run_name="__main__")
+
+        self.assertEqual(exit_context.exception.code, 0)
+        requests_module.post.assert_not_called()
+        requests_module.get.assert_not_called()
+        genai_module.Client.assert_not_called()
+
+    def test_authorized_add_interaction_submission_writes_the_interaction_without_gemini(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        schema_response = Mock()
+        schema_response.json.return_value = {
+            "properties": {"Title of interaction": {"type": "title"}}
+        }
+        requests_module.get.return_value = schema_response
+        create_response = Mock()
+        create_response.json.return_value = {"id": "new-interaction-id"}
+        reply_response = Mock()
+        reply_response.json.return_value = {"ok": True}
+        requests_module.post.side_effect = [create_response, reply_response]
+
+        environment = {
+            "SLACK_EVENT_TYPE": "view_submission",
+            "SLACK_TEXT": "",
+            "SLACK_CHANNEL_ID": "D-private",
+            "SLACK_USER_ID": "U-authorized",
+            "SLACK_CHANNEL_TYPE": "im",
+            "SLACK_BOT_TOKEN": "test-slack-token",
+            "AUTHORIZED_SLACK_USER_ID": "U-authorized",
+            "TASKS_SLACK_CHANNEL_ID": "C-allowed",
+            "SLACK_PERSON_PAGE_ID": "person-page-id",
+            "SLACK_PERSON_NAME": "Jane Doe",
+            "SLACK_INTERACTION_TYPE": "Coffee",
+            "SLACK_INTERACTION_NOTES": "Caught up over coffee.",
+            "SLACK_INTERACTION_DATE": "2026-09-22",
+            "NOTION_API_KEY": "test-notion-token",
+            "NOTION_INTERACTIONS_DATA_SOURCE_ID": "interactions-id",
+        }
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(
+                sys.modules,
+                {
+                    "requests": requests_module,
+                    "google": google_module,
+                    "google.genai": genai_module,
+                },
+            ),
+            patch("builtins.print"),
+            self.assertRaises(SystemExit) as exit_context,
+        ):
+            runpy.run_module("main", run_name="__main__")
+
+        self.assertEqual(exit_context.exception.code, 0)
+        genai_module.Client.assert_not_called()
+        create_call = requests_module.post.call_args_list[0]
+        self.assertEqual(create_call.args[0], "https://api.notion.com/v1/pages")
+        properties = create_call.kwargs["json"]["properties"]
+        self.assertEqual(
+            properties["People"], {"relation": [{"id": "person-page-id"}]}
+        )
+        reply_text = requests_module.post.call_args_list[-1].kwargs["json"]["text"]
+        self.assertEqual(reply_text, "Interaction added for Jane Doe.")
+
+    def test_add_interaction_invalid_type_is_rejected_before_notion(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        environment = {
+            "SLACK_EVENT_TYPE": "view_submission",
+            "SLACK_TEXT": "",
+            "SLACK_CHANNEL_ID": "D-private",
+            "SLACK_USER_ID": "U-authorized",
+            "SLACK_CHANNEL_TYPE": "im",
+            "SLACK_BOT_TOKEN": "test-slack-token",
+            "AUTHORIZED_SLACK_USER_ID": "U-authorized",
+            "TASKS_SLACK_CHANNEL_ID": "C-allowed",
+            "SLACK_PERSON_PAGE_ID": "person-page-id",
+            "SLACK_PERSON_NAME": "Jane Doe",
+            "SLACK_INTERACTION_TYPE": "Linkedon",
+            "SLACK_INTERACTION_NOTES": "Notes",
+            "SLACK_INTERACTION_DATE": "2026-09-22",
+            "NOTION_API_KEY": "must-not-be-used",
+            "NOTION_INTERACTIONS_DATA_SOURCE_ID": "must-not-be-used",
+        }
+        reply_response = Mock()
+        reply_response.json.return_value = {"ok": True}
+        requests_module.post.return_value = reply_response
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(
+                sys.modules,
+                {
+                    "requests": requests_module,
+                    "google": google_module,
+                    "google.genai": genai_module,
+                },
+            ),
+            patch("builtins.print"),
+            self.assertRaises(SystemExit) as exit_context,
+        ):
+            runpy.run_module("main", run_name="__main__")
+
+        self.assertEqual(exit_context.exception.code, 0)
+        requests_module.get.assert_not_called()
+        genai_module.Client.assert_not_called()
+        requests_module.post.assert_called_once()
+        reply_text = requests_module.post.call_args.kwargs["json"]["text"]
+        self.assertEqual(reply_text, "Unable to add that interaction. Please try again.")
+
     def test_people_from_another_channel_is_rejected_before_notion(self):
         requests_module, google_module, genai_module = self.fake_modules()
         environment = {

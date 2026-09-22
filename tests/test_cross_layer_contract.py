@@ -10,6 +10,39 @@ from unittest.mock import Mock, patch
 
 
 class SlackToPythonContractTests(unittest.TestCase):
+    def test_js_interaction_type_dropdown_matches_the_python_allowlist_exactly(self):
+        """The Slack dropdown is display-only; Python is the security boundary.
+
+        If these two lists ever drift, either the dropdown could stop
+        offering a legitimate value, or - the unsafe direction - Python's
+        allowlist could end up silently narrower than what the modal
+        offers. Pinning them equal makes drift a visible, reviewed change.
+        """
+        from people_interaction import ALLOWED_INTERACTION_TYPES
+
+        script = r"""
+import { readFileSync } from "node:fs";
+
+const source = readFileSync("api/slack-request.js", "utf8");
+const match = source.match(/const INTERACTION_TYPE_OPTIONS = (\[[\s\S]*?\]);/);
+if (!match) {
+  throw new Error("INTERACTION_TYPE_OPTIONS not found");
+}
+const options = JSON.parse(match[1].replace(/,(\s*\])/g, "$1"));
+process.stdout.write(JSON.stringify(options));
+"""
+        repository_root = Path(__file__).resolve().parents[1]
+        completed = subprocess.run(
+            ["node", "--input-type=module", "--eval", script],
+            cwd=repository_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        js_options = json.loads(completed.stdout)
+
+        self.assertEqual(tuple(js_options), ALLOWED_INTERACTION_TYPES)
+
     def test_signed_root_dm_reaches_authorized_python_route_with_transport_identity(self):
         payload = self.capture_javascript_dm_dispatch()
         self.assertEqual(payload["user_id"], "U-authorized")

@@ -43,10 +43,12 @@ function slackRequest(
 function testDependencies() {
   const dispatched = [];
   const deferred = [];
+  const openedModals = [];
 
   return {
     dispatched,
     deferred,
+    openedModals,
     options: {
       signingSecret: SIGNING_SECRET,
       now: () => NOW_SECONDS * 1000,
@@ -55,6 +57,9 @@ function testDependencies() {
       },
       defer: (promise) => {
         deferred.push(promise);
+      },
+      openModal: async (triggerId, view) => {
+        openedModals.push({ triggerId, view });
       },
     },
   };
@@ -611,4 +616,261 @@ test("bot messages and top-level messages are acknowledged without dispatch", as
       assert.deepEqual(dependencies.deferred, []);
     });
   }
+});
+
+function addInteractionButtonClickBody(overrides = {}) {
+  return new URLSearchParams({
+    payload: JSON.stringify({
+      type: "block_actions",
+      trigger_id: "trigger-123",
+      actions: [
+        {
+          action_id: "people_add_interaction",
+          value: JSON.stringify({ page_id: "person-page-id", name: "Jane Doe" }),
+        },
+      ],
+      channel: { id: "C123" },
+      user: { id: "U123" },
+      message: { ts: "111.111", thread_ts: "100.001" },
+      ...overrides,
+    }),
+  }).toString();
+}
+
+test("clicking Add Interaction opens a modal carrying the Person page id and thread, without dispatching to GitHub", async () => {
+  const body = addInteractionButtonClickBody();
+  const dependencies = testDependencies();
+
+  const response = await handleSlackRequest(
+    slackRequest(body),
+    dependencies.options
+  );
+  await Promise.all(dependencies.deferred);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(dependencies.dispatched, []);
+  assert.equal(dependencies.openedModals.length, 1);
+  const { triggerId, view } = dependencies.openedModals[0];
+  assert.equal(triggerId, "trigger-123");
+  assert.equal(view.callback_id, "add_interaction_modal");
+
+  const metadata = JSON.parse(view.private_metadata);
+  assert.deepEqual(metadata, {
+    person_page_id: "person-page-id",
+    person_name: "Jane Doe",
+    channel_id: "C123",
+    user_id: "U123",
+    thread_ts: "100.001",
+  });
+
+  const typeBlock = view.blocks.find((block) => block.block_id === "type_block");
+  assert.equal(typeBlock.element.type, "static_select");
+  assert.ok(typeBlock.element.options.length > 0);
+  assert.ok(
+    typeBlock.element.options.every(
+      (option) => option.text.text === option.value
+    )
+  );
+});
+
+test("a suggestion message that is itself a thread root falls back to its own ts", async () => {
+  const body = addInteractionButtonClickBody({
+    message: { ts: "111.111" },
+  });
+  const dependencies = testDependencies();
+
+  await handleSlackRequest(slackRequest(body), dependencies.options);
+
+  const metadata = JSON.parse(dependencies.openedModals[0].view.private_metadata);
+  assert.equal(metadata.thread_ts, "111.111");
+});
+
+test("an Add Interaction click without a trigger_id does not open a modal", async () => {
+  const body = addInteractionButtonClickBody({ trigger_id: undefined });
+  const dependencies = testDependencies();
+
+  const response = await handleSlackRequest(
+    slackRequest(body),
+    dependencies.options
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(dependencies.openedModals, []);
+});
+
+test("a retried Add Interaction click does not open a second modal", async () => {
+  const body = addInteractionButtonClickBody();
+  const dependencies = testDependencies();
+  const headers = new Headers({
+    "content-type": "application/x-www-form-urlencoded",
+    "x-slack-request-timestamp": String(NOW_SECONDS),
+    "x-slack-signature": sign(body),
+    "x-slack-retry-num": "1",
+  });
+  const request = new Request("https://example.test/api/slack", {
+    method: "POST",
+    headers,
+    body,
+  });
+
+  const response = await handleSlackRequest(request, dependencies.options);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(dependencies.openedModals, []);
+});
+
+test("a malformed Add Interaction button value does not open a modal", async () => {
+  const body = new URLSearchParams({
+    payload: JSON.stringify({
+      type: "block_actions",
+      trigger_id: "trigger-123",
+      actions: [{ action_id: "people_add_interaction", value: "not-json" }],
+      channel: { id: "C123" },
+      user: { id: "U123" },
+    }),
+  }).toString();
+  const dependencies = testDependencies();
+
+  const response = await handleSlackRequest(
+    slackRequest(body),
+    dependencies.options
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(dependencies.openedModals, []);
+});
+
+function addInteractionSubmissionBody() {
+  return new URLSearchParams({
+    payload: JSON.stringify({
+      type: "view_submission",
+      view: {
+        callback_id: "add_interaction_modal",
+        private_metadata: JSON.stringify({
+          person_page_id: "person-page-id",
+          person_name: "Jane Doe",
+          channel_id: "C123",
+          user_id: "U123",
+          thread_ts: "100.001",
+        }),
+        state: {
+          values: {
+            type_block: {
+              type_select: { selected_option: { value: "Coffee" } },
+            },
+            notes_block: { notes_input: { value: "Caught up over coffee." } },
+            date_block: { date_select: { selected_date: "2026-09-22" } },
+          },
+        },
+      },
+    }),
+  }).toString();
+}
+
+test("submitting the Add Interaction modal dispatches the structured write to GitHub, not the modal-open path", async () => {
+  const body = addInteractionSubmissionBody();
+  const dependencies = testDependencies();
+
+  const response = await handleSlackRequest(
+    slackRequest(body),
+    dependencies.options
+  );
+  await Promise.all(dependencies.deferred);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {});
+  assert.deepEqual(dependencies.dispatched, [
+    {
+      command: "",
+      text: "",
+      response_url: "",
+      channel_id: "C123",
+      user_id: "U123",
+      channel_type: "channel",
+      thread_ts: "100.001",
+      slack_event_type: "view_submission",
+      person_page_id: "person-page-id",
+      person_name: "Jane Doe",
+      interaction_type: "Coffee",
+      notes: "Caught up over coffee.",
+      date: "2026-09-22",
+    },
+  ]);
+});
+
+test("a DM's Add Interaction submission preserves channel_type identity", async () => {
+  const body = new URLSearchParams({
+    payload: JSON.stringify({
+      type: "view_submission",
+      view: {
+        callback_id: "add_interaction_modal",
+        private_metadata: JSON.stringify({
+          person_page_id: "person-page-id",
+          person_name: "Jane Doe",
+          channel_id: "D123",
+          user_id: "U123",
+        }),
+        state: {
+          values: {
+            type_block: {
+              type_select: { selected_option: { value: "Coffee" } },
+            },
+            notes_block: { notes_input: { value: "" } },
+            date_block: { date_select: { selected_date: "2026-09-22" } },
+          },
+        },
+      },
+    }),
+  }).toString();
+  const dependencies = testDependencies();
+
+  await handleSlackRequest(slackRequest(body), dependencies.options);
+  await Promise.all(dependencies.deferred);
+
+  assert.equal(dependencies.dispatched[0].channel_type, "im");
+});
+
+test("a retried Add Interaction submission is acknowledged without a second dispatch", async () => {
+  const body = addInteractionSubmissionBody();
+  const dependencies = testDependencies();
+  const headers = new Headers({
+    "content-type": "application/x-www-form-urlencoded",
+    "x-slack-request-timestamp": String(NOW_SECONDS),
+    "x-slack-signature": sign(body),
+    "x-slack-retry-num": "1",
+  });
+  const request = new Request("https://example.test/api/slack", {
+    method: "POST",
+    headers,
+    body,
+  });
+
+  const response = await handleSlackRequest(request, dependencies.options);
+  await Promise.all(dependencies.deferred);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(dependencies.dispatched, []);
+});
+
+test("a view_submission for a different modal is ignored without dispatch", async () => {
+  const body = new URLSearchParams({
+    payload: JSON.stringify({
+      type: "view_submission",
+      view: {
+        callback_id: "some_other_modal",
+        private_metadata: "{}",
+        state: { values: {} },
+      },
+    }),
+  }).toString();
+  const dependencies = testDependencies();
+
+  const response = await handleSlackRequest(
+    slackRequest(body),
+    dependencies.options
+  );
+  await Promise.all(dependencies.deferred);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(dependencies.dispatched, []);
 });

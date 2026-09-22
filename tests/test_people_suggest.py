@@ -1,11 +1,14 @@
+import json
 import unittest
 from datetime import date
 from unittest.mock import Mock
 
 from people_due import PeopleDueCommandError
+from people_interaction import ADD_INTERACTION_ACTION_ID
 from people_suggest import (
     MAX_SUGGESTION_INTERACTIONS,
     PEOPLE_SUGGEST_FAILURE_MESSAGE,
+    SLACK_SECTION_TEXT_LIMIT,
     ambiguous_person_message,
     build_suggestion_prompt,
     extract_property_text,
@@ -286,7 +289,7 @@ class HandlePeopleSuggestTests(unittest.TestCase):
             ]
         )
         post_slack_message = Mock(
-            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
         generate_text = Mock(return_value="Hey Jane, been a while!")
 
@@ -310,6 +313,70 @@ class HandlePeopleSuggestTests(unittest.TestCase):
             [PEOPLE_URL, INTERACTIONS_URL],
         )
 
+    def test_reply_includes_an_add_interaction_button_carrying_the_person_page_id(self):
+        notion_post = Mock(
+            side_effect=[
+                notion_response([person_page("p1", "Jane Doe")]),
+                notion_response([]),
+            ]
+        )
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
+        )
+        generate_text = Mock(return_value="Hey Jane, been a while!")
+
+        handle_people_suggest(
+            "Jane Doe",
+            post_slack_message,
+            notion_post,
+            generate_text,
+            self.environment(),
+            today=FIXED_TODAY,
+            sleep=Mock(),
+        )
+
+        blocks = post_slack_message.call_args_list[-1].kwargs["blocks"]
+        actions_block = next(block for block in blocks if block["type"] == "actions")
+        button = actions_block["elements"][0]
+        self.assertEqual(button["action_id"], ADD_INTERACTION_ACTION_ID)
+        self.assertEqual(
+            json.loads(button["value"]), {"page_id": "p1", "name": "Jane Doe"}
+        )
+
+    def test_an_oversized_gemini_draft_is_truncated_to_slacks_block_text_limit(self):
+        # Gemini's output has no length cap of its own; a draft over Slack's
+        # ~3000-char section-block limit must not break the reply.
+        notion_post = Mock(
+            side_effect=[
+                notion_response([person_page("p1", "Jane Doe")]),
+                notion_response([]),
+            ]
+        )
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
+        )
+        oversized_draft = "x" * 4000
+        generate_text = Mock(return_value=oversized_draft)
+
+        handle_people_suggest(
+            "Jane Doe",
+            post_slack_message,
+            notion_post,
+            generate_text,
+            self.environment(),
+            today=FIXED_TODAY,
+            sleep=Mock(),
+        )
+
+        # The plain-text fallback (a much higher Slack limit) keeps the full
+        # draft; only the rendered section block is truncated.
+        output = post_slack_message.call_args_list[-1].args[0]
+        self.assertIn(oversized_draft, output)
+
+        blocks = post_slack_message.call_args_list[-1].kwargs["blocks"]
+        section_text = blocks[0]["text"]["text"]
+        self.assertLessEqual(len(section_text), SLACK_SECTION_TEXT_LIMIT)
+
     def test_case_insensitive_input_still_resolves(self):
         notion_post = Mock(
             side_effect=[
@@ -318,7 +385,7 @@ class HandlePeopleSuggestTests(unittest.TestCase):
             ]
         )
         post_slack_message = Mock(
-            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
         generate_text = Mock(return_value="Draft")
 
@@ -338,7 +405,7 @@ class HandlePeopleSuggestTests(unittest.TestCase):
     def test_person_not_found_produces_a_clear_message_without_calling_gemini(self):
         notion_post = Mock(return_value=notion_response([]))
         post_slack_message = Mock(
-            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
         generate_text = Mock()
 
@@ -365,7 +432,7 @@ class HandlePeopleSuggestTests(unittest.TestCase):
             )
         )
         post_slack_message = Mock(
-            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
         generate_text = Mock()
 
@@ -391,7 +458,7 @@ class HandlePeopleSuggestTests(unittest.TestCase):
             ]
         )
         post_slack_message = Mock(
-            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
         generate_text = Mock(return_value="Generic honest draft")
 
@@ -433,7 +500,7 @@ class HandlePeopleSuggestTests(unittest.TestCase):
             ]
         )
         post_slack_message = Mock(
-            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
         generate_text = Mock(return_value="Draft")
 
@@ -461,7 +528,7 @@ class HandlePeopleSuggestTests(unittest.TestCase):
         failing.json.return_value = {"results": "not-a-list"}
         notion_post = Mock(return_value=failing)
         post_slack_message = Mock(
-            side_effect=lambda message, thread_ts=None: {"ts": "123.456"}
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
         generate_text = Mock()
 

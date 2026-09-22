@@ -8,6 +8,7 @@ from people_due import (
     fetch_notion_pages,
     query_data_source,
 )
+from people_interaction import add_interaction_button
 from tasks_list import copenhagen_today
 
 
@@ -15,6 +16,11 @@ PEOPLE_SUGGEST_FAILURE_MESSAGE = (
     "Unable to prepare a suggested message right now. Please try again later."
 )
 MAX_SUGGESTION_INTERACTIONS = 5
+
+# Slack rejects a section block whose mrkdwn text exceeds this length. Gemini's
+# draft has no length cap of its own, so the block (not the plain-text
+# fallback, which has a much higher limit) must be defensively truncated.
+SLACK_SECTION_TEXT_LIMIT = 3000
 
 # Notion People property display names, exactly as named in the schema.
 PERSON_CONTEXT_PROPERTIES = (
@@ -131,8 +137,11 @@ def handle_people_suggest(
 
     prompt = build_suggestion_prompt(profile, interactions)
     answer = generate_text(prompt).strip()
+    message = format_suggestion_message(profile.name, answer)
     post_slack_message(
-        format_suggestion_message(profile.name, answer), thread_ts=root_message["ts"]
+        message,
+        thread_ts=root_message["ts"],
+        blocks=build_suggestion_blocks(profile, message),
     )
 
 
@@ -335,3 +344,26 @@ def formatted_interaction_fields(interaction):
 
 def format_suggestion_message(person_name, answer):
     return f"Suggested message for {person_name}:\n\n{answer}"
+
+
+def build_suggestion_blocks(profile, message_text):
+    return [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": truncate_for_slack_section(message_text),
+            },
+        },
+        {
+            "type": "actions",
+            "elements": [add_interaction_button(profile.page_id, profile.name)],
+        },
+    ]
+
+
+def truncate_for_slack_section(text):
+    if len(text) <= SLACK_SECTION_TEXT_LIMIT:
+        return text
+    suffix = "…"
+    return text[: SLACK_SECTION_TEXT_LIMIT - len(suffix)] + suffix

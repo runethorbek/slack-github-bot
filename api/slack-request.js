@@ -5,6 +5,144 @@ const MAX_REQUEST_AGE_SECONDS = 5 * 60;
 // Matches PEOPLE_SUGGEST_ACTION_ID in people_due.py.
 const PEOPLE_SUGGEST_ACTION_ID = "people_suggest";
 
+// Matches ADD_INTERACTION_ACTION_ID / ADD_INTERACTION_CALLBACK_ID in
+// people_interaction.py.
+const ADD_INTERACTION_ACTION_ID = "people_add_interaction";
+const ADD_INTERACTION_CALLBACK_ID = "add_interaction_modal";
+
+// Display-only mirror of ALLOWED_INTERACTION_TYPES in people_interaction.py.
+// The Python write path independently validates the submitted value against
+// that list before ever calling Notion; this array only controls what the
+// Slack dropdown offers, so it is not itself a security boundary.
+const INTERACTION_TYPE_OPTIONS = [
+  "Coffee",
+  "Network Meeting",
+  "Meeting",
+  "LinkedIn Message",
+  "Online meeting",
+  "Lunch",
+  "LinkedIn invite",
+  "Walk",
+  "Phone call",
+];
+
+function copenhagenToday(now) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Copenhagen",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(now()));
+}
+
+function parseAddInteractionButtonValue(value) {
+  try {
+    const parsed = JSON.parse(value);
+    if (
+      typeof parsed?.page_id === "string" &&
+      parsed.page_id &&
+      typeof parsed?.name === "string" &&
+      parsed.name
+    ) {
+      return { pageId: parsed.page_id, name: parsed.name };
+    }
+  } catch {
+    // Malformed button value; treated as absent below.
+  }
+  return null;
+}
+
+function parseAddInteractionPrivateMetadata(value) {
+  try {
+    const parsed = JSON.parse(value ?? "");
+    if (
+      typeof parsed?.channel_id === "string" &&
+      parsed.channel_id &&
+      typeof parsed?.user_id === "string" &&
+      parsed.user_id &&
+      typeof parsed?.person_page_id === "string" &&
+      parsed.person_page_id &&
+      typeof parsed?.person_name === "string" &&
+      parsed.person_name
+    ) {
+      // thread_ts is a best-effort convenience (keeps the reply in the same
+      // Slack thread as the suggestion message), not essential identity, so
+      // its absence does not invalidate the rest of the metadata.
+      return {
+        ...parsed,
+        thread_ts: typeof parsed.thread_ts === "string" ? parsed.thread_ts : "",
+      };
+    }
+  } catch {
+    // Malformed private_metadata; treated as absent below.
+  }
+  return null;
+}
+
+function buildAddInteractionView(
+  personPageId,
+  personName,
+  channelId,
+  userId,
+  threadTs,
+  today
+) {
+  return {
+    type: "modal",
+    callback_id: ADD_INTERACTION_CALLBACK_ID,
+    private_metadata: JSON.stringify({
+      person_page_id: personPageId,
+      person_name: personName,
+      channel_id: channelId,
+      user_id: userId,
+      thread_ts: threadTs,
+    }),
+    title: { type: "plain_text", text: "Add interaction" },
+    submit: { type: "plain_text", text: "Save" },
+    close: { type: "plain_text", text: "Cancel" },
+    blocks: [
+      {
+        type: "section",
+        text: { type: "mrkdwn", text: `*Person:* ${personName}` },
+      },
+      {
+        type: "input",
+        block_id: "type_block",
+        label: { type: "plain_text", text: "Type" },
+        element: {
+          type: "static_select",
+          action_id: "type_select",
+          options: INTERACTION_TYPE_OPTIONS.map((option) => ({
+            text: { type: "plain_text", text: option },
+            value: option,
+          })),
+        },
+      },
+      {
+        type: "input",
+        block_id: "notes_block",
+        optional: true,
+        label: { type: "plain_text", text: "Notes" },
+        element: {
+          type: "plain_text_input",
+          action_id: "notes_input",
+          multiline: true,
+        },
+      },
+      {
+        type: "input",
+        block_id: "date_block",
+        label: { type: "plain_text", text: "Date" },
+        element: {
+          type: "datepicker",
+          action_id: "date_select",
+          initial_date: today,
+        },
+      },
+    ],
+  };
+}
+
 function commandChannelType(channelId) {
   // Slack slash-command and interaction payloads do not include the Events
   // API's channel_type field. Slack DM conversation IDs begin with D.
@@ -44,7 +182,7 @@ export function hasValidSlackSignature(
 
 export async function handleSlackRequest(
   request,
-  { signingSecret, triggerGitHub, defer, now = Date.now }
+  { signingSecret, triggerGitHub, defer, openModal, now = Date.now }
 ) {
   try {
     const rawBody = Buffer.from(await request.arrayBuffer());
@@ -141,24 +279,105 @@ export async function handleSlackRequest(
     const interactionPayload = formData.get("payload");
     if (interactionPayload !== null) {
       const body = JSON.parse(interactionPayload);
-      const action = body?.actions?.[0];
-      const personName =
-        action?.action_id === PEOPLE_SUGGEST_ACTION_ID ? action.value : "";
 
-      if (body?.type === "block_actions" && personName) {
-        const channelId = body.channel?.id ?? "";
-        defer(
-          triggerGitHub({
-            command: "/people",
-            text: `suggest ${personName}`,
-            response_url: body.response_url ?? "",
-            channel_id: channelId,
-            user_id: body.user?.id ?? "",
-            channel_type: commandChannelType(channelId),
-            thread_ts: "",
-            slack_event_type: "block_actions",
-          })
+      if (body?.type === "block_actions") {
+        const action = body?.actions?.[0];
+        const personName =
+          action?.action_id === PEOPLE_SUGGEST_ACTION_ID ? action.value : "";
+
+        if (personName) {
+          const channelId = body.channel?.id ?? "";
+          defer(
+            triggerGitHub({
+              command: "/people",
+              text: `suggest ${personName}`,
+              response_url: body.response_url ?? "",
+              channel_id: channelId,
+              user_id: body.user?.id ?? "",
+              channel_type: commandChannelType(channelId),
+              thread_ts: "",
+              slack_event_type: "block_actions",
+            })
+          );
+        } else if (
+          action?.action_id === ADD_INTERACTION_ACTION_ID &&
+          body.trigger_id &&
+          // opening the modal is a real network call awaited below, unlike
+          // every other branch here, so it can push the ack past Slack's
+          // window and trigger a retried delivery of this same click. Without
+          // this guard that retry would open a second modal.
+          !request.headers.get("x-slack-retry-num")
+        ) {
+          const person = parseAddInteractionButtonValue(action.value ?? "");
+          if (person && openModal) {
+            const channelId = body.channel?.id ?? "";
+            const threadTs = body.message?.thread_ts || body.message?.ts || "";
+            await openModal(
+              body.trigger_id,
+              buildAddInteractionView(
+                person.pageId,
+                person.name,
+                channelId,
+                body.user?.id ?? "",
+                threadTs,
+                copenhagenToday(now)
+              )
+            );
+          }
+        }
+
+        return new Response("", { status: 200 });
+      }
+
+      // -----------------------------------------------------
+      // Add Interaction modal submission
+      // -----------------------------------------------------
+      //
+      // The trigger_id used to open this modal already expired by the time
+      // the modal is submitted, so the actual Notion write happens later,
+      // asynchronously, exactly like every other command dispatch.
+      if (
+        body?.type === "view_submission" &&
+        body?.view?.callback_id === ADD_INTERACTION_CALLBACK_ID
+      ) {
+        // A Slack retry of an already-handled submission must not trigger a
+        // second Interaction write.
+        if (request.headers.get("x-slack-retry-num")) {
+          return new Response("", { status: 200 });
+        }
+
+        const metadata = parseAddInteractionPrivateMetadata(
+          body.view?.private_metadata
         );
+
+        if (metadata) {
+          const values = body.view?.state?.values ?? {};
+          const interactionType =
+            values.type_block?.type_select?.selected_option?.value ?? "";
+          const notes = values.notes_block?.notes_input?.value ?? "";
+          const interactionDate =
+            values.date_block?.date_select?.selected_date ?? "";
+
+          defer(
+            triggerGitHub({
+              command: "",
+              text: "",
+              response_url: "",
+              channel_id: metadata.channel_id,
+              user_id: metadata.user_id,
+              channel_type: commandChannelType(metadata.channel_id),
+              thread_ts: metadata.thread_ts,
+              slack_event_type: "view_submission",
+              person_page_id: metadata.person_page_id,
+              person_name: metadata.person_name,
+              interaction_type: interactionType,
+              notes,
+              date: interactionDate,
+            })
+          );
+        }
+
+        return Response.json({});
       }
 
       return new Response("", { status: 200 });

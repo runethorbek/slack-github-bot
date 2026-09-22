@@ -4,6 +4,7 @@ import requests
 from google import genai
 
 from people_due import PEOPLE_CHANNEL_REFUSAL, handle_people_command
+from people_interaction import handle_add_interaction_submission
 from slack_authorization import is_private_data_request_authorized
 from tasks_list import TASKS_CHANNEL_REFUSAL, handle_tasks_command
 
@@ -187,6 +188,37 @@ if event_type == "message" and channel_type == "im":
         thread_ts=conversation_root_ts,
     )
     print("Authorized Slack DM response posted")
+    sys.exit(0)
+
+
+# ---------------------------------------------------------
+# Add Interaction modal submission
+# ---------------------------------------------------------
+
+if event_type == "view_submission":
+    if not is_private_data_request_authorized(
+        channel_id=channel_id,
+        channel_type=channel_type,
+        user_id=user_id,
+        authorized_user_id=authorized_slack_user_id,
+        authorized_channel_id=os.environ.get("TASKS_SLACK_CHANNEL_ID", ""),
+    ):
+        print("Unauthorized Add Interaction submission ignored")
+        sys.exit(0)
+
+    handle_add_interaction_submission(
+        os.environ.get("SLACK_PERSON_PAGE_ID", ""),
+        os.environ.get("SLACK_PERSON_NAME", ""),
+        os.environ.get("SLACK_INTERACTION_TYPE", ""),
+        os.environ.get("SLACK_INTERACTION_NOTES", ""),
+        os.environ.get("SLACK_INTERACTION_DATE", ""),
+        post_slack_message,
+        requests.post,
+        requests.get,
+        os.environ,
+        thread_ts=thread_ts or None,
+    )
+    print("Add Interaction submission handled")
     sys.exit(0)
 
 
