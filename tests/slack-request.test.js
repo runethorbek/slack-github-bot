@@ -671,6 +671,96 @@ test("clicking Add Interaction opens a modal carrying the Person page id and thr
       (option) => option.text.text === option.value
     )
   );
+
+  // The button value carried no "tracks", so the Track field must not be
+  // offered at all (Slack rejects a static_select with no options).
+  assert.equal(
+    view.blocks.find((block) => block.block_id === "track_block"),
+    undefined
+  );
+});
+
+test("a button value carrying Track options renders a Track selector with no default when none is given", async () => {
+  const body = addInteractionButtonClickBody({
+    actions: [
+      {
+        action_id: "people_add_interaction",
+        value: JSON.stringify({
+          page_id: "person-page-id",
+          name: "Jane Doe",
+          tracks: [
+            { id: "track-1", name: "AI Network" },
+            { id: "track-2", name: "Investors" },
+          ],
+        }),
+      },
+    ],
+  });
+  const dependencies = testDependencies();
+
+  await handleSlackRequest(slackRequest(body), dependencies.options);
+
+  const { view } = dependencies.openedModals[0];
+  const trackBlock = view.blocks.find((block) => block.block_id === "track_block");
+  assert.ok(trackBlock);
+  assert.equal(trackBlock.optional, true);
+  assert.deepEqual(trackBlock.element.options, [
+    { text: { type: "plain_text", text: "AI Network" }, value: "track-1" },
+    { text: { type: "plain_text", text: "Investors" }, value: "track-2" },
+  ]);
+  assert.equal(trackBlock.element.initial_option, undefined);
+});
+
+test("a button value carrying a default_track_id preselects that Track option", async () => {
+  const body = addInteractionButtonClickBody({
+    actions: [
+      {
+        action_id: "people_add_interaction",
+        value: JSON.stringify({
+          page_id: "person-page-id",
+          name: "Jane Doe",
+          tracks: [
+            { id: "track-1", name: "AI Network" },
+            { id: "track-2", name: "Investors" },
+          ],
+          default_track_id: "track-2",
+        }),
+      },
+    ],
+  });
+  const dependencies = testDependencies();
+
+  await handleSlackRequest(slackRequest(body), dependencies.options);
+
+  const { view } = dependencies.openedModals[0];
+  const trackBlock = view.blocks.find((block) => block.block_id === "track_block");
+  assert.deepEqual(trackBlock.element.initial_option, {
+    text: { type: "plain_text", text: "Investors" },
+    value: "track-2",
+  });
+});
+
+test("a default_track_id that is not among the offered tracks is not preselected", async () => {
+  const body = addInteractionButtonClickBody({
+    actions: [
+      {
+        action_id: "people_add_interaction",
+        value: JSON.stringify({
+          page_id: "person-page-id",
+          name: "Jane Doe",
+          tracks: [{ id: "track-1", name: "AI Network" }],
+          default_track_id: "stale-track-id",
+        }),
+      },
+    ],
+  });
+  const dependencies = testDependencies();
+
+  await handleSlackRequest(slackRequest(body), dependencies.options);
+
+  const { view } = dependencies.openedModals[0];
+  const trackBlock = view.blocks.find((block) => block.block_id === "track_block");
+  assert.equal(trackBlock.element.initial_option, undefined);
 });
 
 test("a suggestion message that is itself a thread root falls back to its own ts", async () => {
@@ -786,13 +876,49 @@ test("submitting the Add Interaction modal dispatches the structured write to Gi
       channel_type: "channel",
       thread_ts: "100.001",
       slack_event_type: "view_submission",
-      person_page_id: "person-page-id",
-      person_name: "Jane Doe",
+      person: JSON.stringify({ page_id: "person-page-id", name: "Jane Doe" }),
       interaction_type: "Coffee",
       notes: "Caught up over coffee.",
+      track_id: "",
       date: "2026-09-22",
     },
   ]);
+});
+
+test("a selected Track is included in the dispatched write", async () => {
+  const body = new URLSearchParams({
+    payload: JSON.stringify({
+      type: "view_submission",
+      view: {
+        callback_id: "add_interaction_modal",
+        private_metadata: JSON.stringify({
+          person_page_id: "person-page-id",
+          person_name: "Jane Doe",
+          channel_id: "C123",
+          user_id: "U123",
+          thread_ts: "100.001",
+        }),
+        state: {
+          values: {
+            type_block: {
+              type_select: { selected_option: { value: "Coffee" } },
+            },
+            track_block: {
+              track_select: { selected_option: { value: "track-2" } },
+            },
+            notes_block: { notes_input: { value: "" } },
+            date_block: { date_select: { selected_date: "2026-09-22" } },
+          },
+        },
+      },
+    }),
+  }).toString();
+  const dependencies = testDependencies();
+
+  await handleSlackRequest(slackRequest(body), dependencies.options);
+  await Promise.all(dependencies.deferred);
+
+  assert.equal(dependencies.dispatched[0].track_id, "track-2");
 });
 
 test("the Add Interaction dispatch stays within GitHub's 10-property client_payload limit", async () => {
@@ -838,6 +964,7 @@ test("a DM's Add Interaction submission preserves channel_type identity", async 
   await Promise.all(dependencies.deferred);
 
   assert.equal(dependencies.dispatched[0].channel_type, "im");
+  assert.equal(dependencies.dispatched[0].track_id, "");
 });
 
 test("a retried Add Interaction submission is acknowledged without a second dispatch", async () => {

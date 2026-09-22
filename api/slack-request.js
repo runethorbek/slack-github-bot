@@ -35,6 +35,24 @@ function copenhagenToday(now) {
   }).format(new Date(now()));
 }
 
+function parseTrackOptions(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const tracks = [];
+  for (const entry of value) {
+    if (
+      typeof entry?.id === "string" &&
+      entry.id &&
+      typeof entry?.name === "string" &&
+      entry.name
+    ) {
+      tracks.push({ id: entry.id, name: entry.name });
+    }
+  }
+  return tracks;
+}
+
 function parseAddInteractionButtonValue(value) {
   try {
     const parsed = JSON.parse(value);
@@ -44,7 +62,18 @@ function parseAddInteractionButtonValue(value) {
       typeof parsed?.name === "string" &&
       parsed.name
     ) {
-      return { pageId: parsed.page_id, name: parsed.name };
+      return {
+        pageId: parsed.page_id,
+        name: parsed.name,
+        // Both already resolved from Notion by people_suggest.py and
+        // carried forward opaquely, exactly like page_id/name above - this
+        // handler never queries Notion itself.
+        tracks: parseTrackOptions(parsed.tracks),
+        defaultTrackId:
+          typeof parsed?.default_track_id === "string" && parsed.default_track_id
+            ? parsed.default_track_id
+            : null,
+      };
     }
   } catch {
     // Malformed button value; treated as absent below.
@@ -85,8 +114,81 @@ function buildAddInteractionView(
   channelId,
   userId,
   threadTs,
-  today
+  today,
+  tracks = [],
+  defaultTrackId = null
 ) {
+  const blocks = [
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: `*Person:* ${personName}` },
+    },
+    {
+      type: "input",
+      block_id: "type_block",
+      label: { type: "plain_text", text: "Type" },
+      element: {
+        type: "static_select",
+        action_id: "type_select",
+        options: INTERACTION_TYPE_OPTIONS.map((option) => ({
+          text: { type: "plain_text", text: option },
+          value: option,
+        })),
+      },
+    },
+  ];
+
+  // Slack rejects a static_select with an empty options array, so the
+  // Track field is only offered at all when there is at least one Track
+  // to choose from; otherwise Track is simply unavailable for this
+  // Interaction, matching "leave Track unselected".
+  if (tracks.length > 0) {
+    const options = tracks.map((track) => ({
+      text: { type: "plain_text", text: track.name },
+      value: track.id,
+    }));
+    const trackElement = {
+      type: "static_select",
+      action_id: "track_select",
+      options,
+    };
+    const defaultOption = options.find((option) => option.value === defaultTrackId);
+    if (defaultOption) {
+      trackElement.initial_option = defaultOption;
+    }
+    blocks.push({
+      type: "input",
+      block_id: "track_block",
+      optional: true,
+      label: { type: "plain_text", text: "Track" },
+      element: trackElement,
+    });
+  }
+
+  blocks.push(
+    {
+      type: "input",
+      block_id: "notes_block",
+      optional: true,
+      label: { type: "plain_text", text: "Notes" },
+      element: {
+        type: "plain_text_input",
+        action_id: "notes_input",
+        multiline: true,
+      },
+    },
+    {
+      type: "input",
+      block_id: "date_block",
+      label: { type: "plain_text", text: "Date" },
+      element: {
+        type: "datepicker",
+        action_id: "date_select",
+        initial_date: today,
+      },
+    }
+  );
+
   return {
     type: "modal",
     callback_id: ADD_INTERACTION_CALLBACK_ID,
@@ -100,46 +202,7 @@ function buildAddInteractionView(
     title: { type: "plain_text", text: "Add interaction" },
     submit: { type: "plain_text", text: "Save" },
     close: { type: "plain_text", text: "Cancel" },
-    blocks: [
-      {
-        type: "section",
-        text: { type: "mrkdwn", text: `*Person:* ${personName}` },
-      },
-      {
-        type: "input",
-        block_id: "type_block",
-        label: { type: "plain_text", text: "Type" },
-        element: {
-          type: "static_select",
-          action_id: "type_select",
-          options: INTERACTION_TYPE_OPTIONS.map((option) => ({
-            text: { type: "plain_text", text: option },
-            value: option,
-          })),
-        },
-      },
-      {
-        type: "input",
-        block_id: "notes_block",
-        optional: true,
-        label: { type: "plain_text", text: "Notes" },
-        element: {
-          type: "plain_text_input",
-          action_id: "notes_input",
-          multiline: true,
-        },
-      },
-      {
-        type: "input",
-        block_id: "date_block",
-        label: { type: "plain_text", text: "Date" },
-        element: {
-          type: "datepicker",
-          action_id: "date_select",
-          initial_date: today,
-        },
-      },
-    ],
+    blocks,
   };
 }
 
@@ -320,7 +383,9 @@ export async function handleSlackRequest(
                 channelId,
                 body.user?.id ?? "",
                 threadTs,
-                copenhagenToday(now)
+                copenhagenToday(now),
+                person.tracks,
+                person.defaultTrackId
               )
             );
           }
@@ -357,11 +422,15 @@ export async function handleSlackRequest(
           const notes = values.notes_block?.notes_input?.value ?? "";
           const interactionDate =
             values.date_block?.date_select?.selected_date ?? "";
+          const trackId =
+            values.track_block?.track_select?.selected_option?.value ?? "";
 
           // GitHub's repository_dispatch client_payload allows at most 10
-          // top-level properties, so unlike every other dispatch below this
-          // one omits the command/text/response_url fields view_submission
-          // never uses rather than sending them as unused empty strings.
+          // top-level properties. This dispatch already omits the
+          // command/text/response_url fields view_submission never uses,
+          // and bundles the Person identity into one JSON field (mirroring
+          // the button's own value) to make room for track_id without
+          // exceeding that limit.
           defer(
             triggerGitHub({
               channel_id: metadata.channel_id,
@@ -369,10 +438,13 @@ export async function handleSlackRequest(
               channel_type: commandChannelType(metadata.channel_id),
               thread_ts: metadata.thread_ts,
               slack_event_type: "view_submission",
-              person_page_id: metadata.person_page_id,
-              person_name: metadata.person_name,
+              person: JSON.stringify({
+                page_id: metadata.person_page_id,
+                name: metadata.person_name,
+              }),
               interaction_type: interactionType,
               notes,
+              track_id: trackId,
               date: interactionDate,
             })
           );

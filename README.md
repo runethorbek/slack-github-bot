@@ -321,6 +321,10 @@ The ID of the Notion People data source queried by `/people due` and `/people su
 
 The ID of the Notion Interactions data source queried by `/people due` and `/people suggest`.
 
+### `NOTION_TRACKS_DATA_SOURCE_ID`
+
+The ID of the Notion Tracks data source. Queried to populate the Track selector in the "Add interaction" modal and to validate a submitted Track id before it is written to an Interaction. If unset, the Track selector is simply omitted from the modal.
+
 ### `TASKS_SLACK_CHANNEL_ID`
 
 The Slack channel ID authorized to use `/tasks` and `/people`.
@@ -354,6 +358,7 @@ env:
   NOTION_PEOPLE_DATA_SOURCE_ID: ${{ secrets.NOTION_PEOPLE_DATA_SOURCE_ID }}
   NOTION_INTERACTIONS_DATA_SOURCE_ID: ${{ secrets.NOTION_INTERACTIONS_DATA_SOURCE_ID }}
   NOTION_TASKS_DATA_SOURCE_ID: ${{ secrets.NOTION_TASKS_DATA_SOURCE_ID }}
+  NOTION_TRACKS_DATA_SOURCE_ID: ${{ secrets.NOTION_TRACKS_DATA_SOURCE_ID }}
   TASKS_SLACK_CHANNEL_ID: ${{ secrets.TASKS_SLACK_CHANNEL_ID }}
 ```
 

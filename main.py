@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import requests
@@ -150,6 +151,27 @@ def is_authorized_slack_user(candidate_user_id, configured_user_id):
     return bool(configured_user_id) and candidate_user_id == configured_user_id
 
 
+def parse_person_payload(value):
+    """Decode the bundled Person identity from an Add Interaction submission.
+
+    Matches api/slack-request.js: page_id/name travel together as one JSON
+    field (SLACK_PERSON) to stay within GitHub's 10-property client_payload
+    limit. Malformed or missing JSON is treated as absent identity, not
+    guessed at; handle_add_interaction_submission already refuses to write
+    without both fields.
+    """
+    try:
+        parsed = json.loads(value) if value else {}
+    except ValueError:
+        parsed = {}
+    page_id = parsed.get("page_id") if isinstance(parsed, dict) else None
+    name = parsed.get("name") if isinstance(parsed, dict) else None
+    return {
+        "page_id": page_id if isinstance(page_id, str) else "",
+        "name": name if isinstance(name, str) else "",
+    }
+
+
 GEMINI_MODEL = "gemini-3.5-flash-lite"
 
 
@@ -206,12 +228,14 @@ if event_type == "view_submission":
         print("Unauthorized Add Interaction submission ignored")
         sys.exit(0)
 
+    person = parse_person_payload(os.environ.get("SLACK_PERSON", ""))
     handle_add_interaction_submission(
-        os.environ.get("SLACK_PERSON_PAGE_ID", ""),
-        os.environ.get("SLACK_PERSON_NAME", ""),
+        person["page_id"],
+        person["name"],
         os.environ.get("SLACK_INTERACTION_TYPE", ""),
         os.environ.get("SLACK_INTERACTION_NOTES", ""),
         os.environ.get("SLACK_INTERACTION_DATE", ""),
+        os.environ.get("SLACK_INTERACTION_TRACK_ID", ""),
         post_slack_message,
         requests.post,
         requests.get,

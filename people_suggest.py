@@ -8,9 +8,15 @@ from people_due import (
     fetch_notion_pages,
     query_data_source,
 )
-from people_interaction import add_interaction_button
+from people_interaction import (
+    AddInteractionCommandError,
+    INTERACTION_TRACK_PROPERTY,
+    add_interaction_button,
+    fetch_available_tracks,
+)
 from tasks_list import (
     MalformedTrackPageError,
+    NotionAuthenticationError,
     TaskListCommandError,
     call_notion_with_retries,
     copenhagen_today,
@@ -29,10 +35,11 @@ MAX_SUGGESTION_INTERACTIONS = 5
 # reads (one GET per distinct Track id, never per Interaction).
 MAX_SUGGESTION_TRACKS = 5
 
-# Notion property names for the Track relations, exactly as named in the
-# live schema.
+# Notion property name for the People -> Tracks relation, exactly as named
+# in the live schema. The Interactions -> Tracks relation's equivalent,
+# INTERACTION_TRACK_PROPERTY, is defined once in people_interaction.py
+# (which also writes it) and imported above, rather than duplicated here.
 PERSON_TRACK_PROPERTY = "Track Goal"
-INTERACTION_TRACK_PROPERTY = "Track"
 
 # Slack rejects a section block whose mrkdwn text exceeds this length. Gemini's
 # draft has no length cap of its own, so the block (not the plain-text
@@ -187,6 +194,13 @@ def handle_people_suggest(
     )
     track_names = relevant_track_names(track_ids, resolved_tracks)
 
+    selectable_tracks = fetch_selectable_tracks(
+        notion_post, environment, sleep
+    )
+    default_track_id = (
+        profile.track_ids[0] if len(profile.track_ids) == 1 else None
+    )
+
     recap = generate_text(
         build_recap_prompt(profile, interactions, track_names)
     ).strip()
@@ -195,8 +209,31 @@ def handle_people_suggest(
     post_slack_message(
         format_full_reply(recap, message),
         thread_ts=root_message["ts"],
-        blocks=build_suggestion_blocks(profile, recap, message),
+        blocks=build_suggestion_blocks(
+            profile, recap, message, selectable_tracks, default_track_id
+        ),
     )
+
+
+def fetch_selectable_tracks(notion_post, environment, sleep):
+    """Fetch every Track offerable in the Add Interaction modal's selector.
+
+    Best-effort: a listing failure - including a Notion credential failure -
+    must not break the rest of the `/people suggest` reply, since Track
+    selection is optional and the rest of the reply (recap, draft, Add
+    Interaction button) is still fully usable without it. An unconfigured
+    Tracks data source (NOTION_TRACKS_DATA_SOURCE_ID) simply yields no
+    Track options rather than an error.
+    """
+    tracks_data_source_id = environment.get("NOTION_TRACKS_DATA_SOURCE_ID", "")
+    if not tracks_data_source_id:
+        return []
+    try:
+        return fetch_available_tracks(
+            notion_post, environment["NOTION_API_KEY"], tracks_data_source_id, sleep
+        )
+    except (TaskListCommandError, AddInteractionCommandError, NotionAuthenticationError):
+        return []
 
 
 def resolve_person(notion_post, api_key, people_data_source_id, person_name, sleep):
@@ -505,7 +542,9 @@ def format_full_reply(recap, message):
     return f"Context:\n{recap}\n\n{message}"
 
 
-def build_suggestion_blocks(profile, recap, message_text):
+def build_suggestion_blocks(
+    profile, recap, message_text, tracks=(), default_track_id=None
+):
     blocks = []
     if recap:
         blocks.append(
@@ -529,7 +568,11 @@ def build_suggestion_blocks(profile, recap, message_text):
     blocks.append(
         {
             "type": "actions",
-            "elements": [add_interaction_button(profile.page_id, profile.name)],
+            "elements": [
+                add_interaction_button(
+                    profile.page_id, profile.name, tracks, default_track_id
+                )
+            ],
         }
     )
     return blocks

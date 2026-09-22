@@ -1,3 +1,4 @@
+import json
 import os
 import runpy
 import sys
@@ -188,8 +189,7 @@ class MainRoutingTests(unittest.TestCase):
             "SLACK_BOT_TOKEN": "test-slack-token",
             "AUTHORIZED_SLACK_USER_ID": "U-authorized",
             "TASKS_SLACK_CHANNEL_ID": "C-allowed",
-            "SLACK_PERSON_PAGE_ID": "person-page-id",
-            "SLACK_PERSON_NAME": "Jane Doe",
+            "SLACK_PERSON": json.dumps({"page_id": "person-page-id", "name": "Jane Doe"}),
             "SLACK_INTERACTION_TYPE": "Coffee",
             "SLACK_INTERACTION_NOTES": "Notes",
             "SLACK_INTERACTION_DATE": "2026-09-22",
@@ -239,8 +239,7 @@ class MainRoutingTests(unittest.TestCase):
             "SLACK_BOT_TOKEN": "test-slack-token",
             "AUTHORIZED_SLACK_USER_ID": "U-authorized",
             "TASKS_SLACK_CHANNEL_ID": "C-allowed",
-            "SLACK_PERSON_PAGE_ID": "person-page-id",
-            "SLACK_PERSON_NAME": "Jane Doe",
+            "SLACK_PERSON": json.dumps({"page_id": "person-page-id", "name": "Jane Doe"}),
             "SLACK_INTERACTION_TYPE": "Coffee",
             "SLACK_INTERACTION_NOTES": "Caught up over coffee.",
             "SLACK_INTERACTION_DATE": "2026-09-22",
@@ -271,8 +270,129 @@ class MainRoutingTests(unittest.TestCase):
         self.assertEqual(
             properties["People"], {"relation": [{"id": "person-page-id"}]}
         )
+        self.assertEqual(properties["Track"], {"relation": []})
         reply_text = requests_module.post.call_args_list[-1].kwargs["json"]["text"]
         self.assertEqual(reply_text, "Interaction added for Jane Doe.")
+
+    def test_authorized_add_interaction_submission_writes_a_selected_track(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        schema_response = Mock()
+        schema_response.json.return_value = {
+            "properties": {"Title of interaction": {"type": "title"}}
+        }
+        requests_module.get.return_value = schema_response
+        tracks_response = Mock()
+        tracks_response.json.return_value = {
+            "results": [
+                {
+                    "id": "track-1",
+                    "properties": {
+                        "Navn": {
+                            "type": "title",
+                            "title": [{"plain_text": "AI Network"}],
+                        }
+                    },
+                }
+            ],
+            "has_more": False,
+        }
+        create_response = Mock()
+        create_response.json.return_value = {"id": "new-interaction-id"}
+        reply_response = Mock()
+        reply_response.json.return_value = {"ok": True}
+        requests_module.post.side_effect = [
+            tracks_response,
+            create_response,
+            reply_response,
+        ]
+
+        environment = {
+            "SLACK_EVENT_TYPE": "view_submission",
+            "SLACK_TEXT": "",
+            "SLACK_CHANNEL_ID": "D-private",
+            "SLACK_USER_ID": "U-authorized",
+            "SLACK_CHANNEL_TYPE": "im",
+            "SLACK_BOT_TOKEN": "test-slack-token",
+            "AUTHORIZED_SLACK_USER_ID": "U-authorized",
+            "TASKS_SLACK_CHANNEL_ID": "C-allowed",
+            "SLACK_PERSON": json.dumps({"page_id": "person-page-id", "name": "Jane Doe"}),
+            "SLACK_INTERACTION_TYPE": "Coffee",
+            "SLACK_INTERACTION_NOTES": "Caught up over coffee.",
+            "SLACK_INTERACTION_DATE": "2026-09-22",
+            "SLACK_INTERACTION_TRACK_ID": "track-1",
+            "NOTION_API_KEY": "test-notion-token",
+            "NOTION_INTERACTIONS_DATA_SOURCE_ID": "interactions-id",
+            "NOTION_TRACKS_DATA_SOURCE_ID": "tracks-id",
+        }
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(
+                sys.modules,
+                {
+                    "requests": requests_module,
+                    "google": google_module,
+                    "google.genai": genai_module,
+                },
+            ),
+            patch("builtins.print"),
+            self.assertRaises(SystemExit) as exit_context,
+        ):
+            runpy.run_module("main", run_name="__main__")
+
+        self.assertEqual(exit_context.exception.code, 0)
+        create_call = requests_module.post.call_args_list[1]
+        self.assertEqual(create_call.args[0], "https://api.notion.com/v1/pages")
+        properties = create_call.kwargs["json"]["properties"]
+        self.assertEqual(properties["Track"], {"relation": [{"id": "track-1"}]})
+
+    def test_authorized_add_interaction_submission_rejects_a_track_not_among_live_tracks(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        tracks_response = Mock()
+        tracks_response.json.return_value = {"results": [], "has_more": False}
+        reply_response = Mock()
+        reply_response.json.return_value = {"ok": True}
+        requests_module.post.side_effect = [tracks_response, reply_response]
+
+        environment = {
+            "SLACK_EVENT_TYPE": "view_submission",
+            "SLACK_TEXT": "",
+            "SLACK_CHANNEL_ID": "D-private",
+            "SLACK_USER_ID": "U-authorized",
+            "SLACK_CHANNEL_TYPE": "im",
+            "SLACK_BOT_TOKEN": "test-slack-token",
+            "AUTHORIZED_SLACK_USER_ID": "U-authorized",
+            "TASKS_SLACK_CHANNEL_ID": "C-allowed",
+            "SLACK_PERSON": json.dumps({"page_id": "person-page-id", "name": "Jane Doe"}),
+            "SLACK_INTERACTION_TYPE": "Coffee",
+            "SLACK_INTERACTION_NOTES": "Notes",
+            "SLACK_INTERACTION_DATE": "2026-09-22",
+            "SLACK_INTERACTION_TRACK_ID": "forged-track-id",
+            "NOTION_API_KEY": "test-notion-token",
+            "NOTION_INTERACTIONS_DATA_SOURCE_ID": "must-not-be-used",
+            "NOTION_TRACKS_DATA_SOURCE_ID": "tracks-id",
+        }
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(
+                sys.modules,
+                {
+                    "requests": requests_module,
+                    "google": google_module,
+                    "google.genai": genai_module,
+                },
+            ),
+            patch("builtins.print"),
+            self.assertRaises(SystemExit) as exit_context,
+        ):
+            runpy.run_module("main", run_name="__main__")
+
+        self.assertEqual(exit_context.exception.code, 0)
+        requests_module.get.assert_not_called()
+        genai_module.Client.assert_not_called()
+        reply_text = requests_module.post.call_args_list[-1].kwargs["json"]["text"]
+        self.assertEqual(reply_text, "Unable to add that interaction. Please try again.")
 
     def test_add_interaction_invalid_type_is_rejected_before_notion(self):
         requests_module, google_module, genai_module = self.fake_modules()
@@ -285,8 +405,7 @@ class MainRoutingTests(unittest.TestCase):
             "SLACK_BOT_TOKEN": "test-slack-token",
             "AUTHORIZED_SLACK_USER_ID": "U-authorized",
             "TASKS_SLACK_CHANNEL_ID": "C-allowed",
-            "SLACK_PERSON_PAGE_ID": "person-page-id",
-            "SLACK_PERSON_NAME": "Jane Doe",
+            "SLACK_PERSON": json.dumps({"page_id": "person-page-id", "name": "Jane Doe"}),
             "SLACK_INTERACTION_TYPE": "Linkedon",
             "SLACK_INTERACTION_NOTES": "Notes",
             "SLACK_INTERACTION_DATE": "2026-09-22",

@@ -10,7 +10,9 @@ from people_interaction import (
     INTERACTION_FAILURE_MESSAGE,
     INTERACTION_INVALID_MESSAGE,
     add_interaction_button,
+    fetch_available_tracks,
     handle_add_interaction_submission,
+    is_valid_track,
 )
 
 
@@ -50,6 +52,32 @@ def schema_response_missing_title():
     return response
 
 
+def track_page(track_id, name, priority=None):
+    return {
+        "id": track_id,
+        "properties": {
+            "Navn": {
+                "type": "title",
+                "title": [{"plain_text": name}] if name else [],
+            },
+            "Priority": {
+                "type": "select",
+                "select": {"name": priority} if priority else None,
+            },
+        },
+    }
+
+
+def tracks_response(pages, has_more=False, next_cursor=None):
+    response = Mock()
+    response.json.return_value = {
+        "results": pages,
+        "has_more": has_more,
+        "next_cursor": next_cursor,
+    }
+    return response
+
+
 class AddInteractionButtonTests(unittest.TestCase):
     def test_value_carries_the_stable_page_id_and_name(self):
         button = add_interaction_button("person-page-id", "Jane Doe")
@@ -59,6 +87,90 @@ class AddInteractionButtonTests(unittest.TestCase):
             json.loads(button["value"]),
             {"page_id": "person-page-id", "name": "Jane Doe"},
         )
+
+    def test_no_tracks_omits_track_fields_entirely(self):
+        button = add_interaction_button(
+            "person-page-id", "Jane Doe", tracks=(), default_track_id=None
+        )
+
+        self.assertNotIn("tracks", json.loads(button["value"]))
+        self.assertNotIn("default_track_id", json.loads(button["value"]))
+
+    def test_tracks_and_default_are_carried_in_the_value(self):
+        tracks = [{"id": "t1", "name": "AI Network"}, {"id": "t2", "name": "Investors"}]
+
+        button = add_interaction_button(
+            "person-page-id", "Jane Doe", tracks=tracks, default_track_id="t1"
+        )
+
+        value = json.loads(button["value"])
+        self.assertEqual(value["tracks"], tracks)
+        self.assertEqual(value["default_track_id"], "t1")
+
+    def test_tracks_without_a_default_omit_default_track_id(self):
+        tracks = [{"id": "t1", "name": "AI Network"}]
+
+        button = add_interaction_button(
+            "person-page-id", "Jane Doe", tracks=tracks, default_track_id=None
+        )
+
+        self.assertNotIn("default_track_id", json.loads(button["value"]))
+
+
+class FetchAvailableTracksTests(unittest.TestCase):
+    def test_resolves_id_and_name_sorted_alphabetically(self):
+        notion_post = Mock(
+            return_value=tracks_response(
+                [track_page("t2", "Investors"), track_page("t1", "AI Network")]
+            )
+        )
+
+        tracks = fetch_available_tracks(notion_post, "secret", "tracks-id", Mock())
+
+        self.assertEqual(
+            tracks,
+            [{"id": "t1", "name": "AI Network"}, {"id": "t2", "name": "Investors"}],
+        )
+
+    def test_malformed_track_page_is_skipped(self):
+        notion_post = Mock(
+            return_value=tracks_response(
+                [{"id": "t1", "properties": {}}, track_page("t2", "Investors")]
+            )
+        )
+
+        tracks = fetch_available_tracks(notion_post, "secret", "tracks-id", Mock())
+
+        self.assertEqual(tracks, [{"id": "t2", "name": "Investors"}])
+
+    def test_no_tracks_returns_empty_list(self):
+        notion_post = Mock(return_value=tracks_response([]))
+
+        tracks = fetch_available_tracks(notion_post, "secret", "tracks-id", Mock())
+
+        self.assertEqual(tracks, [])
+
+
+class IsValidTrackTests(unittest.TestCase):
+    def test_id_present_among_live_tracks_is_valid(self):
+        notion_post = Mock(return_value=tracks_response([track_page("t1", "AI Network")]))
+
+        self.assertTrue(
+            is_valid_track("t1", notion_post, "secret", "tracks-id", Mock())
+        )
+
+    def test_id_not_among_live_tracks_is_invalid(self):
+        notion_post = Mock(return_value=tracks_response([track_page("t1", "AI Network")]))
+
+        self.assertFalse(
+            is_valid_track("forged-id", notion_post, "secret", "tracks-id", Mock())
+        )
+
+    def test_unconfigured_tracks_data_source_fails_closed(self):
+        notion_post = Mock()
+
+        self.assertFalse(is_valid_track("t1", notion_post, "secret", "", Mock()))
+        notion_post.assert_not_called()
 
 
 class HandleAddInteractionSubmissionTests(unittest.TestCase):
@@ -73,6 +185,7 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
             "Coffee",
             "Talked about the new role.",
             "2026-09-22",
+            "",
             post_slack_message,
             notion_post,
             notion_get,
@@ -105,6 +218,7 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
             "Coffee",
             notes,
             "2026-09-22",
+            "",
             post_slack_message,
             notion_post,
             notion_get,
@@ -128,6 +242,7 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
             "Coffee",
             "Notes",
             "2026-09-22",
+            "",
             post_slack_message,
             notion_post,
             notion_get,
@@ -138,7 +253,7 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
         properties = notion_post.call_args.kwargs["json"]["properties"]
         self.assertEqual(
             set(properties.keys()),
-            {"People", "Type", "Date", "Notes", "Title of interaction"},
+            {"People", "Type", "Date", "Notes", "Track", "Title of interaction"},
         )
         request_json = notion_post.call_args.kwargs["json"]
         self.assertEqual(
@@ -155,6 +270,7 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
             "Jane Doe",
             "Coffee",
             "Notes",
+            "",
             "",
             post_slack_message,
             notion_post,
@@ -180,6 +296,7 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
             "Linkedon",
             "Notes",
             "2026-09-22",
+            "",
             post_slack_message,
             notion_post,
             notion_get,
@@ -202,6 +319,7 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
             "",
             "Notes",
             "2026-09-22",
+            "",
             post_slack_message,
             notion_post,
             notion_get,
@@ -223,6 +341,7 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
             "Coffee",
             "Notes",
             "not-a-date",
+            "",
             post_slack_message,
             notion_post,
             notion_get,
@@ -245,6 +364,7 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
             "Coffee",
             "Notes",
             "2026-09-22",
+            "",
             post_slack_message,
             notion_post,
             notion_get,
@@ -268,6 +388,7 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
             "Coffee",
             "Notes",
             "2026-09-22",
+            "",
             post_slack_message,
             notion_post,
             notion_get,
@@ -291,6 +412,7 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
             "Coffee",
             "Notes",
             "2026-09-22",
+            "",
             post_slack_message,
             notion_post,
             notion_get,
@@ -319,6 +441,7 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
             "Coffee",
             "Notes",
             "2026-09-22",
+            "",
             post_slack_message,
             notion_post,
             notion_get,
@@ -340,6 +463,7 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
             "Coffee",
             "Notes",
             "2026-09-22",
+            "",
             post_slack_message,
             notion_post,
             notion_get,
@@ -362,6 +486,7 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
             "Linkedon",
             "Notes",
             "2026-09-22",
+            "",
             post_slack_message,
             Mock(),
             Mock(),
@@ -392,12 +517,144 @@ class HandleAddInteractionSubmissionTests(unittest.TestCase):
             ),
         )
 
+    def test_no_track_selected_writes_an_empty_track_relation(self):
+        notion_post = Mock(return_value=ok_response())
+        notion_get = Mock(return_value=schema_response())
+        post_slack_message = Mock()
+
+        handle_add_interaction_submission(
+            "person-page-id",
+            "Jane Doe",
+            "Coffee",
+            "Notes",
+            "2026-09-22",
+            "",
+            post_slack_message,
+            notion_post,
+            notion_get,
+            self.environment(),
+            sleep=Mock(),
+        )
+
+        properties = notion_post.call_args.kwargs["json"]["properties"]
+        self.assertEqual(properties["Track"], {"relation": []})
+
+    def test_valid_track_is_written_as_the_track_relation(self):
+        # notion_post is used for both the live Track validation query and
+        # the final Interaction write; the validation query returns the
+        # submitted id as a real Track before the write is attempted.
+        notion_post = Mock(
+            side_effect=[
+                tracks_response([track_page("track-1", "AI Network")]),
+                ok_response(),
+            ]
+        )
+        notion_get = Mock(return_value=schema_response())
+        post_slack_message = Mock()
+
+        handle_add_interaction_submission(
+            "person-page-id",
+            "Jane Doe",
+            "Coffee",
+            "Notes",
+            "2026-09-22",
+            "track-1",
+            post_slack_message,
+            notion_post,
+            notion_get,
+            self.environment(tracks_data_source_id="tracks-id"),
+            sleep=Mock(),
+        )
+
+        write_call = notion_post.call_args_list[-1]
+        properties = write_call.kwargs["json"]["properties"]
+        self.assertEqual(properties["Track"], {"relation": [{"id": "track-1"}]})
+        post_slack_message.assert_called_once_with(
+            INTERACTION_ADDED_MESSAGE_TEMPLATE.format(name="Jane Doe"), thread_ts=None
+        )
+
+    def test_a_track_id_that_is_not_a_live_track_is_rejected_before_any_write(self):
+        notion_post = Mock(
+            return_value=tracks_response([track_page("track-1", "AI Network")])
+        )
+        notion_get = Mock()
+        post_slack_message = Mock()
+
+        handle_add_interaction_submission(
+            "person-page-id",
+            "Jane Doe",
+            "Coffee",
+            "Notes",
+            "2026-09-22",
+            "forged-or-stale-id",
+            post_slack_message,
+            notion_post,
+            notion_get,
+            self.environment(tracks_data_source_id="tracks-id"),
+            sleep=Mock(),
+        )
+
+        # Only the validation query happened; the Interaction page was never
+        # created, and the title-property schema fetch never ran.
+        notion_post.assert_called_once()
+        notion_get.assert_not_called()
+        post_slack_message.assert_called_once_with(INTERACTION_INVALID_MESSAGE, thread_ts=None)
+
+    def test_a_track_id_with_no_tracks_data_source_configured_is_rejected(self):
+        notion_post = Mock()
+        notion_get = Mock()
+        post_slack_message = Mock()
+
+        handle_add_interaction_submission(
+            "person-page-id",
+            "Jane Doe",
+            "Coffee",
+            "Notes",
+            "2026-09-22",
+            "track-1",
+            post_slack_message,
+            notion_post,
+            notion_get,
+            self.environment(),
+            sleep=Mock(),
+        )
+
+        notion_post.assert_not_called()
+        post_slack_message.assert_called_once_with(INTERACTION_INVALID_MESSAGE, thread_ts=None)
+
+    def test_track_validation_failure_produces_a_safe_message_without_a_write(self):
+        failing = Mock()
+        failing.raise_for_status.side_effect = Exception("boom")
+        notion_post = Mock(return_value=failing)
+        notion_get = Mock()
+        post_slack_message = Mock()
+
+        handle_add_interaction_submission(
+            "person-page-id",
+            "Jane Doe",
+            "Coffee",
+            "Notes",
+            "2026-09-22",
+            "track-1",
+            post_slack_message,
+            notion_post,
+            notion_get,
+            self.environment(tracks_data_source_id="tracks-id"),
+            sleep=Mock(),
+        )
+
+        notion_get.assert_not_called()
+        post_slack_message.assert_called_once_with(INTERACTION_FAILURE_MESSAGE, thread_ts=None)
+
     @staticmethod
-    def environment():
-        return {
+    def environment(tracks_data_source_id=None):
+        environment = {
             "NOTION_API_KEY": "secret-token",
             "NOTION_INTERACTIONS_DATA_SOURCE_ID": "interactions-id",
         }
+        if tracks_data_source_id:
+            environment["NOTION_TRACKS_DATA_SOURCE_ID"] = tracks_data_source_id
+        return environment
 
 
 if __name__ == "__main__":

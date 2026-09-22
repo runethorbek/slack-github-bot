@@ -1072,5 +1072,231 @@ class HandlePeopleSuggestTests(unittest.TestCase):
         }
 
 
+def selectable_track_page(track_id, name):
+    return {
+        "id": track_id,
+        "properties": {"Navn": {"type": "title", "title": [{"plain_text": name}]}},
+    }
+
+
+class AddInteractionTrackSelectorTests(unittest.TestCase):
+    """Covers the Add Interaction button's Track selector data: which Track
+    options are offered and which one (if any) is preselected, per issue
+    #16's default-selection rules (no Track / exactly one Track / multiple
+    Tracks).
+    """
+
+    def test_person_with_no_track_has_no_default_but_still_offers_all_tracks(self):
+        notion_post = Mock(
+            side_effect=[
+                notion_response([person_page("p1", "Jane Doe")]),
+                notion_response([]),
+                notion_response([selectable_track_page("t1", "AI Network")]),
+            ]
+        )
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
+        )
+        generate_text = Mock(side_effect=["Recap", "Draft"])
+
+        handle_people_suggest(
+            "Jane Doe",
+            post_slack_message,
+            notion_post,
+            generate_text,
+            self.environment(),
+            today=FIXED_TODAY,
+            sleep=Mock(),
+        )
+
+        button = self.add_interaction_button(post_slack_message)
+        value = json.loads(button["value"])
+        self.assertEqual(value["tracks"], [{"id": "t1", "name": "AI Network"}])
+        self.assertNotIn("default_track_id", value)
+
+    def test_person_with_exactly_one_track_preselects_it(self):
+        notion_post = Mock(
+            side_effect=[
+                notion_response([person_page("p1", "Jane Doe", track_ids=["t1"])]),
+                notion_response([]),
+                notion_response(
+                    [
+                        selectable_track_page("t1", "AI Network"),
+                        selectable_track_page("t2", "Investors"),
+                    ]
+                ),
+            ]
+        )
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
+        )
+        generate_text = Mock(side_effect=["Recap", "Draft"])
+
+        handle_people_suggest(
+            "Jane Doe",
+            post_slack_message,
+            notion_post,
+            generate_text,
+            self.environment(),
+            today=FIXED_TODAY,
+            sleep=Mock(),
+        )
+
+        button = self.add_interaction_button(post_slack_message)
+        value = json.loads(button["value"])
+        self.assertEqual(value["default_track_id"], "t1")
+
+    def test_person_with_multiple_tracks_has_no_default_but_can_still_choose(self):
+        notion_post = Mock(
+            side_effect=[
+                notion_response(
+                    [person_page("p1", "Jane Doe", track_ids=["t1", "t2"])]
+                ),
+                notion_response([]),
+                notion_response(
+                    [
+                        selectable_track_page("t1", "AI Network"),
+                        selectable_track_page("t2", "Investors"),
+                    ]
+                ),
+            ]
+        )
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
+        )
+        generate_text = Mock(side_effect=["Recap", "Draft"])
+
+        handle_people_suggest(
+            "Jane Doe",
+            post_slack_message,
+            notion_post,
+            generate_text,
+            self.environment(),
+            today=FIXED_TODAY,
+            sleep=Mock(),
+        )
+
+        button = self.add_interaction_button(post_slack_message)
+        value = json.loads(button["value"])
+        self.assertNotIn("default_track_id", value)
+        self.assertEqual(
+            {track["id"] for track in value["tracks"]}, {"t1", "t2"}
+        )
+
+    def test_no_tracks_data_source_configured_omits_the_track_selector(self):
+        notion_post = Mock(
+            side_effect=[
+                notion_response([person_page("p1", "Jane Doe", track_ids=["t1"])]),
+                notion_response([]),
+            ]
+        )
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
+        )
+        generate_text = Mock(side_effect=["Recap", "Draft"])
+
+        environment = {
+            "NOTION_API_KEY": "secret-token",
+            "NOTION_PEOPLE_DATA_SOURCE_ID": "people-id",
+            "NOTION_INTERACTIONS_DATA_SOURCE_ID": "interactions-id",
+        }
+
+        handle_people_suggest(
+            "Jane Doe",
+            post_slack_message,
+            notion_post,
+            generate_text,
+            environment,
+            today=FIXED_TODAY,
+            sleep=Mock(),
+        )
+
+        button = self.add_interaction_button(post_slack_message)
+        self.assertEqual(json.loads(button["value"]), {"page_id": "p1", "name": "Jane Doe"})
+        # No extra Notion call was made to list Tracks.
+        self.assertEqual(notion_post.call_count, 2)
+
+    def test_a_track_listing_failure_does_not_break_the_rest_of_the_reply(self):
+        failing = Mock()
+        failing.raise_for_status.side_effect = Exception("boom")
+        notion_post = Mock(
+            side_effect=[
+                notion_response([person_page("p1", "Jane Doe")]),
+                notion_response([]),
+                failing,
+            ]
+        )
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
+        )
+        generate_text = Mock(side_effect=["Recap", "Draft"])
+
+        handle_people_suggest(
+            "Jane Doe",
+            post_slack_message,
+            notion_post,
+            generate_text,
+            self.environment(),
+            today=FIXED_TODAY,
+            sleep=Mock(),
+        )
+
+        # The reply still goes out; Track selection is simply unavailable.
+        button = self.add_interaction_button(post_slack_message)
+        self.assertEqual(json.loads(button["value"]), {"page_id": "p1", "name": "Jane Doe"})
+
+    def test_a_track_listing_credential_failure_does_not_break_the_rest_of_the_reply(self):
+        # A 401/403 from Notion raises NotionAuthenticationError, a distinct
+        # exception type from a generic TaskListCommandError. Track
+        # selection is still only an optional add-on to the reply, so this
+        # must degrade the same way a generic listing failure does, not
+        # crash the whole /people suggest command.
+        failing = Mock()
+        error = Exception("unauthorized")
+        error.response = Mock(status_code=401)
+        failing.raise_for_status.side_effect = error
+        notion_post = Mock(
+            side_effect=[
+                notion_response([person_page("p1", "Jane Doe")]),
+                notion_response([]),
+                failing,
+            ]
+        )
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
+        )
+        generate_text = Mock(side_effect=["Recap", "Draft"])
+
+        handle_people_suggest(
+            "Jane Doe",
+            post_slack_message,
+            notion_post,
+            generate_text,
+            self.environment(),
+            today=FIXED_TODAY,
+            sleep=Mock(),
+        )
+
+        button = self.add_interaction_button(post_slack_message)
+        self.assertEqual(json.loads(button["value"]), {"page_id": "p1", "name": "Jane Doe"})
+        output = post_slack_message.call_args_list[-1].args[0]
+        self.assertIn("Suggested message for Jane Doe:", output)
+
+    @staticmethod
+    def add_interaction_button(post_slack_message):
+        blocks = post_slack_message.call_args_list[-1].kwargs["blocks"]
+        actions_block = next(block for block in blocks if block["type"] == "actions")
+        return actions_block["elements"][0]
+
+    @staticmethod
+    def environment():
+        return {
+            "NOTION_API_KEY": "secret-token",
+            "NOTION_PEOPLE_DATA_SOURCE_ID": "people-id",
+            "NOTION_INTERACTIONS_DATA_SOURCE_ID": "interactions-id",
+            "NOTION_TRACKS_DATA_SOURCE_ID": "tracks-id",
+        }
+
+
 if __name__ == "__main__":
     unittest.main()
