@@ -253,6 +253,7 @@ if handle_people_command(
     os.environ,
     generate_text=generate_gemini_text,
     post_ephemeral_response=post_ephemeral_command_response,
+    notion_get=requests.get,
 ):
     print("People command handled")
     sys.exit(0)

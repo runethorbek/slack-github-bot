@@ -77,13 +77,15 @@ def handle_people_command(
     today=None,
     post_ephemeral_response=None,
     sleep=time.sleep,
+    notion_get=None,
 ):
     """Handle the /people command family.
 
     ``due`` is fully deterministic. ``suggest <person>`` also reads Notion
     deterministically, but drafts its output with Gemini via the injected
     ``generate_text`` callable, keeping Gemini isolated from Notion access
-    and from arbitrary side effects.
+    and from arbitrary side effects. ``notion_get`` is used only to resolve
+    Track relation names for ``suggest``'s recap.
     """
     if command != "/people":
         return False
@@ -111,6 +113,7 @@ def handle_people_command(
                 environment,
                 today=today,
                 sleep=sleep,
+                notion_get=notion_get,
             )
             return True
 

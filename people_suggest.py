@@ -9,13 +9,30 @@ from people_due import (
     query_data_source,
 )
 from people_interaction import add_interaction_button
-from tasks_list import copenhagen_today
+from tasks_list import (
+    MalformedTrackPageError,
+    TaskListCommandError,
+    call_notion_with_retries,
+    copenhagen_today,
+    notion_headers,
+    track_from_notion_page,
+)
 
 
 PEOPLE_SUGGEST_FAILURE_MESSAGE = (
     "Unable to prepare a suggested message right now. Please try again later."
 )
 MAX_SUGGESTION_INTERACTIONS = 5
+
+# Bounds the number of distinct Track ids resolved per command, so a Person
+# or their recent Interactions cannot drive an unbounded number of Notion
+# reads (one GET per distinct Track id, never per Interaction).
+MAX_SUGGESTION_TRACKS = 5
+
+# Notion property names for the Track relations, exactly as named in the
+# live schema.
+PERSON_TRACK_PROPERTY = "Track Goal"
+INTERACTION_TRACK_PROPERTY = "Track"
 
 # Slack rejects a section block whose mrkdwn text exceeds this length. Gemini's
 # draft has no length cap of its own, so the block (not the plain-text
@@ -52,12 +69,36 @@ Rules:
   explanation.
 """
 
+RECAP_SYSTEM_INSTRUCTION = """
+You are preparing a short private recap for the user about a Person, so
+they can quickly recall relevant context before reaching out. This recap
+is for the user only; it is never sent to the Person.
+
+Rules:
+- Use only the context supplied below.
+- Do not invent facts, relationship history, interests, commitments,
+  meetings, or Track membership that are not present in the supplied
+  context.
+- Summarize the most relevant recent Interactions in roughly 2 to 4 short
+  bullet points. Do not mechanically restate every Interaction line by
+  line; synthesize what matters.
+- If Relevant Tracks are supplied below, add one final bullet naming them
+  exactly as given, for example "Relevant Track: <name>". Never rename,
+  invent, or omit a supplied Track name.
+- If no Relevant Tracks are supplied, do not mention Track at all.
+- If there are no previous Interactions, write one honest bullet saying
+  so rather than inventing history.
+- Respond with only the bullet list (each line starting with "- "), with
+  no heading, preamble, or explanation.
+"""
+
 
 @dataclass(frozen=True)
 class PersonProfile:
     page_id: str
     name: str
     context_fields: tuple[tuple[str, str], ...]
+    track_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -66,6 +107,7 @@ class InteractionSummary:
     type: str | None
     title: str | None
     notes: str | None
+    track_ids: tuple[str, ...] = ()
 
 
 def person_not_found_message(person_name):
@@ -87,13 +129,17 @@ def handle_people_suggest(
     environment,
     today=None,
     sleep=time.sleep,
+    notion_get=None,
 ):
     """Handle `/people suggest <person>`.
 
-    Notion access and Person resolution stay entirely deterministic; Gemini
-    (via the injected ``generate_text``) only ever sees the bounded context
-    built here and is only ever asked to draft text, never to choose a
-    Person or perform a side effect.
+    Notion access, Person resolution, and Track resolution stay entirely
+    deterministic; Gemini (via the injected ``generate_text``) only ever
+    sees the bounded context built here and is only ever asked to
+    summarize or draft text, never to choose a Person, infer a Track, or
+    perform a side effect. ``notion_get`` is optional so Track relations
+    can be resolved without requiring every caller to supply it; when
+    omitted, Track context is simply left out of the recap.
     """
     root_message = post_slack_message(f"/people suggest {person_name}")
 
@@ -135,13 +181,21 @@ def handle_people_suggest(
         )
         return
 
-    prompt = build_suggestion_prompt(profile, interactions)
-    answer = generate_text(prompt).strip()
+    track_ids = collect_track_ids(profile, interactions)[:MAX_SUGGESTION_TRACKS]
+    resolved_tracks = resolve_track_names(
+        track_ids, notion_get, environment["NOTION_API_KEY"], sleep
+    )
+    track_names = relevant_track_names(track_ids, resolved_tracks)
+
+    recap = generate_text(
+        build_recap_prompt(profile, interactions, track_names)
+    ).strip()
+    answer = generate_text(build_suggestion_prompt(profile, interactions)).strip()
     message = format_suggestion_message(profile.name, answer)
     post_slack_message(
-        message,
+        format_full_reply(recap, message),
         thread_ts=root_message["ts"],
-        blocks=build_suggestion_blocks(profile, message),
+        blocks=build_suggestion_blocks(profile, recap, message),
     )
 
 
@@ -203,7 +257,10 @@ def person_profile_from_notion_page(page):
         for value in [extract_property_text(properties, property_name)]
         if value is not None
     )
-    return PersonProfile(page_id=page_id, name=name, context_fields=context_fields)
+    track_ids = extract_relation_ids(properties, PERSON_TRACK_PROPERTY)
+    return PersonProfile(
+        page_id=page_id, name=name, context_fields=context_fields, track_ids=track_ids
+    )
 
 
 def fetch_recent_interactions(
@@ -251,8 +308,13 @@ def interaction_summary_from_notion_page(page):
     if not any((date_value, type_value, title_value, notes_value)):
         return None
 
+    track_ids = extract_relation_ids(properties, INTERACTION_TRACK_PROPERTY)
     return InteractionSummary(
-        date=date_value, type=type_value, title=title_value, notes=notes_value
+        date=date_value,
+        type=type_value,
+        title=title_value,
+        notes=notes_value,
+        track_ids=track_ids,
     )
 
 
@@ -306,7 +368,87 @@ def extract_property_text(properties, display_name):
     return None
 
 
-def build_suggestion_prompt(profile, interactions):
+def extract_relation_ids(properties, display_name):
+    """Read a relation property's related page ids, if present.
+
+    A missing property, or one not shaped as a relation, is safely
+    treated as no relation rather than guessed at.
+    """
+    property_value = properties.get(display_name)
+    if not isinstance(property_value, dict) or property_value.get("type") != "relation":
+        return ()
+    return tuple(
+        relation["id"]
+        for relation in property_value.get("relation", [])
+        if isinstance(relation, dict) and relation.get("id")
+    )
+
+
+def collect_track_ids(profile, interactions):
+    """Distinct Track ids from the Person and their recent Interactions.
+
+    Order is preserved (Person first, then each Interaction in the order
+    given) and duplicates are dropped, so a Track referenced by several
+    Interactions is still resolved at most once.
+    """
+    seen = []
+    for track_id in profile.track_ids:
+        if track_id not in seen:
+            seen.append(track_id)
+    for interaction in interactions:
+        for track_id in interaction.track_ids:
+            if track_id not in seen:
+                seen.append(track_id)
+    return tuple(seen)
+
+
+def resolve_track_names(track_ids, notion_get, api_key, sleep):
+    """Resolve each distinct Track id to a name, at most once per id.
+
+    Mirrors tasks_list.resolve_tracks: bounded to one GET per distinct
+    Track id, never per Interaction. A Track that fails to resolve, or is
+    malformed, is silently omitted rather than surfaced as an error, since
+    Track context here is only ever a best-effort aid for the recap.
+    Notion credential failures still propagate, matching the Tasks Track
+    resolution path.
+    """
+    resolved = {}
+    if notion_get is None:
+        return resolved
+
+    for track_id in track_ids:
+        if track_id in resolved:
+            continue
+        try:
+            response = call_notion_with_retries(
+                lambda track_id=track_id: notion_get(
+                    f"https://api.notion.com/v1/pages/{track_id}",
+                    headers=notion_headers(api_key),
+                    timeout=10,
+                ),
+                sleep,
+                credential_failure_status_codes=(401,),
+            )
+            try:
+                track_page = response.json()
+            except (TypeError, ValueError) as error:
+                raise MalformedTrackPageError() from error
+            resolved[track_id] = track_from_notion_page(track_page).name
+        except (TaskListCommandError, MalformedTrackPageError):
+            resolved[track_id] = None
+    return resolved
+
+
+def relevant_track_names(track_ids, resolved_tracks):
+    names = []
+    for track_id in track_ids:
+        name = resolved_tracks.get(track_id)
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def build_context_block(profile, interactions):
     context_lines = [f"Name: {profile.name}"]
     context_lines.extend(
         f"{label}: {value}" for label, value in profile.context_fields
@@ -323,10 +465,21 @@ def build_suggestion_prompt(profile, interactions):
 
     person_context = "\n".join(context_lines)
     return (
-        f"{SUGGESTION_SYSTEM_INSTRUCTION}\n\n"
         f"PERSON CONTEXT:\n{person_context}\n\n"
         f"RECENT INTERACTIONS:\n{interactions_block}\n"
     )
+
+
+def build_suggestion_prompt(profile, interactions):
+    return f"{SUGGESTION_SYSTEM_INSTRUCTION}\n\n{build_context_block(profile, interactions)}"
+
+
+def build_recap_prompt(profile, interactions, track_names):
+    context_block = build_context_block(profile, interactions)
+    if track_names:
+        tracks_block = "\n".join(f"- {name}" for name in track_names)
+        context_block = f"{context_block}\nRELEVANT TRACKS:\n{tracks_block}\n"
+    return f"{RECAP_SYSTEM_INSTRUCTION}\n\n{context_block}"
 
 
 def formatted_interaction_fields(interaction):
@@ -346,20 +499,40 @@ def format_suggestion_message(person_name, answer):
     return f"Suggested message for {person_name}:\n\n{answer}"
 
 
-def build_suggestion_blocks(profile, message_text):
-    return [
+def format_full_reply(recap, message):
+    if not recap:
+        return message
+    return f"Context:\n{recap}\n\n{message}"
+
+
+def build_suggestion_blocks(profile, recap, message_text):
+    blocks = []
+    if recap:
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": truncate_for_slack_section(f"Context:\n{recap}"),
+                },
+            }
+        )
+    blocks.append(
         {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
                 "text": truncate_for_slack_section(message_text),
             },
-        },
+        }
+    )
+    blocks.append(
         {
             "type": "actions",
             "elements": [add_interaction_button(profile.page_id, profile.name)],
-        },
-    ]
+        }
+    )
+    return blocks
 
 
 def truncate_for_slack_section(text):

@@ -589,14 +589,20 @@ class MainRoutingTests(unittest.TestCase):
 
         self.assertEqual(exit_context.exception.code, 0)
         requests_module.get.assert_not_called()
-        genai_module.Client.assert_called_once_with()
-        client.interactions.create.assert_called_once()
-        prompt = client.interactions.create.call_args.kwargs["input"]
-        self.assertIn("Name: Jane Doe", prompt)
-        self.assertIn("Why this person: Former colleague", prompt)
-        self.assertNotIn("3 months", prompt)
+        # One Gemini call drafts the recap, another drafts the reconnect
+        # message; each currently creates its own Client, as before.
+        self.assertEqual(genai_module.Client.call_count, 2)
+        self.assertEqual(client.interactions.create.call_count, 2)
+        for call in client.interactions.create.call_args_list:
+            prompt = call.kwargs["input"]
+            self.assertIn("Name: Jane Doe", prompt)
+            self.assertIn("Why this person: Former colleague", prompt)
+            self.assertNotIn("3 months", prompt)
         reply_text = requests_module.post.call_args_list[-1].kwargs["json"]["text"]
-        self.assertEqual(reply_text, "Suggested message for Jane Doe:\n\nHey Jane!")
+        self.assertEqual(
+            reply_text,
+            "Context:\nHey Jane!\n\nSuggested message for Jane Doe:\n\nHey Jane!",
+        )
 
     def test_authorized_normalized_tasks_list_exits_before_gemini(self):
         requests_module, google_module, genai_module = self.fake_modules()

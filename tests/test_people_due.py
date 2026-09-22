@@ -1035,10 +1035,52 @@ class PeopleDueSuggestButtonTests(unittest.TestCase):
         )
 
         self.assertTrue(handled)
-        generate_text.assert_called_once()
+        # One Gemini call drafts the recap, another drafts the message.
+        self.assertEqual(generate_text.call_count, 2)
         output = post_slack_message.call_args_list[-1].args[0]
         self.assertEqual(
-            output, "Suggested message for Jane Doe:\n\nHey Jane, been a while!"
+            output,
+            "Context:\nHey Jane, been a while!\n\n"
+            "Suggested message for Jane Doe:\n\nHey Jane, been a while!",
+        )
+
+    def test_notion_get_is_threaded_through_to_suggest_for_track_resolution(self):
+        person_page = self.person("p1", "Jane Doe", "1 month")
+        person_page["properties"]["Track Goal"] = {
+            "type": "relation",
+            "relation": [{"id": "track-1"}],
+        }
+        notion_post = Mock(
+            side_effect=[self.response([person_page]), self.response([])]
+        )
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
+        )
+        generate_text = Mock(return_value="Draft")
+        track_response = Mock()
+        track_response.json.return_value = {
+            "properties": {
+                "Navn": {"type": "title", "title": [{"plain_text": "AI Network"}]},
+            }
+        }
+        notion_get = Mock(return_value=track_response)
+
+        handle_people_command(
+            "/people",
+            "suggest Jane Doe",
+            post_slack_message,
+            notion_post,
+            self.environment(),
+            generate_text=generate_text,
+            today=FIXED_TODAY,
+            sleep=Mock(),
+            notion_get=notion_get,
+        )
+
+        notion_get.assert_called_once()
+        self.assertEqual(
+            notion_get.call_args.args[0],
+            "https://api.notion.com/v1/pages/track-1",
         )
 
     @staticmethod

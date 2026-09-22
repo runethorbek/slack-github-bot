@@ -218,7 +218,9 @@ process.stdout.write(JSON.stringify(options));
         self.assertEqual(exit_context.exception.code, 0)
         reply_text = requests_module.post.call_args_list[-1].kwargs["json"]["text"]
         self.assertEqual(
-            reply_text, "Suggested message for Jane Doe:\n\nHey Jane, been a while!"
+            reply_text,
+            "Context:\nHey Jane, been a while!\n\n"
+            "Suggested message for Jane Doe:\n\nHey Jane, been a while!",
         )
 
     @staticmethod
