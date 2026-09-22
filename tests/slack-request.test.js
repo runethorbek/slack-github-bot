@@ -781,9 +781,6 @@ test("submitting the Add Interaction modal dispatches the structured write to Gi
   assert.deepEqual(await response.json(), {});
   assert.deepEqual(dependencies.dispatched, [
     {
-      command: "",
-      text: "",
-      response_url: "",
       channel_id: "C123",
       user_id: "U123",
       channel_type: "channel",
@@ -796,6 +793,19 @@ test("submitting the Add Interaction modal dispatches the structured write to Gi
       date: "2026-09-22",
     },
   ]);
+});
+
+test("the Add Interaction dispatch stays within GitHub's 10-property client_payload limit", async () => {
+  // repository_dispatch rejects a client_payload with more than 10
+  // top-level properties (HTTP 422); a regression here fails silently in
+  // production because the dispatch is fire-and-forget.
+  const body = addInteractionSubmissionBody();
+  const dependencies = testDependencies();
+
+  await handleSlackRequest(slackRequest(body), dependencies.options);
+  await Promise.all(dependencies.deferred);
+
+  assert.ok(Object.keys(dependencies.dispatched[0]).length <= 10);
 });
 
 test("a DM's Add Interaction submission preserves channel_type identity", async () => {

@@ -358,11 +358,12 @@ export async function handleSlackRequest(
           const interactionDate =
             values.date_block?.date_select?.selected_date ?? "";
 
+          // GitHub's repository_dispatch client_payload allows at most 10
+          // top-level properties, so unlike every other dispatch below this
+          // one omits the command/text/response_url fields view_submission
+          // never uses rather than sending them as unused empty strings.
           defer(
             triggerGitHub({
-              command: "",
-              text: "",
-              response_url: "",
               channel_id: metadata.channel_id,
               user_id: metadata.user_id,
               channel_type: commandChannelType(metadata.channel_id),
