@@ -29,6 +29,9 @@ from tasks_list import (
 PEOPLE_SUGGEST_FAILURE_MESSAGE = (
     "Unable to prepare a suggested message right now. Please try again later."
 )
+GEMINI_TRANSIENT_FAILURE_MESSAGE = (
+    "Gemini is currently experiencing high demand. Please try again shortly."
+)
 INTERACTION_TYPE_UNAVAILABLE_NOTE = (
     "Add interaction is unavailable right now (couldn't load Notion Type options)."
 )
@@ -132,6 +135,27 @@ def ambiguous_person_message(person_name):
     )
 
 
+def external_error_status_code(error):
+    """Mirrors main.py's helper of the same name for the injected Gemini
+    ``generate_text`` call, which raises whatever the SDK raised rather
+    than a shared exception type.
+    """
+    response = getattr(error, "response", None)
+    status_code = getattr(response, "status_code", None)
+    if isinstance(status_code, int):
+        return status_code
+    for attribute in ("status_code", "code"):
+        status_code = getattr(error, attribute, None)
+        if isinstance(status_code, int):
+            return status_code
+    return None
+
+
+def is_transient_gemini_status(status_code):
+    """A 429 (rate limit) or 5xx Gemini response is transient/high-demand."""
+    return status_code == 429 or (isinstance(status_code, int) and 500 <= status_code < 600)
+
+
 def handle_people_suggest(
     person_name,
     post_slack_message,
@@ -208,10 +232,18 @@ def handle_people_suggest(
         notion_get, environment, sleep
     )
 
-    recap = generate_text(
-        build_recap_prompt(profile, interactions, track_names)
-    ).strip()
-    answer = generate_text(build_suggestion_prompt(profile, interactions)).strip()
+    try:
+        recap = generate_text(
+            build_recap_prompt(profile, interactions, track_names)
+        ).strip()
+        answer = generate_text(build_suggestion_prompt(profile, interactions)).strip()
+    except Exception as error:
+        if not is_transient_gemini_status(external_error_status_code(error)):
+            raise
+        post_slack_message(
+            GEMINI_TRANSIENT_FAILURE_MESSAGE, thread_ts=root_message["ts"]
+        )
+        return
     message = format_suggestion_message(profile.name, answer)
     reply_text = format_full_reply(recap, message)
     if not selectable_interaction_types:

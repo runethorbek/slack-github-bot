@@ -147,6 +147,16 @@ def raise_gemini_credential_error(error):
         raise RuntimeError(f"Gemini authentication failed (HTTP {status_code}).") from None
 
 
+def is_transient_gemini_status(status_code):
+    """A 429 (rate limit) or 5xx Gemini response is transient/high-demand.
+
+    Distinct from credential failures (401/403, see
+    raise_gemini_credential_error): callers should tell the requester to
+    retry shortly rather than treat this as a hard failure.
+    """
+    return status_code == 429 or (isinstance(status_code, int) and 500 <= status_code < 600)
+
+
 def is_authorized_slack_user(candidate_user_id, configured_user_id):
     return bool(configured_user_id) and candidate_user_id == configured_user_id
 
@@ -173,6 +183,9 @@ def parse_person_payload(value):
 
 
 GEMINI_MODEL = "gemini-3.5-flash-lite"
+GEMINI_TRANSIENT_FAILURE_MESSAGE = (
+    "Gemini is currently experiencing high demand. Please try again shortly."
+)
 
 
 def generate_gemini_text(prompt):
@@ -406,7 +419,17 @@ SLACK THREAD HISTORY:
 {conversation}
 """
 
-answer = generate_gemini_text(prompt)
+try:
+    answer = generate_gemini_text(prompt)
+except Exception as error:
+    if not is_transient_gemini_status(external_error_status_code(error)):
+        raise
+    post_slack_message(
+        GEMINI_TRANSIENT_FAILURE_MESSAGE,
+        thread_ts=thread_ts,
+    )
+    print("Gemini transient failure; safe Slack reply posted")
+    sys.exit(0)
 
 
 # ---------------------------------------------------------

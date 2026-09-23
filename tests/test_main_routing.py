@@ -766,6 +766,159 @@ class MainRoutingTests(unittest.TestCase):
             "Context:\nHey Jane!\n\nSuggested message for Jane Doe:\n\nHey Jane!",
         )
 
+    def test_people_suggest_transient_gemini_failure_replies_safely_in_thread(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        root_response = Mock()
+        root_response.json.return_value = {"ok": True, "ts": "123.456"}
+        people_response = Mock()
+        people_response.json.return_value = {
+            "results": [
+                {
+                    "id": "person-id",
+                    "properties": {
+                        "Name": {
+                            "type": "title",
+                            "title": [{"plain_text": "Jane Doe"}],
+                        },
+                    },
+                }
+            ]
+        }
+        interactions_response = Mock()
+        interactions_response.json.return_value = {"results": []}
+        reply_response = Mock()
+        reply_response.json.return_value = {"ok": True}
+        requests_module.post.side_effect = [
+            root_response,
+            people_response,
+            interactions_response,
+            reply_response,
+        ]
+        type_schema_response = Mock()
+        type_schema_response.json.return_value = {
+            "properties": {
+                "Type": {"type": "select", "select": {"options": [{"name": "Coffee"}]}}
+            }
+        }
+        requests_module.get.return_value = type_schema_response
+
+        client = Mock()
+        transient_error = Exception("rate limited payload leak marker XYZ123")
+        transient_error.response = Mock(status_code=429)
+        client.interactions.create.side_effect = transient_error
+        genai_module.Client.side_effect = None
+        genai_module.Client.return_value = client
+
+        environment = {
+            "SLACK_COMMAND": "/people",
+            "SLACK_TEXT": "suggest Jane Doe",
+            "SLACK_CHANNEL_ID": "D-private",
+            "SLACK_USER_ID": "U-authorized",
+            "SLACK_CHANNEL_TYPE": "im",
+            "SLACK_BOT_TOKEN": "test-slack-token",
+            "AUTHORIZED_SLACK_USER_ID": "U-authorized",
+            "TASKS_SLACK_CHANNEL_ID": "C-allowed",
+            "NOTION_API_KEY": "test-notion-token",
+            "NOTION_PEOPLE_DATA_SOURCE_ID": "people-id",
+            "NOTION_INTERACTIONS_DATA_SOURCE_ID": "interactions-id",
+        }
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(
+                sys.modules,
+                {
+                    "requests": requests_module,
+                    "google": google_module,
+                    "google.genai": genai_module,
+                },
+            ),
+            patch("builtins.print"),
+            self.assertRaises(SystemExit) as exit_context,
+        ):
+            runpy.run_module("main", run_name="__main__")
+
+        self.assertEqual(exit_context.exception.code, 0)
+        self.assertEqual(client.interactions.create.call_count, 1)
+        reply_payload = requests_module.post.call_args_list[-1].kwargs["json"]
+        self.assertEqual(
+            reply_payload["text"],
+            "Gemini is currently experiencing high demand. Please try again shortly.",
+        )
+        self.assertEqual(reply_payload["thread_ts"], "123.456")
+        self.assertNotIn("XYZ123", reply_payload["text"])
+
+    def test_people_suggest_unrelated_gemini_failure_still_crashes(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        root_response = Mock()
+        root_response.json.return_value = {"ok": True, "ts": "123.456"}
+        people_response = Mock()
+        people_response.json.return_value = {
+            "results": [
+                {
+                    "id": "person-id",
+                    "properties": {
+                        "Name": {
+                            "type": "title",
+                            "title": [{"plain_text": "Jane Doe"}],
+                        },
+                    },
+                }
+            ]
+        }
+        interactions_response = Mock()
+        interactions_response.json.return_value = {"results": []}
+        requests_module.post.side_effect = [
+            root_response,
+            people_response,
+            interactions_response,
+        ]
+        type_schema_response = Mock()
+        type_schema_response.json.return_value = {
+            "properties": {
+                "Type": {"type": "select", "select": {"options": [{"name": "Coffee"}]}}
+            }
+        }
+        requests_module.get.return_value = type_schema_response
+
+        client = Mock()
+        unrelated_error = Exception("unexpected malformed response")
+        unrelated_error.response = Mock(status_code=400)
+        client.interactions.create.side_effect = unrelated_error
+        genai_module.Client.side_effect = None
+        genai_module.Client.return_value = client
+
+        environment = {
+            "SLACK_COMMAND": "/people",
+            "SLACK_TEXT": "suggest Jane Doe",
+            "SLACK_CHANNEL_ID": "D-private",
+            "SLACK_USER_ID": "U-authorized",
+            "SLACK_CHANNEL_TYPE": "im",
+            "SLACK_BOT_TOKEN": "test-slack-token",
+            "AUTHORIZED_SLACK_USER_ID": "U-authorized",
+            "TASKS_SLACK_CHANNEL_ID": "C-allowed",
+            "NOTION_API_KEY": "test-notion-token",
+            "NOTION_PEOPLE_DATA_SOURCE_ID": "people-id",
+            "NOTION_INTERACTIONS_DATA_SOURCE_ID": "interactions-id",
+        }
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(
+                sys.modules,
+                {
+                    "requests": requests_module,
+                    "google": google_module,
+                    "google.genai": genai_module,
+                },
+            ),
+            patch("builtins.print"),
+            self.assertRaisesRegex(Exception, "unexpected malformed response"),
+        ):
+            runpy.run_module("main", run_name="__main__")
+
+        self.assertEqual(requests_module.post.call_count, 3)
+
     def test_authorized_normalized_tasks_list_exits_before_gemini(self):
         requests_module, google_module, genai_module = self.fake_modules()
 
@@ -1041,6 +1194,104 @@ class MainRoutingTests(unittest.TestCase):
         client.interactions.create.assert_called_once()
         self.assertEqual(requests_module.post.call_count, 2)
         requests_module.get.assert_called_once()
+
+    def test_testbot_transient_gemini_failure_replies_safely_in_thread(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        root_response = Mock()
+        root_response.json.return_value = {"ok": True, "ts": "123.456"}
+        reply_response = Mock()
+        reply_response.json.return_value = {"ok": True}
+        requests_module.post.side_effect = [root_response, reply_response]
+
+        thread_response = Mock()
+        thread_response.json.return_value = {
+            "ok": True,
+            "messages": [{"text": "hello"}],
+        }
+        requests_module.get.return_value = thread_response
+
+        client = Mock()
+        transient_error = Exception("internal provider payload leak marker XYZ123")
+        transient_error.response = Mock(status_code=503)
+        client.interactions.create.side_effect = transient_error
+        genai_module.Client.side_effect = None
+        genai_module.Client.return_value = client
+
+        environment = {
+            "SLACK_COMMAND": "/testbot",
+            "SLACK_TEXT": "hello",
+            "SLACK_CHANNEL_ID": "C-channel",
+            "SLACK_BOT_TOKEN": "test-slack-token",
+        }
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(
+                sys.modules,
+                {
+                    "requests": requests_module,
+                    "google": google_module,
+                    "google.genai": genai_module,
+                },
+            ),
+            patch("builtins.print"),
+            self.assertRaises(SystemExit) as exit_context,
+        ):
+            runpy.run_module("main", run_name="__main__")
+
+        self.assertEqual(exit_context.exception.code, 0)
+        self.assertEqual(requests_module.post.call_count, 2)
+        reply_payload = requests_module.post.call_args_list[-1].kwargs["json"]
+        self.assertEqual(
+            reply_payload["text"],
+            "Gemini is currently experiencing high demand. Please try again shortly.",
+        )
+        self.assertEqual(reply_payload["thread_ts"], "123.456")
+        self.assertNotIn("XYZ123", reply_payload["text"])
+
+    def test_testbot_unrelated_gemini_failure_still_crashes(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        root_response = Mock()
+        root_response.json.return_value = {"ok": True, "ts": "123.456"}
+        requests_module.post.return_value = root_response
+
+        thread_response = Mock()
+        thread_response.json.return_value = {
+            "ok": True,
+            "messages": [{"text": "hello"}],
+        }
+        requests_module.get.return_value = thread_response
+
+        client = Mock()
+        unrelated_error = Exception("unexpected malformed response")
+        unrelated_error.response = Mock(status_code=400)
+        client.interactions.create.side_effect = unrelated_error
+        genai_module.Client.side_effect = None
+        genai_module.Client.return_value = client
+
+        environment = {
+            "SLACK_COMMAND": "/testbot",
+            "SLACK_TEXT": "hello",
+            "SLACK_CHANNEL_ID": "C-channel",
+            "SLACK_BOT_TOKEN": "test-slack-token",
+        }
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(
+                sys.modules,
+                {
+                    "requests": requests_module,
+                    "google": google_module,
+                    "google.genai": genai_module,
+                },
+            ),
+            patch("builtins.print"),
+            self.assertRaisesRegex(Exception, "unexpected malformed response"),
+        ):
+            runpy.run_module("main", run_name="__main__")
+
+        self.assertEqual(requests_module.post.call_count, 1)
 
     def test_task_data_and_credentials_are_not_logged(self):
         requests_module, google_module, genai_module = self.fake_modules()

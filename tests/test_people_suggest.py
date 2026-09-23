@@ -747,6 +747,95 @@ class HandlePeopleSuggestTests(unittest.TestCase):
         output = post_slack_message.call_args_list[-1].args[0]
         self.assertEqual(output, ambiguous_person_message("Jane Doe"))
 
+    def test_transient_gemini_failure_replies_safely_without_crashing(self):
+        notion_post = Mock(
+            side_effect=[
+                notion_response([person_page("p1", "Jane Doe")]),
+                notion_response([]),
+            ]
+        )
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
+        )
+        transient_error = Exception("payload leak marker XYZ123")
+        transient_error.response = Mock(status_code=503)
+        generate_text = Mock(side_effect=transient_error)
+
+        handle_people_suggest(
+            "Jane Doe",
+            post_slack_message,
+            notion_post,
+            generate_text,
+            self.environment(),
+            today=FIXED_TODAY,
+            sleep=Mock(),
+        )
+
+        output = post_slack_message.call_args_list[-1].args[0]
+        self.assertEqual(
+            output,
+            "Gemini is currently experiencing high demand. Please try again shortly.",
+        )
+        self.assertNotIn("XYZ123", output)
+        self.assertEqual(
+            post_slack_message.call_args_list[-1].kwargs["thread_ts"], "123.456"
+        )
+
+    def test_gemini_credential_failure_still_propagates_uncaught(self):
+        notion_post = Mock(
+            side_effect=[
+                notion_response([person_page("p1", "Jane Doe")]),
+                notion_response([]),
+            ]
+        )
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
+        )
+        # Mirrors main.raise_gemini_credential_error's output: a plain
+        # RuntimeError with no status-code attributes, matching issue #3.
+        credential_error = RuntimeError("Gemini authentication failed (HTTP 401).")
+        generate_text = Mock(side_effect=credential_error)
+
+        with self.assertRaises(RuntimeError) as error_context:
+            handle_people_suggest(
+                "Jane Doe",
+                post_slack_message,
+                notion_post,
+                generate_text,
+                self.environment(),
+                today=FIXED_TODAY,
+                sleep=Mock(),
+            )
+
+        self.assertIs(error_context.exception, credential_error)
+
+    def test_unrelated_gemini_failure_still_propagates_uncaught(self):
+        notion_post = Mock(
+            side_effect=[
+                notion_response([person_page("p1", "Jane Doe")]),
+                notion_response([]),
+            ]
+        )
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
+        )
+        unrelated_error = Exception("unexpected malformed response")
+        unrelated_error.response = Mock(status_code=400)
+        generate_text = Mock(side_effect=unrelated_error)
+
+        with self.assertRaises(Exception) as error_context:
+            handle_people_suggest(
+                "Jane Doe",
+                post_slack_message,
+                notion_post,
+                generate_text,
+                self.environment(),
+                today=FIXED_TODAY,
+                sleep=Mock(),
+            )
+
+        self.assertIs(error_context.exception, unrelated_error)
+
     def test_person_with_no_interactions_still_produces_a_draft(self):
         notion_post = Mock(
             side_effect=[
