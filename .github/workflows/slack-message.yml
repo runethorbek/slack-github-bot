@@ -9,9 +9,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -31,7 +31,10 @@ jobs:
             const fs = require("fs");
             const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
             const payload = event.client_payload || {};
-            const out = ["RESPONSE_URL\t" + (payload.response_url || "")];
+            const out = [];
+            if (typeof payload.response_url === "string" && payload.response_url) {
+              out.push("RESPONSE_URL\t" + payload.response_url);
+            }
             for (const field of ["text", "person", "interaction_type", "notes"]) {
               const value = payload[field];
               if (typeof value === "string" && value) {
