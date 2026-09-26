@@ -87,6 +87,7 @@ def http_error(status_code):
 
 def submit(
     task_name="Send the article",
+    description="",
     follow_up="",
     priority="",
     track_id="",
@@ -102,6 +103,7 @@ def submit(
         person_page_id,
         "Jane Doe",
         task_name,
+        description,
         follow_up,
         priority,
         track_id,
@@ -351,6 +353,7 @@ class ParseTaskPayloadTests(unittest.TestCase):
                 json.dumps(
                     {
                         "name": "Send the article",
+                        "description": "Line one\nLine two",
                         "follow_up": "2026-10-01",
                         "priority": "High",
                         "track_id": "t1",
@@ -359,6 +362,7 @@ class ParseTaskPayloadTests(unittest.TestCase):
             ),
             {
                 "name": "Send the article",
+                "description": "Line one\nLine two",
                 "follow_up": "2026-10-01",
                 "priority": "High",
                 "track_id": "t1",
@@ -366,12 +370,21 @@ class ParseTaskPayloadTests(unittest.TestCase):
         )
 
     def test_malformed_or_non_string_values_become_empty(self):
-        empty = {"name": "", "follow_up": "", "priority": "", "track_id": ""}
+        empty = {
+            "name": "",
+            "description": "",
+            "follow_up": "",
+            "priority": "",
+            "track_id": "",
+        }
         self.assertEqual(parse_task_payload(""), empty)
         self.assertEqual(parse_task_payload("not json"), empty)
         self.assertEqual(parse_task_payload("[1]"), empty)
         self.assertEqual(
-            parse_task_payload(json.dumps({"name": 5, "priority": ["High"]})), empty
+            parse_task_payload(
+                json.dumps({"name": 5, "description": 7, "priority": ["High"]})
+            ),
+            empty,
         )
 
 
@@ -520,6 +533,50 @@ class AddFollowupTaskSubmissionTests(unittest.TestCase):
         post_slack_message.assert_called_once_with(
             "Follow-up task added for Jane Doe: Send the article", thread_ts="100.001"
         )
+
+    def test_description_is_trimmed_and_written_as_rich_text(self):
+        _, notion_post, _ = submit(description="  Link: example.test\nThanks  ")
+
+        properties = task_writes(notion_post)[0].kwargs["json"]["properties"]
+        self.assertEqual(
+            properties["Description"],
+            {
+                "rich_text": [
+                    {"type": "text", "text": {"content": "Link: example.test\nThanks"}}
+                ]
+            },
+        )
+
+    def test_blank_or_whitespace_description_leaves_description_unset(self):
+        for description in ("", "   \n  "):
+            with self.subTest(repr(description)):
+                _, notion_post, _ = submit(description=description)
+
+                properties = task_writes(notion_post)[0].kwargs["json"]["properties"]
+                self.assertNotIn("Description", properties)
+
+    def test_missing_or_non_text_description_property_still_creates_the_task(self):
+        for name, definition in (("missing", None), ("wrong type", {"type": "select"})):
+            with self.subTest(name):
+                schema = tasks_schema_response()
+                properties = schema.json.return_value["properties"]
+                if definition is None:
+                    del properties["Description"]
+                else:
+                    properties["Description"] = definition
+
+                post_slack_message, notion_post, _ = submit(
+                    description="Some context",
+                    notion_get=Mock(return_value=schema),
+                )
+
+                writes = task_writes(notion_post)
+                self.assertEqual(len(writes), 1)
+                self.assertNotIn("Description", writes[0].kwargs["json"]["properties"])
+                post_slack_message.assert_called_once_with(
+                    "Follow-up task added for Jane Doe: Send the article",
+                    thread_ts="100.001",
+                )
 
     def test_unconfigured_tasks_data_source_fails_without_notion_calls(self):
         post_slack_message, notion_post, notion_get = submit(

@@ -311,6 +311,7 @@ class MainRoutingTests(unittest.TestCase):
                     "type": "status",
                     "status": {"options": [{"name": "Ikke startet"}]},
                 },
+                "Description": {"type": "rich_text"},
             }
         }
         return response
@@ -331,6 +332,7 @@ class MainRoutingTests(unittest.TestCase):
             "SLACK_TASK": json.dumps(
                 {
                     "name": "Send the article",
+                    "description": "Include the Q3 figures.",
                     "follow_up": "2026-10-01",
                     "priority": "High",
                     "track_id": "",
@@ -380,6 +382,14 @@ class MainRoutingTests(unittest.TestCase):
         self.assertEqual(properties["People"], {"relation": [{"id": "person-page-id"}]})
         self.assertEqual(properties["Status"], {"status": {"name": "Ikke startet"}})
         self.assertEqual(properties["Priority"], {"select": {"name": "High"}})
+        self.assertEqual(
+            properties["Description"],
+            {
+                "rich_text": [
+                    {"type": "text", "text": {"content": "Include the Q3 figures."}}
+                ]
+            },
+        )
         reply_json = requests_module.post.call_args_list[-1].kwargs["json"]
         self.assertEqual(reply_json["text"], "Follow-up task added for Jane Doe: Send the article")
         self.assertEqual(reply_json["thread_ts"], "100.001")

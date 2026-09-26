@@ -270,6 +270,19 @@ function buildAddFollowupTaskView(
     },
     {
       type: "input",
+      block_id: "description_block",
+      optional: true,
+      label: { type: "plain_text", text: "Description" },
+      // Notion rejects a rich_text content longer than 2000 characters.
+      element: {
+        type: "plain_text_input",
+        action_id: "description_input",
+        multiline: true,
+        max_length: 2000,
+      },
+    },
+    {
+      type: "input",
       block_id: "follow_up_block",
       optional: true,
       label: { type: "plain_text", text: "Follow-up" },
@@ -571,6 +584,8 @@ export async function handleSlackRequest(
               }),
               task: JSON.stringify({
                 name: values.name_block?.name_input?.value ?? "",
+                description:
+                  values.description_block?.description_input?.value ?? "",
                 follow_up:
                   values.follow_up_block?.follow_up_select?.selected_date ?? "",
                 priority:

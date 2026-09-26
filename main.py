@@ -255,6 +255,7 @@ if event_type == "view_submission":
             person["page_id"],
             person["name"],
             task["name"],
+            task["description"],
             task["follow_up"],
             task["priority"],
             task["track_id"],

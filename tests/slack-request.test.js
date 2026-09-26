@@ -1100,6 +1100,14 @@ test("clicking Add follow-up task opens the Task modal with Person shown and Tra
   assert.equal(block("name_block").optional, undefined);
   assert.equal(block("name_block").element.type, "plain_text_input");
   assert.equal(block("name_block").element.max_length, 2000);
+  assert.equal(block("description_block").optional, true);
+  assert.deepEqual(block("description_block").element, {
+    type: "plain_text_input",
+    action_id: "description_input",
+    multiline: true,
+    max_length: 2000,
+  });
+  assert.equal(view.blocks.indexOf(block("description_block")), 2);
   assert.equal(block("follow_up_block").optional, true);
   assert.equal(block("follow_up_block").element.type, "datepicker");
   assert.equal(block("follow_up_block").element.initial_date, undefined);
@@ -1128,7 +1136,7 @@ test("a Task button without Priority or Track options omits those selectors", as
   const { view } = dependencies.openedModals[0];
   assert.deepEqual(
     view.blocks.map((block) => block.block_id).filter(Boolean),
-    ["name_block", "follow_up_block"]
+    ["name_block", "description_block", "follow_up_block"]
   );
 });
 
@@ -1188,6 +1196,9 @@ function addFollowupTaskSubmissionBody(values) {
 test("submitting the Task modal dispatches the bundled Task fields to GitHub", async () => {
   const body = addFollowupTaskSubmissionBody({
     name_block: { name_input: { value: "Send the article" } },
+    description_block: {
+      description_input: { value: "Include the Q3 figures.\nThanks" },
+    },
     follow_up_block: { follow_up_select: { selected_date: "2026-10-01" } },
     priority_block: { priority_select: { selected_option: { value: "High" } } },
     track_block: { track_select: { selected_option: { value: "track-2" } } },
@@ -1213,6 +1224,7 @@ test("submitting the Task modal dispatches the bundled Task fields to GitHub", a
       person: JSON.stringify({ page_id: "person-page-id", name: "Jane Doe" }),
       task: JSON.stringify({
         name: "Send the article",
+        description: "Include the Q3 figures.\nThanks",
         follow_up: "2026-10-01",
         priority: "High",
         track_id: "track-2",
@@ -1235,6 +1247,7 @@ test("empty optional Task fields are dispatched as empty strings", async () => {
 
   assert.deepEqual(JSON.parse(dependencies.dispatched[0].task), {
     name: "Send the article",
+    description: "",
     follow_up: "",
     priority: "",
     track_id: "",

@@ -35,6 +35,7 @@ TASK_PRIORITY_PROPERTY = "Priority"
 TASK_STATUS_PROPERTY = "Status"
 TASK_FOLLOW_UP_PROPERTY = "Follow-up"
 TASK_CREATED_PROPERTY = "Created"
+TASK_DESCRIPTION_PROPERTY = "Description"
 
 # Every follow-up Task starts in this exact existing Status, matching the
 # Danish Status names tasks_list.py already relies on. It is checked
@@ -70,6 +71,7 @@ class TasksSchema:
     title_property_name: str
     priorities: list[str]
     statuses: list[str]
+    has_description: bool
 
 
 def followup_task_button(
@@ -146,12 +148,13 @@ def build_followup_task_button(
 
 
 def fetch_tasks_schema(notion_get, api_key, tasks_data_source_id, sleep):
-    """Read the title property, Priority options and Status options.
+    """Read the title property, Priority/Status options and Description.
 
     Notion is the only source of truth for Priority and Status values. A
     malformed schema response is a failure, not an empty allowlist - except
-    that a missing Priority property just means no Priority options, since
-    Priority is optional on a Task.
+    that a missing Priority property just means no Priority options, and a
+    missing or non-rich_text Description just means no Description is
+    written, since both are optional on a Task.
     """
     response = call_notion_with_retries(
         lambda: notion_get(
@@ -171,6 +174,7 @@ def fetch_tasks_schema(notion_get, api_key, tasks_data_source_id, sleep):
         )
         priority_property = properties.get(TASK_PRIORITY_PROPERTY)
         status_property = properties[TASK_STATUS_PROPERTY]
+        description_property = properties.get(TASK_DESCRIPTION_PROPERTY)
         if (
             priority_property is not None
             and priority_property.get("type") != "select"
@@ -182,6 +186,8 @@ def fetch_tasks_schema(notion_get, api_key, tasks_data_source_id, sleep):
             if priority_property is not None
             else [],
             option_names(status_property["status"]["options"]),
+            isinstance(description_property, dict)
+            and description_property.get("type") == "rich_text",
         )
     except (AttributeError, KeyError, StopIteration, TypeError, ValueError) as error:
         raise FollowupTaskCommandError() from error
@@ -210,7 +216,7 @@ def parse_task_payload(value):
         parsed = {}
     return {
         field: parsed.get(field) if isinstance(parsed.get(field), str) else ""
-        for field in ("name", "follow_up", "priority", "track_id")
+        for field in ("name", "description", "follow_up", "priority", "track_id")
     }
 
 
@@ -218,6 +224,7 @@ def handle_add_followup_task_submission(
     person_page_id,
     person_name,
     task_name,
+    description,
     follow_up_value,
     priority,
     track_id,
@@ -233,7 +240,9 @@ def handle_add_followup_task_submission(
 
     Gemini is never involved. Person identity comes from the modal's
     structured state; Priority and Track are re-validated against live
-    Notion data rather than trusted from the submission.
+    Notion data rather than trusted from the submission. ``description`` is
+    the user's own typed text (Interaction notes are never copied); blank
+    means Description is left unset.
     """
     if not person_page_id or not person_name:
         # No Person to link the Task to; nothing safe to report.
@@ -243,6 +252,7 @@ def handle_add_followup_task_submission(
     if not task_name:
         post_slack_message(FOLLOWUP_TASK_INVALID_MESSAGE, thread_ts=thread_ts)
         return
+    description = (description or "").strip()
 
     try:
         follow_up = date.fromisoformat(follow_up_value) if follow_up_value else None
@@ -284,6 +294,7 @@ def handle_add_followup_task_submission(
                 tasks_data_source_id,
                 schema.title_property_name,
                 task_name,
+                description if schema.has_description else "",
                 person_page_id,
                 track_id,
                 priority,
@@ -322,6 +333,7 @@ def create_task_page(
     tasks_data_source_id,
     title_property_name,
     task_name,
+    description,
     person_page_id,
     track_id,
     priority,
@@ -329,8 +341,6 @@ def create_task_page(
     created,
     sleep,
 ):
-    # Description is deliberately left unset (empty); Interaction notes are
-    # not copied into the Task.
     properties = {
         title_property_name: {
             "title": [{"type": "text", "text": {"content": task_name}}]
@@ -343,6 +353,10 @@ def create_task_page(
         properties[TASK_TRACK_PROPERTY] = {"relation": [{"id": track_id}]}
     if priority:
         properties[TASK_PRIORITY_PROPERTY] = {"select": {"name": priority}}
+    if description:
+        properties[TASK_DESCRIPTION_PROPERTY] = {
+            "rich_text": [{"type": "text", "text": {"content": description}}]
+        }
     if follow_up:
         properties[TASK_FOLLOW_UP_PROPERTY] = {
             "date": {"start": follow_up.isoformat()}
