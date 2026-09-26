@@ -511,6 +511,24 @@ A second GitHub Action should start.
 
 The bot does not print reconstructed conversations to GitHub Actions logs.
 
+### Inspect the Gemini prompts for `/people suggest`
+
+Prompts are never logged in GitHub Actions, so to see exactly what context
+(Person, Interactions, Tracks and their Purposes) reaches Gemini, run a local
+dry run:
+
+```powershell
+$env:NOTION_API_KEY = "..."
+$env:NOTION_PEOPLE_DATA_SOURCE_ID = "..."
+$env:NOTION_INTERACTIONS_DATA_SOURCE_ID = "..."
+python scripts/preview_people_suggest_prompts.py "<Person name>"
+```
+
+It runs the real command against live Notion (read-only) but replaces Gemini
+and Slack with local stubs, then prints the recap/next-step prompt and the
+draft-message prompt. The output contains private Notion data; do not paste it
+anywhere public or commit it.
+
 ### Run the automated test suite
 
 ```bash
