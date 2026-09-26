@@ -327,7 +327,7 @@ API key for read-only access to the configured Notion data sources.
 
 ### `NOTION_TASKS_DATA_SOURCE_ID`
 
-The ID of the Notion Tasks data source queried by `/tasks list`. Also used by the "Add follow-up task" button on an Interaction confirmation: its schema supplies the Priority options and the `Ikke started` Status, and a submitted Task modal creates exactly one Task there (`followup_task.py`). If unset, the button is omitted.
+The ID of the Notion Tasks data source queried by `/tasks list`. Also used by the "Add follow-up task" button on an Interaction confirmation: its schema supplies the Priority options and the `Ikke startet` Status, and a submitted Task modal creates exactly one Task there (`followup_task.py`). If unset, the button is omitted.
 
 ### `NOTION_PEOPLE_DATA_SOURCE_ID`
 

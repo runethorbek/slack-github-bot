@@ -46,7 +46,7 @@ def failing_response(status_code):
     return notion_response
 
 
-def task(name, follow_up=None, priority=None, status="Ikke started"):
+def task(name, follow_up=None, priority=None, status="Ikke startet"):
     return {
         "url": f"https://www.notion.so/{name.casefold().replace(' ', '-')}",
         "properties": {

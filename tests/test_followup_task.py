@@ -29,7 +29,7 @@ ENVIRONMENT = {
 }
 
 PRIORITY_OPTIONS = [{"name": "High"}, {"name": "Medium"}, {"name": "Low"}]
-STATUS_OPTIONS = [{"name": "Ikke started"}, {"name": "I gang"}, {"name": "Færdig"}]
+STATUS_OPTIONS = [{"name": "Ikke startet"}, {"name": "I gang"}, {"name": "Færdig"}]
 
 
 def tasks_schema_response(status_options=None, priority_options=None):
@@ -390,7 +390,7 @@ class AddFollowupTaskSubmissionTests(unittest.TestCase):
                         "title": [{"type": "text", "text": {"content": "Send the article"}}]
                     },
                     "People": {"relation": [{"id": "person-page-id"}]},
-                    "Status": {"status": {"name": "Ikke started"}},
+                    "Status": {"status": {"name": "Ikke startet"}},
                     "Created": {"date": {"start": "2026-09-26"}},
                 },
             },

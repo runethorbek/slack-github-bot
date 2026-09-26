@@ -421,7 +421,7 @@ process.stdout.write(JSON.stringify(dispatched[0]));
                         },
                         "Status": {
                             "type": "status",
-                            "status": {"name": "Ikke started"},
+                            "status": {"name": "Ikke startet"},
                         },
                         "Track": {
                             "type": "relation",

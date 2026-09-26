@@ -572,7 +572,7 @@ class TasksListCommandTests(unittest.TestCase):
         name,
         follow_up=None,
         priority=None,
-        status="Ikke started",
+        status="Ikke startet",
         track_ids=None,
     ):
         return {

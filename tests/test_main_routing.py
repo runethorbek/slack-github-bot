@@ -309,7 +309,7 @@ class MainRoutingTests(unittest.TestCase):
                 },
                 "Status": {
                     "type": "status",
-                    "status": {"options": [{"name": "Ikke started"}]},
+                    "status": {"options": [{"name": "Ikke startet"}]},
                 },
             }
         }
@@ -378,7 +378,7 @@ class MainRoutingTests(unittest.TestCase):
         self.assertEqual(create_json["parent"], {"data_source_id": "tasks-id"})
         properties = create_json["properties"]
         self.assertEqual(properties["People"], {"relation": [{"id": "person-page-id"}]})
-        self.assertEqual(properties["Status"], {"status": {"name": "Ikke started"}})
+        self.assertEqual(properties["Status"], {"status": {"name": "Ikke startet"}})
         self.assertEqual(properties["Priority"], {"select": {"name": "High"}})
         reply_json = requests_module.post.call_args_list[-1].kwargs["json"]
         self.assertEqual(reply_json["text"], "Follow-up task added for Jane Doe: Send the article")
@@ -1079,7 +1079,7 @@ class MainRoutingTests(unittest.TestCase):
                         },
                         "Status": {
                             "type": "status",
-                            "status": {"name": "Ikke started"},
+                            "status": {"name": "Ikke startet"},
                         },
                     },
                 }
@@ -1454,7 +1454,7 @@ class MainRoutingTests(unittest.TestCase):
                         },
                         "Status": {
                             "type": "status",
-                            "status": {"name": "Ikke started"},
+                            "status": {"name": "Ikke startet"},
                         },
                         "Description": {
                             "type": "rich_text",

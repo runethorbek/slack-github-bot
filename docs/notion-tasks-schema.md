@@ -59,7 +59,7 @@ Type: `status`
 
 Allowed values:
 
-* `Ikke started`
+* `Ikke startet`
 * `I gang`
 * `Færdig`
 

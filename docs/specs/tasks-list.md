@@ -78,7 +78,7 @@ A deployed smoke test covers an authorized command, an unauthorized-channel atte
 
 ## Known assumptions
 
-- The Tasks schema matches `docs/notion-tasks-schema.md`, including the exact Status value `Ikke started`.
+- The Tasks schema matches `docs/notion-tasks-schema.md`, including the exact Status value `Ikke startet`.
 - The related Tracks data source follows [the Tracks schema](../notion-tracks-schema.md).
 - The Notion integration can read both the Tasks and Tracks data sources.
 - Follow-up values are date-only rather than timed dates or ranges.

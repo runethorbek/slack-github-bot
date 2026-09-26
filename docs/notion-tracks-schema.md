@@ -20,7 +20,7 @@ Type: `status`
 Allowed values (as previously documented; not re-confirmed in the latest
 schema pass):
 
-* `Ikke started` (To-do)
+* `Ikke startet` (To-do)
 * `I gang` (In progress)
 * `Afsluttet` (Complete)
 

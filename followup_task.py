@@ -39,7 +39,7 @@ TASK_CREATED_PROPERTY = "Created"
 # Every follow-up Task starts in this exact existing Status, matching the
 # Danish Status names tasks_list.py already relies on. It is checked
 # against the live schema before each write and never created.
-TASK_STATUS_NOT_STARTED = "Ikke started"
+TASK_STATUS_NOT_STARTED = "Ikke startet"
 
 # Slack's maximum length for a Block Kit button value.
 SLACK_BUTTON_VALUE_LIMIT = 2000
