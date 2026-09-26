@@ -1124,6 +1124,71 @@ test("clicking Add follow-up task opens the Task modal with Person shown and Tra
   });
 });
 
+test("clicking a suggested Task opens the same modal with Name, Description and Follow-up prefilled", async () => {
+  const value = {
+    page_id: "person-page-id",
+    name: "Jane Doe",
+    priorities: ["High", "Low"],
+    tracks: [{ id: "track-1", name: "AI Network" }],
+    default_track_id: "track-1",
+    task_name: "Send the AI article",
+    task_description: "The one about agents.",
+    task_follow_up: "2026-10-02",
+  };
+  const body = addFollowupTaskButtonClickBody(value, {
+    actions: [
+      { action_id: "add_suggested_followup_task", value: JSON.stringify(value) },
+    ],
+  });
+  const dependencies = testDependencies();
+
+  const response = await handleSlackRequest(
+    slackRequest(body),
+    dependencies.options
+  );
+  await Promise.all(dependencies.deferred);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(dependencies.dispatched, []);
+  assert.equal(dependencies.openedModals.length, 1);
+  const { view } = dependencies.openedModals[0];
+  assert.equal(view.callback_id, "add_followup_task_modal");
+  const block = (id) => view.blocks.find((candidate) => candidate.block_id === id);
+  assert.equal(block("name_block").element.initial_value, "Send the AI article");
+  assert.equal(block("name_block").element.action_id, "name_input");
+  assert.equal(
+    block("description_block").element.initial_value,
+    "The one about agents."
+  );
+  assert.equal(block("follow_up_block").element.initial_date, "2026-10-02");
+  assert.equal(block("priority_block").element.initial_option, undefined);
+  assert.equal(block("track_block").element.initial_option.value, "track-1");
+});
+
+test("a suggested Task with only a name, or a malformed date, prefills only what is valid", async () => {
+  const value = {
+    page_id: "person-page-id",
+    name: "Jane Doe",
+    task_name: "Call back",
+    task_description: 42,
+    task_follow_up: "next Friday",
+  };
+  const body = addFollowupTaskButtonClickBody(value, {
+    actions: [
+      { action_id: "add_suggested_followup_task", value: JSON.stringify(value) },
+    ],
+  });
+  const dependencies = testDependencies();
+
+  await handleSlackRequest(slackRequest(body), dependencies.options);
+
+  const { view } = dependencies.openedModals[0];
+  const block = (id) => view.blocks.find((candidate) => candidate.block_id === id);
+  assert.equal(block("name_block").element.initial_value, "Call back");
+  assert.equal(block("description_block").element.initial_value, undefined);
+  assert.equal(block("follow_up_block").element.initial_date, undefined);
+});
+
 test("a Task button without Priority or Track options omits those selectors", async () => {
   const body = addFollowupTaskButtonClickBody({
     page_id: "person-page-id",

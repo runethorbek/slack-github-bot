@@ -1,7 +1,8 @@
 import json
+import re
 import time
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 from people_interaction import (
     AddInteractionCommandError,
@@ -20,6 +21,11 @@ from tasks_list import (
 
 # Matches ADD_FOLLOWUP_TASK_ACTION_ID in api/slack-request.js.
 ADD_FOLLOWUP_TASK_ACTION_ID = "add_followup_task"
+
+# Matches ADD_SUGGESTED_FOLLOWUP_TASK_ACTION_ID in api/slack-request.js,
+# which opens the same Task modal (same callback_id) with the suggestion
+# prefilled. Slack requires unique action_ids within one actions block.
+ADD_SUGGESTED_FOLLOWUP_TASK_ACTION_ID = "add_suggested_followup_task"
 
 # Matches ADD_FOLLOWUP_TASK_CALLBACK_ID in api/slack-request.js, which
 # forwards it as SLACK_VIEW_CALLBACK_ID so main.py can tell this
@@ -45,6 +51,42 @@ TASK_STATUS_NOT_STARTED = "Ikke startet"
 # Slack's maximum length for a Block Kit button value.
 SLACK_BUTTON_VALUE_LIMIT = 2000
 
+# Slack's maximum length for a Block Kit button's text.
+SLACK_BUTTON_TEXT_LIMIT = 75
+
+# Bounds on a Gemini-suggested Task, enforced by Python whatever Gemini
+# returns. An invalid name discards the whole suggestion; an invalid
+# description or follow-up date is dropped on its own.
+MAX_SUGGESTED_TASK_NAME_CHARS = 150
+MAX_SUGGESTED_TASK_DESCRIPTION_CHARS = 500
+MAX_SUGGESTED_FOLLOW_UP_DAYS = 365
+
+ISO_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+FOLLOWUP_SUGGESTION_SYSTEM_INSTRUCTION = """
+You are reading the notes the user just saved about an Interaction with a
+Person, to decide whether they contain a concrete commitment the user
+should track as a follow-up Task. The user reviews and edits any
+suggestion before anything is saved.
+
+Rules:
+- Use only the Interaction supplied below.
+- Suggest a Task only when the notes contain a concrete commitment or
+  agreed next action (for example "agreed to send the AI article").
+  Otherwise, suggest nothing. Do not invent commitments.
+- Suggest at most one Task.
+- "name" is a short imperative Task name, at most 150 characters.
+- "description" is optional: at most 500 characters of useful detail from
+  the notes. Omit it when there is nothing to add beyond the name.
+- "follow_up" is optional: an absolute date in the form YYYY-MM-DD, only
+  when the notes state or clearly imply when to follow up. Resolve
+  relative dates ("next week", "Friday") using TODAY below. Omit it
+  otherwise.
+- Respond with only a JSON object and no other text or formatting:
+  {"task": null} when there is no follow-up, or
+  {"task": {"name": "...", "description": "...", "follow_up": "YYYY-MM-DD"}}.
+"""
+
 FOLLOWUP_TASK_ADDED_MESSAGE_TEMPLATE = "Follow-up task added for {name}: {task}"
 FOLLOWUP_TASK_INVALID_MESSAGE = (
     "Unable to add that follow-up task. Please try again."
@@ -65,6 +107,15 @@ class FollowupTaskCommandError(Exception):
 
 
 @dataclass(frozen=True)
+class SuggestedTask:
+    """A Gemini-suggested Task that has passed Python's validation."""
+
+    name: str
+    description: str | None = None
+    follow_up: date | None = None
+
+
+@dataclass(frozen=True)
 class TasksSchema:
     """The parts of the live Tasks schema this write path depends on."""
 
@@ -75,14 +126,21 @@ class TasksSchema:
 
 
 def followup_task_button(
-    person_page_id, person_name, tracks=(), default_track_id=None, priorities=()
+    person_page_id,
+    person_name,
+    tracks=(),
+    default_track_id=None,
+    priorities=(),
+    suggested_task=None,
 ):
     """A Block Kit button carrying everything the Task modal needs.
 
     Mirrors add_interaction_button: Person identity, Track options, the
     default Track and the live Priority options are all resolved by Python
     ahead of time and carried opaquely in the value, so the Vercel webhook
-    that opens the modal never needs Notion access of its own.
+    that opens the modal never needs Notion access of its own. With a
+    validated ``suggested_task`` the button instead opens the same modal
+    with its Name, Description and Follow-up prefilled.
     """
     value = {"page_id": person_page_id, "name": person_name}
     if priorities:
@@ -91,33 +149,61 @@ def followup_task_button(
         value["tracks"] = list(tracks)
         if default_track_id:
             value["default_track_id"] = default_track_id
+    if suggested_task is None:
+        text = "Add follow-up task"
+        action_id = ADD_FOLLOWUP_TASK_ACTION_ID
+    else:
+        value["task_name"] = suggested_task.name
+        if suggested_task.description:
+            value["task_description"] = suggested_task.description
+        if suggested_task.follow_up:
+            value["task_follow_up"] = suggested_task.follow_up.isoformat()
+        text = truncate_button_text(f"Add task: {suggested_task.name}")
+        action_id = ADD_SUGGESTED_FOLLOWUP_TASK_ACTION_ID
     return {
         "type": "button",
-        "text": {"type": "plain_text", "text": "Add follow-up task"},
-        "action_id": ADD_FOLLOWUP_TASK_ACTION_ID,
+        "text": {"type": "plain_text", "text": text},
+        "action_id": action_id,
         "value": json.dumps(value),
     }
 
 
-def build_followup_task_button(
+def truncate_button_text(text):
+    if len(text) <= SLACK_BUTTON_TEXT_LIMIT:
+        return text
+    suffix = "…"
+    return text[: SLACK_BUTTON_TEXT_LIMIT - len(suffix)] + suffix
+
+
+def build_followup_task_buttons(
     person_page_id,
     person_name,
     track_id,
+    interaction_type,
+    notes,
+    interaction_date,
     notion_post,
     notion_get,
     environment,
+    generate_text=None,
+    today=None,
     sleep=time.sleep,
 ):
-    """Resolve the Task modal's options, or None if they cannot be resolved.
+    """Resolve the Task modal buttons, or an empty list if none can be.
 
     Called only after an Interaction was saved. Any failure here means the
-    Interaction confirmation is posted without the button rather than
+    Interaction confirmation is posted without the buttons rather than
     failing the (already successful) Interaction write. An unconfigured
     Tracks data source simply yields no Track options, as elsewhere.
+
+    Besides the plain "Add follow-up task" button, non-empty Interaction
+    Notes lead to one Gemini call (``generate_text``) that may suggest a
+    prefilled Task; any Gemini failure or invalid output just means that
+    second button is omitted.
     """
     tasks_data_source_id = environment.get("NOTION_TASKS_DATA_SOURCE_ID", "")
     if not tasks_data_source_id:
-        return None
+        return []
     api_key = environment["NOTION_API_KEY"]
     tracks_data_source_id = environment.get("NOTION_TRACKS_DATA_SOURCE_ID", "")
     try:
@@ -133,18 +219,133 @@ def build_followup_task_button(
         FollowupTaskCommandError,
         NotionAuthenticationError,
     ):
-        return None
+        return []
     default_track_id = (
         track_id if any(track["id"] == track_id for track in tracks) else None
     )
-    button = followup_task_button(
-        person_page_id, person_name, tracks, default_track_id, schema.priorities
+    buttons = [
+        followup_task_button(
+            person_page_id, person_name, tracks, default_track_id, schema.priorities
+        )
+    ]
+    suggested_task = (
+        suggest_followup_task(
+            generate_text,
+            person_name,
+            interaction_type,
+            notes,
+            interaction_date,
+            today or copenhagen_today(),
+        )
+        if generate_text and (notes or "").strip()
+        else None
     )
+    if suggested_task is not None:
+        buttons.append(
+            followup_task_button(
+                person_page_id,
+                person_name,
+                tracks,
+                default_track_id,
+                schema.priorities,
+                suggested_task,
+            )
+        )
     # Slack rejects the whole message if a button value is too long, which
-    # would also lose the Interaction confirmation; omit the button instead.
-    if len(button["value"]) > SLACK_BUTTON_VALUE_LIMIT:
+    # would also lose the Interaction confirmation; omit that button instead.
+    return [
+        button
+        for button in buttons
+        if len(button["value"]) <= SLACK_BUTTON_VALUE_LIMIT
+    ]
+
+
+def suggest_followup_task(
+    generate_text, person_name, interaction_type, notes, interaction_date, today
+):
+    """Ask Gemini for at most one follow-up Task, or None.
+
+    Gemini only sees the just-saved Interaction and today's date. Any
+    exception is treated as "no suggestion" (no retries), and neither the
+    prompt nor the response is ever logged.
+    """
+    prompt = build_followup_suggestion_prompt(
+        person_name, interaction_type, notes, interaction_date, today
+    )
+    try:
+        response = generate_text(prompt)
+    except Exception:
         return None
-    return button
+    return parse_suggested_task(response, today)
+
+
+def build_followup_suggestion_prompt(
+    person_name, interaction_type, notes, interaction_date, today
+):
+    return (
+        f"{FOLLOWUP_SUGGESTION_SYSTEM_INSTRUCTION}\n"
+        f"TODAY: {today.isoformat()}\n\n"
+        "INTERACTION:\n"
+        f"Person: {person_name}\n"
+        f"Date: {interaction_date.isoformat()}\n"
+        f"Type: {interaction_type}\n"
+        f"Notes: {notes.strip()}\n"
+    )
+
+
+def parse_suggested_task(response, today):
+    """Validate Gemini's response into a SuggestedTask, or None.
+
+    Anything but the expected JSON structure, or a missing, blank or
+    over-long name, means no suggestion. An over-long description and an
+    invalid, past or too-distant follow-up date are dropped on their own.
+    A single surrounding Markdown code fence is tolerated.
+    """
+    if not isinstance(response, str):
+        return None
+    text = response.strip()
+    fence = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
+    if fence:
+        text = fence.group(1)
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    task = parsed.get("task")
+    if not isinstance(task, dict):
+        return None
+
+    name = task.get("name")
+    if not isinstance(name, str):
+        return None
+    name = name.strip()
+    if not name or len(name) > MAX_SUGGESTED_TASK_NAME_CHARS:
+        return None
+
+    description = task.get("description")
+    description = description.strip() if isinstance(description, str) else ""
+    if len(description) > MAX_SUGGESTED_TASK_DESCRIPTION_CHARS:
+        description = ""
+
+    return SuggestedTask(
+        name,
+        description or None,
+        parse_suggested_follow_up(task.get("follow_up"), today),
+    )
+
+
+def parse_suggested_follow_up(value, today):
+    if not isinstance(value, str) or not ISO_DATE_PATTERN.match(value):
+        return None
+    try:
+        follow_up = date.fromisoformat(value)
+    except ValueError:
+        return None
+    if not today <= follow_up <= today + timedelta(days=MAX_SUGGESTED_FOLLOW_UP_DAYS):
+        return None
+    return follow_up
 
 
 def fetch_tasks_schema(notion_get, api_key, tasks_data_source_id, sleep):

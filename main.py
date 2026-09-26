@@ -6,7 +6,7 @@ from google import genai
 
 from followup_task import (
     ADD_FOLLOWUP_TASK_CALLBACK_ID,
-    build_followup_task_button,
+    build_followup_task_buttons,
     handle_add_followup_task_submission,
     parse_task_payload,
 )
@@ -280,8 +280,12 @@ if event_type == "view_submission":
         requests.get,
         os.environ,
         thread_ts=thread_ts or None,
-        build_followup_button=lambda page_id, name, track_id: build_followup_task_button(
-            page_id, name, track_id, requests.post, requests.get, os.environ
+        build_followup_buttons=lambda *interaction: build_followup_task_buttons(
+            *interaction,
+            requests.post,
+            requests.get,
+            os.environ,
+            generate_text=generate_gemini_text,
         ),
     )
     print("Add Interaction submission handled")

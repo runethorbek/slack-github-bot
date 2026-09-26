@@ -434,6 +434,83 @@ class MainRoutingTests(unittest.TestCase):
             },
         )
 
+    def test_interaction_notes_with_a_commitment_offer_a_suggested_task_button(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        interactions_schema = Mock()
+        interactions_schema.json.return_value = {
+            "properties": {
+                "Title of interaction": {"type": "title"},
+                "Type": {"type": "select", "select": {"options": [{"name": "Coffee"}]}},
+            }
+        }
+        requests_module.get.side_effect = [
+            interactions_schema,
+            interactions_schema,
+            self.tasks_schema_response(),
+        ]
+        reply_response = Mock()
+        reply_response.json.return_value = {"ok": True}
+        requests_module.post.side_effect = [Mock(), reply_response]
+        client = Mock()
+        client.interactions.create.return_value = Mock(
+            output_text='{"task": {"name": "Send the AI article"}}'
+        )
+        genai_module.Client = Mock(return_value=client)
+        environment = {
+            **self.followup_task_environment(),
+            "SLACK_VIEW_CALLBACK_ID": "",
+            "SLACK_TASK": "",
+            "SLACK_INTERACTION_TYPE": "Coffee",
+            "SLACK_INTERACTION_NOTES": "Agreed to send the AI article.",
+            "SLACK_INTERACTION_DATE": "2026-09-22",
+        }
+
+        self.run_main(environment, requests_module, google_module, genai_module)
+
+        client.interactions.create.assert_called_once()
+        self.assertEqual(
+            [call.args[0] for call in requests_module.post.call_args_list],
+            ["https://api.notion.com/v1/pages", "https://slack.com/api/chat.postMessage"],
+        )
+        reply_json = requests_module.post.call_args_list[-1].kwargs["json"]
+        self.assertEqual(reply_json["text"], "Interaction added for Jane Doe.")
+        existing, suggested = reply_json["blocks"][-1]["elements"]
+        self.assertEqual(existing["action_id"], "add_followup_task")
+        self.assertEqual(suggested["action_id"], "add_suggested_followup_task")
+        self.assertEqual(suggested["text"]["text"], "Add task: Send the AI article")
+        self.assertEqual(json.loads(suggested["value"])["task_name"], "Send the AI article")
+
+    def test_interaction_notes_without_a_tasks_data_source_make_no_gemini_call(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        interactions_schema = Mock()
+        interactions_schema.json.return_value = {
+            "properties": {
+                "Title of interaction": {"type": "title"},
+                "Type": {"type": "select", "select": {"options": [{"name": "Coffee"}]}},
+            }
+        }
+        requests_module.get.return_value = interactions_schema
+        reply_response = Mock()
+        reply_response.json.return_value = {"ok": True}
+        requests_module.post.side_effect = [Mock(), reply_response]
+        genai_module.Client = Mock()
+        environment = {
+            **self.followup_task_environment(),
+            "SLACK_VIEW_CALLBACK_ID": "",
+            "SLACK_TASK": "",
+            "SLACK_INTERACTION_TYPE": "Coffee",
+            "SLACK_INTERACTION_NOTES": "Agreed to send the AI article.",
+            "SLACK_INTERACTION_DATE": "2026-09-22",
+            "NOTION_TASKS_DATA_SOURCE_ID": "",
+        }
+
+        self.run_main(environment, requests_module, google_module, genai_module)
+
+        genai_module.Client.assert_not_called()
+        reply_json = requests_module.post.call_args_list[-1].kwargs["json"]
+        self.assertEqual(reply_json["text"], "Interaction added for Jane Doe.")
+        self.assertNotIn("blocks", reply_json)
+
     def test_authorized_add_interaction_submission_writes_a_selected_track(self):
         requests_module, google_module, genai_module = self.fake_modules()
         schema_response = Mock()

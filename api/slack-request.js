@@ -15,6 +15,12 @@ const ADD_INTERACTION_CALLBACK_ID = "add_interaction_modal";
 const ADD_FOLLOWUP_TASK_ACTION_ID = "add_followup_task";
 const ADD_FOLLOWUP_TASK_CALLBACK_ID = "add_followup_task_modal";
 
+// Matches ADD_SUGGESTED_FOLLOWUP_TASK_ACTION_ID in followup_task.py. Opens
+// the same Task modal, prefilled with the suggestion Python validated.
+const ADD_SUGGESTED_FOLLOWUP_TASK_ACTION_ID = "add_suggested_followup_task";
+
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
 function copenhagenToday(now) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Copenhagen",
@@ -121,12 +127,25 @@ function parseAddFollowupTaskButtonValue(value) {
             ? parsed.default_track_id
             : null,
         priorities: parseStringOptions(parsed.priorities),
+        // A suggested Task already validated by followup_task.py; only
+        // ever used as editable initial values in the modal.
+        prefill: {
+          name: parseOptionalString(parsed.task_name),
+          description: parseOptionalString(parsed.task_description),
+          followUp: ISO_DATE_PATTERN.test(parseOptionalString(parsed.task_follow_up))
+            ? parsed.task_follow_up
+            : "",
+        },
       };
     }
   } catch {
     // Malformed button value; treated as absent below.
   }
   return null;
+}
+
+function parseOptionalString(value) {
+  return typeof value === "string" ? value : "";
 }
 
 function parseAddInteractionPrivateMetadata(value) {
@@ -250,8 +269,33 @@ function buildAddFollowupTaskView(
   threadTs,
   priorities = [],
   tracks = [],
-  defaultTrackId = null
+  defaultTrackId = null,
+  prefill = {}
 ) {
+  const nameElement = {
+    type: "plain_text_input",
+    action_id: "name_input",
+    max_length: 2000,
+  };
+  const descriptionElement = {
+    type: "plain_text_input",
+    action_id: "description_input",
+    multiline: true,
+    max_length: 2000,
+  };
+  const followUpElement = { type: "datepicker", action_id: "follow_up_select" };
+  // Initial values are only suggestions the user can edit; the submission
+  // goes through the same Python validation as an empty modal's.
+  if (prefill.name) {
+    nameElement.initial_value = prefill.name;
+  }
+  if (prefill.description) {
+    descriptionElement.initial_value = prefill.description;
+  }
+  if (prefill.followUp) {
+    followUpElement.initial_date = prefill.followUp;
+  }
+
   const blocks = [
     {
       type: "section",
@@ -262,11 +306,7 @@ function buildAddFollowupTaskView(
       block_id: "name_block",
       label: { type: "plain_text", text: "Name" },
       // Notion rejects a title text longer than 2000 characters.
-      element: {
-        type: "plain_text_input",
-        action_id: "name_input",
-        max_length: 2000,
-      },
+      element: nameElement,
     },
     {
       type: "input",
@@ -274,19 +314,14 @@ function buildAddFollowupTaskView(
       optional: true,
       label: { type: "plain_text", text: "Description" },
       // Notion rejects a rich_text content longer than 2000 characters.
-      element: {
-        type: "plain_text_input",
-        action_id: "description_input",
-        multiline: true,
-        max_length: 2000,
-      },
+      element: descriptionElement,
     },
     {
       type: "input",
       block_id: "follow_up_block",
       optional: true,
       label: { type: "plain_text", text: "Follow-up" },
-      element: { type: "datepicker", action_id: "follow_up_select" },
+      element: followUpElement,
     },
   ];
 
@@ -520,7 +555,8 @@ export async function handleSlackRequest(
             );
           }
         } else if (
-          action?.action_id === ADD_FOLLOWUP_TASK_ACTION_ID &&
+          (action?.action_id === ADD_FOLLOWUP_TASK_ACTION_ID ||
+            action?.action_id === ADD_SUGGESTED_FOLLOWUP_TASK_ACTION_ID) &&
           body.trigger_id &&
           // Same retried-click guard as Add Interaction above.
           !request.headers.get("x-slack-retry-num")
@@ -539,7 +575,8 @@ export async function handleSlackRequest(
                 threadTs,
                 person.priorities,
                 person.tracks,
-                person.defaultTrackId
+                person.defaultTrackId,
+                person.prefill
               )
             );
           }

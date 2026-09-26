@@ -330,7 +330,7 @@ API key for read-only access to the configured Notion data sources.
 
 ### `NOTION_TASKS_DATA_SOURCE_ID`
 
-The ID of the Notion Tasks data source queried by `/tasks list`. Also used by the "Add follow-up task" button on an Interaction confirmation: its schema supplies the Priority options and the `Ikke startet` Status, and a submitted Task modal creates exactly one Task there (`followup_task.py`). If unset, the button is omitted. The modal's optional Description text is written to the `Description` property only if that property exists as a text (`rich_text`) property; otherwise the Task is created without it.
+The ID of the Notion Tasks data source queried by `/tasks list`. Also used by the "Add follow-up task" button on an Interaction confirmation: its schema supplies the Priority options and the `Ikke startet` Status, and a submitted Task modal creates exactly one Task there (`followup_task.py`). If unset, the button is omitted (and no Gemini call is made). When the saved Interaction has Notes, Gemini may also suggest one Task from them; Python validates it and offers a second "Add task: <name>" button that opens the same modal with Name, Description and Follow-up prefilled for review. The modal's optional Description text is written to the `Description` property only if that property exists as a text (`rich_text`) property; otherwise the Task is created without it.
 
 ### `NOTION_PEOPLE_DATA_SOURCE_ID`
 
@@ -429,6 +429,7 @@ The project currently uses a Gemini Flash-Lite model to keep development and exp
 Gemini is used in two, deliberately separated ways:
 
 * **Open-ended conversation** (`/testbot` and thread replies) — the prompt explains that Gemini is participating in an existing Slack thread and instructs it to treat the first message as the original task, interpret later messages as follow-ups, use previous messages as context, respond to the latest user message, avoid restarting the conversation, and format responses for Slack rather than standard Markdown.
+* **Follow-up Task suggestion** (after saving an Interaction with Notes) — Gemini sees only that Interaction's Person name, Date, Type and Notes plus today's date, and may return one suggested Task name, description and follow-up date as JSON. `followup_task.py` validates and bounds these fields; they only prefill the Task modal, and nothing is written until the user submits it.
 * **Constrained drafting** (`/people suggest <person>`) — Gemini receives only the bounded Person context and recent Interactions that `people_suggest.py` assembles deterministically, and is asked only to draft message text. It never chooses which Person to contact, never accesses Notion, and never performs a side effect; the user reviews and sends the draft themselves.
 
 Gemini is never given the ability to decide which external API to call or to generate arbitrary API requests. `/tasks` and `/people due` do not send Notion data or command input to Gemini at all.

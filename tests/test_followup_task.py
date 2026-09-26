@@ -7,13 +7,16 @@ import requests
 
 from followup_task import (
     ADD_FOLLOWUP_TASK_ACTION_ID,
+    ADD_SUGGESTED_FOLLOWUP_TASK_ACTION_ID,
     FOLLOWUP_TASK_FAILURE_MESSAGE,
     FOLLOWUP_TASK_INVALID_MESSAGE,
     FOLLOWUP_TASK_STATUS_MISSING_MESSAGE,
     FOLLOWUP_TASK_UNCERTAIN_MESSAGE,
-    build_followup_task_button,
+    SuggestedTask,
+    build_followup_task_buttons,
     followup_task_button,
     handle_add_followup_task_submission,
+    parse_suggested_task,
     parse_task_payload,
 )
 from people_interaction import handle_add_interaction_submission
@@ -118,6 +121,34 @@ def submit(
     return post_slack_message, notion_post, notion_get
 
 
+def build_buttons(
+    track_id="",
+    notion_post=None,
+    notion_get=None,
+    environment=ENVIRONMENT,
+    notes="",
+    generate_text=None,
+):
+    return build_followup_task_buttons(
+        "person-page-id",
+        "Jane Doe",
+        track_id,
+        "Coffee",
+        notes,
+        date(2026, 9, 25),
+        notion_post or Mock(return_value=tracks_response()),
+        notion_get or Mock(return_value=tasks_schema_response()),
+        environment,
+        generate_text=generate_text,
+        today=FIXED_TODAY,
+        sleep=Mock(),
+    )
+
+
+def suggestion(**task):
+    return json.dumps({"task": task})
+
+
 def task_writes(notion_post):
     return [
         call
@@ -160,9 +191,7 @@ class FollowupTaskButtonTests(unittest.TestCase):
             return_value=tracks_response(("t2", "Investors"), ("t1", "AI Network"))
         )
 
-        button = build_followup_task_button(
-            "person-page-id", "Jane Doe", "t2", notion_post, notion_get, ENVIRONMENT, Mock()
-        )
+        [button] = build_buttons("t2", notion_post, notion_get)
 
         value = json.loads(button["value"])
         self.assertEqual(value["priorities"], ["High", "Medium", "Low"])
@@ -178,101 +207,313 @@ class FollowupTaskButtonTests(unittest.TestCase):
         )
 
     def test_build_without_interaction_track_has_no_default(self):
-        button = build_followup_task_button(
-            "person-page-id",
-            "Jane Doe",
-            "",
-            Mock(return_value=tracks_response(("t1", "AI Network"))),
-            Mock(return_value=tasks_schema_response()),
-            ENVIRONMENT,
-            Mock(),
+        [button] = build_buttons(
+            "", Mock(return_value=tracks_response(("t1", "AI Network")))
         )
 
         self.assertNotIn("default_track_id", json.loads(button["value"]))
 
-    def test_build_returns_none_when_priority_schema_fails(self):
-        button = build_followup_task_button(
-            "person-page-id",
-            "Jane Doe",
+    def test_build_returns_no_buttons_when_priority_schema_fails(self):
+        generate_text = Mock()
+
+        buttons = build_buttons(
             "t1",
             Mock(return_value=tracks_response(("t1", "AI Network"))),
             Mock(return_value=http_error(400)),
-            ENVIRONMENT,
-            Mock(),
+            notes="Agreed to send the article.",
+            generate_text=generate_text,
         )
 
-        self.assertIsNone(button)
+        self.assertEqual(buttons, [])
+        generate_text.assert_not_called()
 
-    def test_build_returns_none_when_tracks_fail(self):
-        button = build_followup_task_button(
-            "person-page-id",
-            "Jane Doe",
-            "t1",
-            Mock(return_value=http_error(400)),
-            Mock(return_value=tasks_schema_response()),
-            ENVIRONMENT,
-            Mock(),
-        )
+    def test_build_returns_no_buttons_when_tracks_fail(self):
+        buttons = build_buttons("t1", Mock(return_value=http_error(400)))
 
-        self.assertIsNone(button)
+        self.assertEqual(buttons, [])
 
-    def test_build_returns_none_on_notion_credential_failure(self):
-        button = build_followup_task_button(
-            "person-page-id",
-            "Jane Doe",
-            "",
-            Mock(),
-            Mock(return_value=http_error(401)),
-            ENVIRONMENT,
-            Mock(),
-        )
+    def test_build_returns_no_buttons_on_notion_credential_failure(self):
+        buttons = build_buttons("", Mock(), Mock(return_value=http_error(401)))
 
-        self.assertIsNone(button)
+        self.assertEqual(buttons, [])
 
-    def test_build_returns_none_when_the_button_value_is_too_long_for_slack(self):
+    def test_build_returns_no_buttons_when_the_button_value_is_too_long_for_slack(self):
         many_tracks = [
             (f"00000000-0000-0000-0000-{index:012d}", f"A fairly long Track name {index}")
             for index in range(25)
         ]
 
-        button = build_followup_task_button(
-            "person-page-id",
-            "Jane Doe",
-            "",
-            Mock(return_value=tracks_response(*many_tracks)),
-            Mock(return_value=tasks_schema_response()),
-            ENVIRONMENT,
-            Mock(),
-        )
+        buttons = build_buttons("", Mock(return_value=tracks_response(*many_tracks)))
 
-        self.assertIsNone(button)
+        self.assertEqual(buttons, [])
 
     def test_missing_priority_property_still_offers_the_button_without_priorities(self):
         schema = tasks_schema_response()
         del schema.json.return_value["properties"]["Priority"]
 
-        button = build_followup_task_button(
-            "person-page-id",
-            "Jane Doe",
-            "",
-            Mock(return_value=tracks_response()),
-            Mock(return_value=schema),
-            ENVIRONMENT,
-            Mock(),
-        )
+        [button] = build_buttons("", notion_get=Mock(return_value=schema))
 
         self.assertNotIn("priorities", json.loads(button["value"]))
 
-    def test_build_returns_none_without_a_tasks_data_source(self):
+    def test_build_returns_no_buttons_without_a_tasks_data_source(self):
         notion_get = Mock()
+        generate_text = Mock()
         environment = {**ENVIRONMENT, "NOTION_TASKS_DATA_SOURCE_ID": ""}
 
-        button = build_followup_task_button(
-            "person-page-id", "Jane Doe", "", Mock(), notion_get, environment, Mock()
+        buttons = build_buttons(
+            "",
+            Mock(),
+            notion_get,
+            environment,
+            notes="Agreed to send the article.",
+            generate_text=generate_text,
         )
 
-        self.assertIsNone(button)
+        self.assertEqual(buttons, [])
         notion_get.assert_not_called()
+        generate_text.assert_not_called()
+
+
+class SuggestedFollowupTaskButtonTests(unittest.TestCase):
+    def test_commitment_in_notes_offers_both_buttons_in_order(self):
+        generate_text = Mock(
+            return_value=suggestion(
+                name="Send the AI article",
+                description="The one about agents.",
+                follow_up="2026-10-02",
+            )
+        )
+
+        existing, suggested = build_buttons(
+            "t1",
+            Mock(return_value=tracks_response(("t1", "AI Network"))),
+            notes="  Agreed to send the AI article by Friday.  ",
+            generate_text=generate_text,
+        )
+
+        self.assertEqual(existing["action_id"], ADD_FOLLOWUP_TASK_ACTION_ID)
+        self.assertEqual(existing["text"]["text"], "Add follow-up task")
+        self.assertNotIn("task_name", json.loads(existing["value"]))
+        self.assertEqual(suggested["action_id"], ADD_SUGGESTED_FOLLOWUP_TASK_ACTION_ID)
+        self.assertEqual(suggested["text"]["text"], "Add task: Send the AI article")
+        self.assertEqual(
+            json.loads(suggested["value"]),
+            {
+                "page_id": "person-page-id",
+                "name": "Jane Doe",
+                "priorities": ["High", "Medium", "Low"],
+                "tracks": [{"id": "t1", "name": "AI Network"}],
+                "default_track_id": "t1",
+                "task_name": "Send the AI article",
+                "task_description": "The one about agents.",
+                "task_follow_up": "2026-10-02",
+            },
+        )
+
+    def test_prompt_contains_only_the_saved_interaction_and_today(self):
+        generate_text = Mock(return_value='{"task": null}')
+
+        build_buttons(notes="Agreed to send the AI article.", generate_text=generate_text)
+
+        generate_text.assert_called_once()
+        prompt = generate_text.call_args.args[0]
+        self.assertIn("TODAY: 2026-09-26", prompt)
+        self.assertIn("Person: Jane Doe", prompt)
+        self.assertIn("Date: 2026-09-25", prompt)
+        self.assertIn("Type: Coffee", prompt)
+        self.assertIn("Notes: Agreed to send the AI article.", prompt)
+        self.assertNotIn("Jane Doe – Coffee", prompt)
+        self.assertNotIn("High", prompt)
+        self.assertNotIn("AI Network", prompt)
+
+    def test_no_commitment_offers_only_the_existing_button(self):
+        [button] = build_buttons(
+            notes="Nice chat about the weather.",
+            generate_text=Mock(return_value='{"task": null}'),
+        )
+
+        self.assertEqual(button["action_id"], ADD_FOLLOWUP_TASK_ACTION_ID)
+
+    def test_empty_notes_make_no_gemini_call(self):
+        for notes in ("", "   \n "):
+            with self.subTest(notes=notes):
+                generate_text = Mock()
+
+                [button] = build_buttons(notes=notes, generate_text=generate_text)
+
+                generate_text.assert_not_called()
+                self.assertEqual(button["action_id"], ADD_FOLLOWUP_TASK_ACTION_ID)
+
+    def test_gemini_failure_offers_only_the_existing_button(self):
+        [button] = build_buttons(
+            notes="Agreed to send the article.",
+            generate_text=Mock(side_effect=RuntimeError("Gemini unavailable")),
+        )
+
+        self.assertEqual(button["action_id"], ADD_FOLLOWUP_TASK_ACTION_ID)
+
+    def test_invalid_gemini_output_offers_only_the_existing_button(self):
+        [button] = build_buttons(
+            notes="Agreed to send the article.",
+            generate_text=Mock(return_value="Sure! Send the article."),
+        )
+
+        self.assertEqual(button["action_id"], ADD_FOLLOWUP_TASK_ACTION_ID)
+
+    def test_suggested_button_too_long_for_slack_is_omitted_alone(self):
+        tracks = [
+            (f"00000000-0000-0000-0000-{index:012d}", f"Track {index}")
+            for index in range(20)
+        ]
+
+        [button] = build_buttons(
+            "",
+            Mock(return_value=tracks_response(*tracks)),
+            notes="Agreed to send the article.",
+            generate_text=Mock(
+                return_value=suggestion(name="Send the article", description="x" * 500)
+            ),
+        )
+
+        self.assertEqual(button["action_id"], ADD_FOLLOWUP_TASK_ACTION_ID)
+
+    def test_long_name_label_is_truncated_to_slack_button_text_limit(self):
+        name = "Send " + "a" * 140
+        button = followup_task_button(
+            "person-page-id", "Jane Doe", suggested_task=SuggestedTask(name)
+        )
+
+        label = button["text"]["text"]
+        self.assertEqual(len(label), 75)
+        self.assertTrue(label.startswith("Add task: Send aaa"))
+        self.assertTrue(label.endswith("…"))
+        self.assertEqual(json.loads(button["value"])["task_name"], name)
+
+    def test_label_at_exactly_the_limit_is_not_truncated(self):
+        name = "b" * (75 - len("Add task: "))
+        button = followup_task_button(
+            "person-page-id", "Jane Doe", suggested_task=SuggestedTask(name)
+        )
+
+        self.assertEqual(button["text"]["text"], f"Add task: {name}")
+
+    def test_suggestion_without_optional_fields_omits_them_from_the_value(self):
+        button = followup_task_button(
+            "person-page-id", "Jane Doe", suggested_task=SuggestedTask("Call back")
+        )
+
+        self.assertEqual(
+            json.loads(button["value"]),
+            {"page_id": "person-page-id", "name": "Jane Doe", "task_name": "Call back"},
+        )
+
+
+class ParseSuggestedTaskTests(unittest.TestCase):
+    def parse(self, response):
+        return parse_suggested_task(response, FIXED_TODAY)
+
+    def test_full_valid_suggestion(self):
+        self.assertEqual(
+            self.parse(
+                suggestion(
+                    name="  Send the article ",
+                    description=" About agents. ",
+                    follow_up="2026-10-01",
+                )
+            ),
+            SuggestedTask("Send the article", "About agents.", date(2026, 10, 1)),
+        )
+
+    def test_name_only_suggestion(self):
+        self.assertEqual(
+            self.parse(suggestion(name="Send the article")),
+            SuggestedTask("Send the article"),
+        )
+
+    def test_a_single_json_code_fence_is_tolerated(self):
+        self.assertEqual(
+            self.parse(f"```json\n{suggestion(name='Send the article')}\n```"),
+            SuggestedTask("Send the article"),
+        )
+
+    def test_no_follow_up_yields_none(self):
+        self.assertIsNone(self.parse('{"task": null}'))
+
+    def test_unexpected_structure_yields_none(self):
+        for response in (
+            "",
+            "Send the article",
+            "not json {",
+            "[]",
+            '"task"',
+            "{}",
+            '{"name": "Send the article"}',
+            '{"task": "Send the article"}',
+            '{"task": ["Send the article"]}',
+            None,
+        ):
+            with self.subTest(response=response):
+                self.assertIsNone(self.parse(response))
+
+    def test_missing_blank_non_text_or_over_long_name_yields_none(self):
+        for name in (None, "", "   ", 42, "x" * 151):
+            with self.subTest(name=name):
+                task = {} if name is None else {"name": name}
+                self.assertIsNone(self.parse(json.dumps({"task": task})))
+
+    def test_name_at_the_limit_is_accepted(self):
+        self.assertEqual(self.parse(suggestion(name="x" * 150)).name, "x" * 150)
+
+    def test_over_long_or_non_text_description_is_dropped(self):
+        for description in ("d" * 501, 42, ["text"], "   "):
+            with self.subTest(description=description):
+                self.assertEqual(
+                    self.parse(
+                        suggestion(name="Send the article", description=description)
+                    ),
+                    SuggestedTask("Send the article"),
+                )
+
+    def test_description_at_the_limit_is_kept(self):
+        self.assertEqual(
+            self.parse(suggestion(name="Send", description="d" * 500)).description,
+            "d" * 500,
+        )
+
+    def test_invalid_past_or_too_distant_follow_up_is_dropped(self):
+        for follow_up in (
+            "2026-02-30",
+            "next Friday",
+            "20261001",
+            "2026-10-01T09:00",
+            "2026-09-25",
+            "2027-09-27",
+            20261001,
+        ):
+            with self.subTest(follow_up=follow_up):
+                self.assertEqual(
+                    self.parse(suggestion(name="Send", follow_up=follow_up)),
+                    SuggestedTask("Send"),
+                )
+
+    def test_follow_up_today_and_365_days_ahead_are_kept(self):
+        for follow_up, expected in (
+            ("2026-09-26", date(2026, 9, 26)),
+            ("2027-09-26", date(2027, 9, 26)),
+        ):
+            with self.subTest(follow_up=follow_up):
+                self.assertEqual(
+                    self.parse(suggestion(name="Send", follow_up=follow_up)).follow_up,
+                    expected,
+                )
+
+    def test_unrequested_fields_are_ignored(self):
+        self.assertEqual(
+            self.parse(
+                suggestion(name="Send", priority="High", track_id="t1", status="Done")
+            ),
+            SuggestedTask("Send"),
+        )
 
 
 class InteractionConfirmationTests(unittest.TestCase):
@@ -286,40 +527,74 @@ class InteractionConfirmationTests(unittest.TestCase):
         }
         return response
 
-    def save_interaction(self, build_followup_button):
+    def save_interaction(self, build_followup_buttons, notes=""):
+        post_slack_message = Mock()
+        notion_post = Mock(return_value=Mock())
+        handle_add_interaction_submission(
+            "person-page-id",
+            "Jane Doe",
+            "Coffee",
+            notes,
+            "2026-09-26",
+            "",
+            post_slack_message,
+            notion_post,
+            Mock(return_value=self.interaction_schema_response()),
+            ENVIRONMENT,
+            thread_ts="100.001",
+            sleep=Mock(),
+            build_followup_buttons=build_followup_buttons,
+        )
+        return post_slack_message, notion_post
+
+    def test_successful_save_offers_the_followup_buttons(self):
+        buttons = [
+            followup_task_button("person-page-id", "Jane Doe"),
+            followup_task_button(
+                "person-page-id", "Jane Doe", suggested_task=SuggestedTask("Send it")
+            ),
+        ]
+        build = Mock(return_value=buttons)
+
+        post_slack_message, _ = self.save_interaction(build, notes="Agreed to send it.")
+
+        build.assert_called_once_with(
+            "person-page-id",
+            "Jane Doe",
+            "",
+            "Coffee",
+            "Agreed to send it.",
+            date(2026, 9, 26),
+        )
+        post_slack_message.assert_called_once()
+        call = post_slack_message.call_args
+        self.assertEqual(call.args[0], "Interaction added for Jane Doe.")
+        self.assertEqual(call.kwargs["thread_ts"], "100.001")
+        self.assertEqual(call.kwargs["blocks"][-1], {"type": "actions", "elements": buttons})
+
+    def test_interaction_is_written_before_the_buttons_are_built(self):
+        order = []
+        build = Mock(side_effect=lambda *args: order.append("build") or [])
         post_slack_message = Mock()
         handle_add_interaction_submission(
             "person-page-id",
             "Jane Doe",
             "Coffee",
-            "",
+            "Agreed to send it.",
             "2026-09-26",
             "",
             post_slack_message,
-            Mock(return_value=Mock()),
+            Mock(side_effect=lambda *args, **kwargs: order.append("write") or Mock()),
             Mock(return_value=self.interaction_schema_response()),
             ENVIRONMENT,
-            thread_ts="100.001",
             sleep=Mock(),
-            build_followup_button=build_followup_button,
+            build_followup_buttons=build,
         )
-        return post_slack_message
 
-    def test_successful_save_offers_the_followup_button(self):
-        button = followup_task_button("person-page-id", "Jane Doe")
-        build = Mock(return_value=button)
-
-        post_slack_message = self.save_interaction(build)
-
-        build.assert_called_once_with("person-page-id", "Jane Doe", "")
-        post_slack_message.assert_called_once()
-        call = post_slack_message.call_args
-        self.assertEqual(call.args[0], "Interaction added for Jane Doe.")
-        self.assertEqual(call.kwargs["thread_ts"], "100.001")
-        self.assertEqual(call.kwargs["blocks"][-1], {"type": "actions", "elements": [button]})
+        self.assertEqual(order, ["write", "build"])
 
     def test_unresolvable_options_still_confirm_without_the_button(self):
-        post_slack_message = self.save_interaction(Mock(return_value=None))
+        post_slack_message, _ = self.save_interaction(Mock(return_value=[]))
 
         post_slack_message.assert_called_once_with(
             "Interaction added for Jane Doe.", thread_ts="100.001"
@@ -340,7 +615,7 @@ class InteractionConfirmationTests(unittest.TestCase):
             Mock(return_value=self.interaction_schema_response()),
             ENVIRONMENT,
             sleep=Mock(),
-            build_followup_button=build,
+            build_followup_buttons=build,
         )
 
         build.assert_not_called()
