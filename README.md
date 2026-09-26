@@ -171,6 +171,8 @@ Implements `/people due` and routes `/people suggest <person>`, fully determinis
 
 `/people suggest <person>` resolves the named Person by an exact, case-insensitive Name match (refusing to guess when zero or multiple People match), reads their context fields and up to 5 recent Interactions, and asks Gemini (via an injected `generate_text` callable) to draft a short reconnect message using only that supplied context. Gemini never accesses Notion directly and never decides who to contact.
 
+The private recap call also returns a "Suggested next step" section with one or two advisory suggestions (issue #23). Each suggestion's kind must be an exact live Interaction Type option or `Wait`; Python drops anything else and keeps at most two. If the Type options could not be loaded, no next step is requested; if the next-step part is missing or has no valid suggestions, the section is simply omitted. Suggestions never trigger a write.
+
 ### `attention-summary.yml` and `attention_summary.py`
 
 A separate workflow runs Monday and Thursday at 06:00 UTC (`0 6 * * 1,4`) and can also be started manually via `workflow_dispatch`. GitHub may delay scheduled runs, and disables schedules after 60 days without repository activity.

@@ -1,3 +1,4 @@
+import re
 import time
 from dataclasses import dataclass
 
@@ -48,6 +49,25 @@ MAX_SUGGESTION_TRACKS = 5
 # (which also writes it) and imported above, rather than duplicated here.
 PERSON_TRACK_PROPERTY = "Track Goal"
 
+# Suggestions beyond this are dropped by Python, whatever Gemini returns.
+MAX_NEXT_STEP_SUGGESTIONS = 2
+
+# The one next-step kind that is not a live Interaction Type option.
+WAIT_NEXT_STEP_KIND = "Wait"
+
+# Delimits the recap from the next-step part in the recap call's response.
+NEXT_STEP_MARKER = "NEXT STEP:"
+
+# Recognizes the marker line leniently - any case, wrapped in Markdown
+# emphasis or a heading, or followed by a suggestion on the same line - so
+# a slightly off-format next-step part is still split off and validated
+# rather than leaking unvalidated into the recap. A recap bullet ("- ...")
+# never matches. Group 1 is any text after the colon.
+NEXT_STEP_MARKER_PATTERN = re.compile(
+    r"^[\s#*_]*(?:suggested\s+)?next\s+steps?[\s*_]*:[\s*_]*(.*)$",
+    re.IGNORECASE,
+)
+
 # Slack rejects a section block whose mrkdwn text exceeds this length. Gemini's
 # draft has no length cap of its own, so the block (not the plain-text
 # fallback, which has a much higher limit) must be defensively truncated.
@@ -83,7 +103,9 @@ Rules:
   explanation.
 """
 
-RECAP_SYSTEM_INSTRUCTION = """
+# The recap rules shared by both recap prompt variants; each variant adds
+# its own final "Respond with" rule so the two never contradict each other.
+RECAP_RULES = """
 You are preparing a short private recap for the user about a Person, so
 they can quickly recall relevant context before reaching out. This recap
 is for the user only; it is never sent to the Person.
@@ -102,8 +124,33 @@ Rules:
 - If no Relevant Tracks are supplied, do not mention Track at all.
 - If there are no previous Interactions, write one honest bullet saying
   so rather than inventing history.
-- Respond with only the bullet list (each line starting with "- "), with
+"""
+
+RECAP_SYSTEM_INSTRUCTION = f"""{RECAP_RULES}- Respond with only the bullet list (each line starting with "- "), with
   no heading, preamble, or explanation.
+"""
+
+RECAP_WITH_NEXT_STEP_SYSTEM_INSTRUCTION = f"""{RECAP_RULES}- Respond with only the bullet list (each line starting with "- "),
+  followed by the next-step part described below, with no other heading,
+  preamble, or explanation.
+
+After the recap bullet list, also suggest the user's next relationship
+action with this Person. This part is also private to the user.
+
+Rules for the next step:
+- Use only the context supplied below. Do not invent history, meetings,
+  commitments, interests, or Track membership.
+- Each suggestion's kind must be exactly one of the ALLOWED NEXT STEP
+  KINDS listed below, spelled exactly as given.
+- "{WAIT_NEXT_STEP_KIND}" means reaching out now seems premature given the
+  context.
+- Give 1 suggestion when there is little context. Give at most
+  {MAX_NEXT_STEP_SUGGESTIONS}, and a second only when the context supports a
+  distinct alternative.
+- Keep each reason or idea to one short sentence.
+- Format: after the recap bullets, write one line containing exactly
+  "{NEXT_STEP_MARKER}", then one line per suggestion in the form
+  "- <Kind>: <short reason or idea>". Use no bold or other formatting.
 """
 
 
@@ -231,10 +278,11 @@ def handle_people_suggest(
     selectable_interaction_types = fetch_selectable_interaction_types(
         notion_get, environment, sleep
     )
+    next_step_kinds = allowed_next_step_kinds(selectable_interaction_types)
 
     try:
-        recap = generate_text(
-            build_recap_prompt(profile, interactions, track_names)
+        recap_response = generate_text(
+            build_recap_prompt(profile, interactions, track_names, next_step_kinds)
         ).strip()
         answer = generate_text(build_suggestion_prompt(profile, interactions)).strip()
     except Exception as error:
@@ -244,8 +292,10 @@ def handle_people_suggest(
             GEMINI_TRANSIENT_FAILURE_MESSAGE, thread_ts=root_message["ts"]
         )
         return
+    recap, next_steps = split_recap_and_next_steps(recap_response, next_step_kinds)
+    next_step_text = format_next_steps(next_steps)
     message = format_suggestion_message(profile.name, answer)
-    reply_text = format_full_reply(recap, message)
+    reply_text = format_full_reply(recap, message, next_step_text)
     if not selectable_interaction_types:
         reply_text = f"{reply_text}\n\n{INTERACTION_TYPE_UNAVAILABLE_NOTE}"
     post_slack_message(
@@ -258,8 +308,73 @@ def handle_people_suggest(
             selectable_tracks,
             default_track_id,
             selectable_interaction_types,
+            next_step_text,
         ),
     )
+
+
+def allowed_next_step_kinds(interaction_types):
+    """The live Interaction Type options plus Wait, or nothing at all.
+
+    Without live Type options no next step is requested or shown - not
+    even Wait alone - so no Type list is ever hardcoded here.
+    """
+    if not interaction_types:
+        return []
+    kinds = list(interaction_types)
+    if WAIT_NEXT_STEP_KIND not in kinds:
+        kinds.append(WAIT_NEXT_STEP_KIND)
+    return kinds
+
+
+def split_recap_and_next_steps(response, allowed_kinds):
+    """Split the recap call's response into (recap, next steps).
+
+    Gemini's next-step part is advisory text only and is validated here:
+    a suggestion whose kind is not exactly an allowed kind is dropped, at
+    most MAX_NEXT_STEP_SUGGESTIONS are kept, and a missing or unparseable
+    next-step part yields no suggestions rather than an error. Without
+    allowed kinds no next step was requested, so the response is the recap.
+    """
+    if not allowed_kinds:
+        return response, []
+
+    lines = response.splitlines()
+    for marker_index, line in enumerate(lines):
+        marker_match = NEXT_STEP_MARKER_PATTERN.match(line)
+        if marker_match:
+            break
+    else:
+        return response, []
+
+    recap = "\n".join(lines[:marker_index]).strip()
+    # A suggestion written on the marker line itself is still validated.
+    suggestion_lines = [marker_match.group(1), *lines[marker_index + 1 :]]
+    next_steps = []
+    for line in suggestion_lines:
+        next_step = parse_next_step(line, allowed_kinds)
+        if next_step is not None:
+            next_steps.append(next_step)
+    return recap, next_steps[:MAX_NEXT_STEP_SUGGESTIONS]
+
+
+def parse_next_step(line, allowed_kinds):
+    """Parse one "- <Kind>: <idea>" line, or None if it is not valid.
+
+    The kind must be exactly an allowed kind. Matching by prefix rather
+    than splitting at the first colon keeps a live Type option whose name
+    itself contains a colon matchable; the longest kind wins.
+    """
+    suggestion = line.strip()
+    for bullet in ("- ", "* ", "• "):
+        if suggestion.startswith(bullet):
+            suggestion = suggestion[len(bullet) :].strip()
+            break
+    for kind in sorted(allowed_kinds, key=len, reverse=True):
+        if suggestion.startswith(f"{kind}:"):
+            idea = suggestion[len(kind) + 1 :].strip()
+            return (kind, idea) if idea else None
+    return None
 
 
 def fetch_selectable_interaction_types(notion_get, environment, sleep):
@@ -583,12 +698,16 @@ def build_suggestion_prompt(profile, interactions):
     return f"{SUGGESTION_SYSTEM_INSTRUCTION}\n\n{build_context_block(profile, interactions)}"
 
 
-def build_recap_prompt(profile, interactions, track_names):
+def build_recap_prompt(profile, interactions, track_names, next_step_kinds=()):
     context_block = build_context_block(profile, interactions)
     if track_names:
         tracks_block = "\n".join(f"- {name}" for name in track_names)
         context_block = f"{context_block}\nRELEVANT TRACKS:\n{tracks_block}\n"
-    return f"{RECAP_SYSTEM_INSTRUCTION}\n\n{context_block}"
+    if not next_step_kinds:
+        return f"{RECAP_SYSTEM_INSTRUCTION}\n\n{context_block}"
+    kinds_block = "\n".join(f"- {kind}" for kind in next_step_kinds)
+    context_block = f"{context_block}\nALLOWED NEXT STEP KINDS:\n{kinds_block}\n"
+    return f"{RECAP_WITH_NEXT_STEP_SYSTEM_INSTRUCTION}\n\n{context_block}"
 
 
 def formatted_interaction_fields(interaction):
@@ -608,10 +727,21 @@ def format_suggestion_message(person_name, answer):
     return f"Suggested message for {person_name}:\n\n{answer}"
 
 
-def format_full_reply(recap, message):
-    if not recap:
-        return message
-    return f"Context:\n{recap}\n\n{message}"
+def format_next_steps(next_steps):
+    if not next_steps:
+        return ""
+    lines = "\n".join(f"- {kind}: {idea}" for kind, idea in next_steps)
+    return f"Suggested next step:\n{lines}"
+
+
+def format_full_reply(recap, message, next_step_text=""):
+    parts = []
+    if recap:
+        parts.append(f"Context:\n{recap}")
+    if next_step_text:
+        parts.append(next_step_text)
+    parts.append(message)
+    return "\n\n".join(parts)
 
 
 def build_suggestion_blocks(
@@ -621,6 +751,7 @@ def build_suggestion_blocks(
     tracks=(),
     default_track_id=None,
     interaction_types=(),
+    next_step_text="",
 ):
     blocks = []
     if recap:
@@ -630,6 +761,16 @@ def build_suggestion_blocks(
                 "text": {
                     "type": "mrkdwn",
                     "text": truncate_for_slack_section(f"Context:\n{recap}"),
+                },
+            }
+        )
+    if next_step_text:
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": truncate_for_slack_section(next_step_text),
                 },
             }
         )

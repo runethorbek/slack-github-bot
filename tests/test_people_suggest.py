@@ -9,19 +9,25 @@ from people_suggest import (
     MAX_SUGGESTION_INTERACTIONS,
     PEOPLE_SUGGEST_FAILURE_MESSAGE,
     SLACK_SECTION_TEXT_LIMIT,
+    SUGGESTION_SYSTEM_INSTRUCTION,
+    allowed_next_step_kinds,
     ambiguous_person_message,
     build_recap_prompt,
+    build_suggestion_blocks,
     build_suggestion_prompt,
     collect_track_ids,
     extract_property_text,
     extract_relation_ids,
     fetch_recent_interactions,
+    format_full_reply,
+    format_next_steps,
     handle_people_suggest,
     person_not_found_message,
     person_profile_from_notion_page,
     relevant_track_names,
     resolve_person,
     resolve_track_names,
+    split_recap_and_next_steps,
 )
 
 
@@ -537,6 +543,196 @@ class BuildRecapPromptTests(unittest.TestCase):
         prompt = build_recap_prompt(profile, [], [])
 
         self.assertIn("No previous Interactions are recorded.", prompt)
+
+    def test_no_next_step_kinds_does_not_request_a_next_step(self):
+        from people_suggest import PersonProfile
+
+        profile = PersonProfile(page_id="p1", name="Jane Doe", context_fields=())
+
+        prompt = build_recap_prompt(profile, [], [], [])
+
+        self.assertNotIn("NEXT STEP", prompt)
+
+    def test_next_step_kinds_are_supplied_verbatim_with_the_request(self):
+        from people_suggest import PersonProfile
+
+        profile = PersonProfile(page_id="p1", name="Jane Doe", context_fields=())
+
+        prompt = build_recap_prompt(
+            profile, [], ["AI Network"], ["Coffee", "Intro", "Wait"]
+        )
+
+        self.assertIn("ALLOWED NEXT STEP KINDS:\n- Coffee\n- Intro\n- Wait", prompt)
+        self.assertIn('"NEXT STEP:"', prompt)
+        self.assertIn("- AI Network", prompt)
+
+    def test_next_step_request_replaces_the_bullet_list_only_rule(self):
+        # The recap-only "Respond with only the bullet list ... no heading"
+        # rule would contradict the NEXT STEP: heading the model is asked for.
+        from people_suggest import PersonProfile
+
+        profile = PersonProfile(page_id="p1", name="Jane Doe", context_fields=())
+
+        with_next_step = build_recap_prompt(profile, [], [], ["Coffee", "Wait"])
+        recap_only = build_recap_prompt(profile, [], [], [])
+
+        self.assertNotIn("with\n  no heading, preamble, or explanation", with_next_step)
+        self.assertIn("followed by the next-step part described below", with_next_step)
+        self.assertIn("with\n  no heading, preamble, or explanation", recap_only)
+        self.assertNotIn("next-step part", recap_only)
+
+
+class AllowedNextStepKindsTests(unittest.TestCase):
+    def test_live_types_plus_wait(self):
+        self.assertEqual(
+            allowed_next_step_kinds(["Coffee", "Call"]), ["Coffee", "Call", "Wait"]
+        )
+
+    def test_no_live_types_offers_nothing_not_even_wait(self):
+        self.assertEqual(allowed_next_step_kinds([]), [])
+
+    def test_wait_already_a_live_type_is_not_duplicated(self):
+        self.assertEqual(allowed_next_step_kinds(["Wait", "Coffee"]), ["Wait", "Coffee"])
+
+
+class SplitRecapAndNextStepsTests(unittest.TestCase):
+    KINDS = ["Coffee", "Intro", "Wait"]
+
+    def test_valid_kinds_and_wait_are_kept(self):
+        recap, next_steps = split_recap_and_next_steps(
+            "- Recap one.\n- Recap two.\nNEXT STEP:\n"
+            "- Coffee: Catch up on the new role.\n- Wait: Just met last week.",
+            self.KINDS,
+        )
+
+        self.assertEqual(recap, "- Recap one.\n- Recap two.")
+        self.assertEqual(
+            next_steps,
+            [("Coffee", "Catch up on the new role."), ("Wait", "Just met last week.")],
+        )
+
+    def test_unknown_or_inexact_kind_is_dropped(self):
+        _, next_steps = split_recap_and_next_steps(
+            "- Recap.\nNEXT STEP:\n- Lunch: Invent a lunch.\n"
+            "- coffee: Wrong case.\n- **Coffee**: Bold.\n- Intro: Introduce to Bob.",
+            self.KINDS,
+        )
+
+        self.assertEqual(next_steps, [("Intro", "Introduce to Bob.")])
+
+    def test_more_than_two_suggestions_are_truncated(self):
+        _, next_steps = split_recap_and_next_steps(
+            "- Recap.\nNEXT STEP:\n- Coffee: One.\n- Intro: Two.\n- Wait: Three.",
+            self.KINDS,
+        )
+
+        self.assertEqual(next_steps, [("Coffee", "One."), ("Intro", "Two.")])
+
+    def test_missing_next_step_part_keeps_the_whole_recap(self):
+        recap, next_steps = split_recap_and_next_steps("- Recap.", self.KINDS)
+
+        self.assertEqual(recap, "- Recap.")
+        self.assertEqual(next_steps, [])
+
+    def test_malformed_next_step_lines_yield_no_suggestions(self):
+        recap, next_steps = split_recap_and_next_steps(
+            "- Recap.\nNEXT STEP:\nMaybe grab a coffee sometime.\n- Coffee:\n- Coffee",
+            self.KINDS,
+        )
+
+        self.assertEqual(recap, "- Recap.")
+        self.assertEqual(next_steps, [])
+
+    def test_off_format_marker_lines_still_split_off_the_next_step(self):
+        for marker in (
+            "**NEXT STEP:**",
+            "Next step:",
+            "### Next steps:",
+            "**Suggested next step**:",
+        ):
+            with self.subTest(marker=marker):
+                recap, next_steps = split_recap_and_next_steps(
+                    f"- Recap.\n{marker}\n- Lunch: Not allowed.\n- Coffee: Idea.",
+                    self.KINDS,
+                )
+
+                self.assertEqual(recap, "- Recap.")
+                self.assertEqual(next_steps, [("Coffee", "Idea.")])
+
+    def test_suggestion_on_the_marker_line_is_validated_not_leaked(self):
+        recap, next_steps = split_recap_and_next_steps(
+            "- Recap.\nNEXT STEP: - Lunch: Not allowed.\n",
+            self.KINDS,
+        )
+
+        self.assertEqual(recap, "- Recap.")
+        self.assertEqual(next_steps, [])
+
+        _, next_steps = split_recap_and_next_steps(
+            "- Recap.\nNext step: Coffee: Idea.", self.KINDS
+        )
+        self.assertEqual(next_steps, [("Coffee", "Idea.")])
+
+    def test_recap_bullet_mentioning_next_step_is_not_a_marker(self):
+        response = "- Next step: they promised to send the deck."
+
+        self.assertEqual(
+            split_recap_and_next_steps(response, self.KINDS), (response, [])
+        )
+
+    def test_kind_containing_a_colon_is_matched_exactly(self):
+        _, next_steps = split_recap_and_next_steps(
+            "- Recap.\nNEXT STEP:\n- Call: video: Quick face-to-face check-in.",
+            ["Call", "Call: video", "Wait"],
+        )
+
+        self.assertEqual(next_steps, [("Call: video", "Quick face-to-face check-in.")])
+
+    def test_star_bullets_are_accepted(self):
+        _, next_steps = split_recap_and_next_steps(
+            "- Recap.\nNEXT STEP:\n* Coffee: Idea.", self.KINDS
+        )
+
+        self.assertEqual(next_steps, [("Coffee", "Idea.")])
+
+    def test_no_allowed_kinds_returns_response_untouched(self):
+        response = "- Recap.\nNEXT STEP:\n- Coffee: Idea."
+
+        self.assertEqual(split_recap_and_next_steps(response, []), (response, []))
+
+
+class NextStepFormattingTests(unittest.TestCase):
+    def test_no_next_steps_formats_to_nothing(self):
+        self.assertEqual(format_next_steps([]), "")
+
+    def test_text_fallback_places_next_step_between_recap_and_message(self):
+        next_step_text = format_next_steps([("Coffee", "Catch up.")])
+
+        self.assertEqual(
+            format_full_reply("- Recap.", "Suggested message for Jane:\n\nHi", next_step_text),
+            "Context:\n- Recap.\n\nSuggested next step:\n- Coffee: Catch up.\n\n"
+            "Suggested message for Jane:\n\nHi",
+        )
+
+    def test_text_fallback_without_next_step_is_unchanged(self):
+        self.assertEqual(
+            format_full_reply("- Recap.", "Message"), "Context:\n- Recap.\n\nMessage"
+        )
+
+    def test_oversized_next_step_block_is_truncated(self):
+        from people_suggest import PersonProfile
+
+        profile = PersonProfile(page_id="p1", name="Jane Doe", context_fields=())
+        next_step_text = format_next_steps([("Coffee", "x" * 4000)])
+
+        blocks = build_suggestion_blocks(
+            profile, "- Recap.", "Message", next_step_text=next_step_text
+        )
+
+        sections = [block["text"]["text"] for block in blocks]
+        self.assertEqual(len(sections), 3)
+        self.assertTrue(sections[1].startswith("Suggested next step:\n- Coffee: "))
+        self.assertLessEqual(len(sections[1]), SLACK_SECTION_TEXT_LIMIT)
 
 
 class HandlePeopleSuggestTests(unittest.TestCase):
@@ -1452,6 +1648,117 @@ class AddInteractionTrackSelectorTests(unittest.TestCase):
             "NOTION_INTERACTIONS_DATA_SOURCE_ID": "interactions-id",
             "NOTION_TRACKS_DATA_SOURCE_ID": "tracks-id",
         }
+
+
+class NextStepSuggestionTests(unittest.TestCase):
+    def run_suggest(self, recap_response, notion_get):
+        notion_post = Mock(
+            side_effect=[
+                notion_response([person_page("p1", "Jane Doe")]),
+                notion_response([]),
+                notion_response([]),
+            ]
+        )
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
+        )
+        generate_text = Mock(side_effect=[recap_response, "Hey Jane!"])
+
+        handle_people_suggest(
+            "Jane Doe",
+            post_slack_message,
+            notion_post,
+            generate_text,
+            HandlePeopleSuggestTests.environment(),
+            today=FIXED_TODAY,
+            sleep=Mock(),
+            notion_get=notion_get,
+        )
+        return post_slack_message, generate_text
+
+    def test_valid_next_steps_are_shown_alongside_recap_message_and_button(self):
+        post_slack_message, generate_text = self.run_suggest(
+            "- Recap bullet.\nNEXT STEP:\n- Coffee: Catch up in person.\n"
+            "- Lunch: Not a live Type.\n- Wait: Recently in touch.\n",
+            Mock(return_value=interaction_type_schema_response(("Coffee", "Call"))),
+        )
+
+        self.assertEqual(generate_text.call_count, 2)
+        recap_prompt, message_prompt = (
+            call.args[0] for call in generate_text.call_args_list
+        )
+        self.assertIn("ALLOWED NEXT STEP KINDS:\n- Coffee\n- Call\n- Wait", recap_prompt)
+        # The message call is unchanged: no next-step request or kinds leak in.
+        self.assertTrue(message_prompt.startswith(SUGGESTION_SYSTEM_INSTRUCTION))
+        self.assertNotIn("NEXT STEP", message_prompt)
+
+        output = post_slack_message.call_args_list[-1].args[0]
+        self.assertEqual(
+            output,
+            "Context:\n- Recap bullet.\n\n"
+            "Suggested next step:\n- Coffee: Catch up in person.\n"
+            "- Wait: Recently in touch.\n\n"
+            "Suggested message for Jane Doe:\n\nHey Jane!",
+        )
+        blocks = post_slack_message.call_args_list[-1].kwargs["blocks"]
+        self.assertEqual(
+            [block["type"] for block in blocks],
+            ["section", "section", "section", "actions"],
+        )
+        self.assertEqual(blocks[0]["text"]["text"], "Context:\n- Recap bullet.")
+        self.assertIn("Suggested next step:", blocks[1]["text"]["text"])
+        self.assertNotIn("Lunch", blocks[1]["text"]["text"])
+        self.assertIn("Suggested message for Jane Doe:", blocks[2]["text"]["text"])
+
+    def test_unparseable_next_step_part_omits_the_section_without_error(self):
+        post_slack_message, _ = self.run_suggest(
+            "- Recap bullet.\n**Next step:**\nPerhaps grab a coffee?",
+            Mock(return_value=interaction_type_schema_response()),
+        )
+
+        output = post_slack_message.call_args_list[-1].args[0]
+        self.assertEqual(
+            output,
+            "Context:\n- Recap bullet.\n\nSuggested message for Jane Doe:\n\nHey Jane!",
+        )
+
+    def test_missing_next_step_part_still_shows_the_recap(self):
+        post_slack_message, _ = self.run_suggest(
+            "- Recap bullet.",
+            Mock(return_value=interaction_type_schema_response()),
+        )
+
+        output = post_slack_message.call_args_list[-1].args[0]
+        self.assertEqual(
+            output,
+            "Context:\n- Recap bullet.\n\nSuggested message for Jane Doe:\n\nHey Jane!",
+        )
+
+    def test_no_valid_suggestions_omits_the_section(self):
+        post_slack_message, _ = self.run_suggest(
+            "- Recap bullet.\nNEXT STEP:\n- Lunch: Not allowed.",
+            Mock(return_value=interaction_type_schema_response()),
+        )
+
+        output = post_slack_message.call_args_list[-1].args[0]
+        self.assertEqual(
+            output,
+            "Context:\n- Recap bullet.\n\nSuggested message for Jane Doe:\n\nHey Jane!",
+        )
+
+    def test_type_options_unavailable_means_no_next_step_requested_or_shown(self):
+        failing = Mock()
+        failing.json.return_value = {"properties": {}}
+        post_slack_message, generate_text = self.run_suggest(
+            "- Recap bullet.", Mock(return_value=failing)
+        )
+
+        self.assertEqual(generate_text.call_count, 2)
+        for prompt in (call.args[0] for call in generate_text.call_args_list):
+            self.assertNotIn("NEXT STEP", prompt)
+        output = post_slack_message.call_args_list[-1].args[0]
+        self.assertNotIn("Suggested next step", output)
+        self.assertIn("Suggested message for Jane Doe:", output)
 
 
 if __name__ == "__main__":
