@@ -65,8 +65,10 @@ The Python process is stateless. Instead of storing conversation state itself, i
 │   └── slack-request.js
 ├── .github/
 │   └── workflows/
+│       ├── attention-summary.yml
 │       └── slack-message.yml
 ├── main.py
+├── attention_summary.py
 ├── tasks_list.py
 ├── people_due.py
 ├── people_suggest.py
@@ -169,6 +171,20 @@ Implements `/people due` and routes `/people suggest <person>`, fully determinis
 
 `/people suggest <person>` resolves the named Person by an exact, case-insensitive Name match (refusing to guess when zero or multiple People match), reads their context fields and up to 5 recent Interactions, and asks Gemini (via an injected `generate_text` callable) to draft a short reconnect message using only that supplied context. Gemini never accesses Notion directly and never decides who to contact.
 
+### `attention-summary.yml` and `attention_summary.py`
+
+A separate workflow runs Monday and Thursday at 06:00 UTC (`0 6 * * 1,4`) and can also be started manually via `workflow_dispatch`. GitHub may delay scheduled runs, and disables schedules after 60 days without repository activity.
+
+`attention_summary.py` sends one private DM to `AUTHORIZED_SLACK_USER_ID` summarizing what needs attention, reusing the exact `/tasks list` eligibility and `/people due` cadence logic so it matches those commands on the same day:
+
+* Tasks with a Follow-up date: at most 5 listed, then `+N more — run /tasks list`.
+* Tasks without a Follow-up date: a count only.
+* Due People: at most 5 listed as plain text (no Suggest button), then `+N more — run /people due`.
+
+Nothing is sent when nothing needs attention. An incomplete scan counts as something to report, with the same "more may need attention" line the commands use; skipped malformed rows are noted within a shown section but never trigger a DM on their own.
+
+Any failure fails the run with a secret-free `::error::` annotation, so an unwatched scheduled run stays visible. If one source fails, the other section is still sent with an "unavailable" line when it has something to report. If both fail, or the Slack send fails, nothing is sent. Gemini is not used, and only error types, HTTP status codes and missing setting names are logged.
+
 ### `slack_authorization.py`
 
 Shared authorization check for `/tasks` and `/people`: a request is authorized if it comes from the configured Tasks Slack channel, or from the one authorized user's DM.
@@ -209,7 +225,7 @@ To receive direct-message events, also add:
 im:history
 ```
 
-`chat:write` is sufficient to reply in an existing DM; this bot does not initiate DMs, so it does not require `im:write`. Reinstall or re-authorize the Slack app after adding `im:history` so the installed bot token receives the new scope.
+`chat:write` is sufficient to reply in an existing DM and to post the scheduled attention summary (sent with `chat.postMessage` to the authorized user's ID, which lands in the app's DM with that user), so `im:write` is not required. Reinstall or re-authorize the Slack app after adding `im:history` so the installed bot token receives the new scope.
 
 The bot must also be invited to the Slack channel where it is being used.
 

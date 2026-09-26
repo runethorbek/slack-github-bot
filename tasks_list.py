@@ -201,6 +201,14 @@ def fetch_tasks(notion_post, api_key, data_source_id, sleep=time.sleep):
 
 
 def select_tasks_needing_attention(pages, today):
+    eligible_tasks, skipped_task_count = select_all_tasks_needing_attention(
+        pages, today
+    )
+    return eligible_tasks[:MAX_DISPLAYED_TASKS], skipped_task_count
+
+
+def select_all_tasks_needing_attention(pages, today):
+    """Every eligible task in display order, without the /tasks list cap."""
     tasks = []
     skipped_task_count = 0
     for page in pages:
@@ -209,7 +217,7 @@ def select_tasks_needing_attention(pages, today):
         except MalformedTaskPageError:
             skipped_task_count += 1
     eligible_tasks = [task for task in tasks if needs_attention(task, today)]
-    return sorted(eligible_tasks, key=task_sort_key)[:MAX_DISPLAYED_TASKS], skipped_task_count
+    return sorted(eligible_tasks, key=task_sort_key), skipped_task_count
 
 
 def task_from_notion_page(page):
@@ -428,20 +436,22 @@ def format_task_list(tasks, today, resolved_tracks=None):
 
 def format_task(task, today, resolved_tracks=None):
     priority = task.priority or "No priority"
-    if task.follow_up is None:
-        follow_up = "No follow-up"
-    elif task.follow_up < today:
-        follow_up = f"Overdue: {task.follow_up.isoformat()}"
-    elif task.follow_up == today:
-        follow_up = "Follow-up: today"
-    else:
-        follow_up = f"Follow-up: {task.follow_up.isoformat()}"
-
+    follow_up = format_follow_up(task, today)
     track_text = format_tracks(task, resolved_tracks or {})
     return (
         f"• <{task.url}|{task.name}> — Priority: {priority} — "
         f"Track: {track_text} — {follow_up}"
     )
+
+
+def format_follow_up(task, today):
+    if task.follow_up is None:
+        return "No follow-up"
+    if task.follow_up < today:
+        return f"Overdue: {task.follow_up.isoformat()}"
+    if task.follow_up == today:
+        return "Follow-up: today"
+    return f"Follow-up: {task.follow_up.isoformat()}"
 
 
 def format_tracks(task, resolved_tracks):

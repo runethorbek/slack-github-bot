@@ -1,0 +1,32 @@
+name: Attention Summary
+
+on:
+  schedule:
+    # Monday and Thursday 06:00 UTC (07:00 Copenhagen winter, 08:00 summer).
+    # GitHub may delay scheduled runs; that is acceptable.
+    - cron: "0 6 * * 1,4"
+  workflow_dispatch:
+
+jobs:
+  send-summary:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Send attention summary DM
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          AUTHORIZED_SLACK_USER_ID: ${{ secrets.AUTHORIZED_SLACK_USER_ID }}
+          NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+          NOTION_TASKS_DATA_SOURCE_ID: ${{ secrets.NOTION_TASKS_DATA_SOURCE_ID }}
+          NOTION_PEOPLE_DATA_SOURCE_ID: ${{ secrets.NOTION_PEOPLE_DATA_SOURCE_ID }}
+          NOTION_INTERACTIONS_DATA_SOURCE_ID: ${{ secrets.NOTION_INTERACTIONS_DATA_SOURCE_ID }}
+        run: python attention_summary.py
