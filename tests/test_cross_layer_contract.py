@@ -87,9 +87,13 @@ class SlackToPythonContractTests(unittest.TestCase):
             "SLACK_EVENT_TS: ${{ github.event.client_payload.event_ts }}",
             "SLACK_CHANNEL_TYPE: ${{ github.event.client_payload.channel_type }}",
             "AUTHORIZED_SLACK_USER_ID: ${{ secrets.AUTHORIZED_SLACK_USER_ID }}",
+            "SLACK_VIEW_CALLBACK_ID: ${{ github.event.client_payload.callback_id }}",
+            "SLACK_TASK: ${{ github.event.client_payload.task }}",
         ]
         for mapping in expected_mappings:
             self.assertIn(mapping, workflow)
+        # The follow-up Task fields (task name) must be masked in the log.
+        self.assertIn('"notes", "task"]', workflow)
 
     def test_authenticated_tasks_dispatch_reaches_notion_and_slack_without_gemini(self):
         payload = self.capture_javascript_dispatch()

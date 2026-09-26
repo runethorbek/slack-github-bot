@@ -10,6 +10,11 @@ const PEOPLE_SUGGEST_ACTION_ID = "people_suggest";
 const ADD_INTERACTION_ACTION_ID = "people_add_interaction";
 const ADD_INTERACTION_CALLBACK_ID = "add_interaction_modal";
 
+// Matches ADD_FOLLOWUP_TASK_ACTION_ID / ADD_FOLLOWUP_TASK_CALLBACK_ID in
+// followup_task.py.
+const ADD_FOLLOWUP_TASK_ACTION_ID = "add_followup_task";
+const ADD_FOLLOWUP_TASK_CALLBACK_ID = "add_followup_task_modal";
+
 function copenhagenToday(now) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Copenhagen",
@@ -37,11 +42,34 @@ function parseTrackOptions(value) {
   return tracks;
 }
 
-function parseInteractionTypeOptions(value) {
+function parseStringOptions(value) {
   if (!Array.isArray(value)) {
     return [];
   }
   return value.filter((entry) => typeof entry === "string" && entry);
+}
+
+function trackSelectBlock(tracks, defaultTrackId) {
+  const options = tracks.map((track) => ({
+    text: { type: "plain_text", text: track.name },
+    value: track.id,
+  }));
+  const trackElement = {
+    type: "static_select",
+    action_id: "track_select",
+    options,
+  };
+  const defaultOption = options.find((option) => option.value === defaultTrackId);
+  if (defaultOption) {
+    trackElement.initial_option = defaultOption;
+  }
+  return {
+    type: "input",
+    block_id: "track_block",
+    optional: true,
+    label: { type: "plain_text", text: "Track" },
+    element: trackElement,
+  };
 }
 
 function parseAddInteractionButtonValue(value) {
@@ -64,7 +92,35 @@ function parseAddInteractionButtonValue(value) {
           typeof parsed?.default_track_id === "string" && parsed.default_track_id
             ? parsed.default_track_id
             : null,
-        types: parseInteractionTypeOptions(parsed.types),
+        types: parseStringOptions(parsed.types),
+      };
+    }
+  } catch {
+    // Malformed button value; treated as absent below.
+  }
+  return null;
+}
+
+function parseAddFollowupTaskButtonValue(value) {
+  try {
+    const parsed = JSON.parse(value);
+    if (
+      typeof parsed?.page_id === "string" &&
+      parsed.page_id &&
+      typeof parsed?.name === "string" &&
+      parsed.name
+    ) {
+      return {
+        pageId: parsed.page_id,
+        name: parsed.name,
+        // Already resolved from Notion by followup_task.py and carried
+        // forward opaquely - this handler never queries Notion itself.
+        tracks: parseTrackOptions(parsed.tracks),
+        defaultTrackId:
+          typeof parsed?.default_track_id === "string" && parsed.default_track_id
+            ? parsed.default_track_id
+            : null,
+        priorities: parseStringOptions(parsed.priorities),
       };
     }
   } catch {
@@ -125,7 +181,7 @@ function buildAddInteractionView(
         action_id: "type_select",
         // Resolved from the live Notion Type schema by people_suggest.py
         // and carried forward via the button's value - see
-        // parseInteractionTypeOptions above. This dropdown is only a
+        // parseStringOptions above. This dropdown is only a
         // usability guardrail; people_interaction.py independently
         // re-validates the submitted value against Notion before any
         // write.
@@ -142,26 +198,7 @@ function buildAddInteractionView(
   // to choose from; otherwise Track is simply unavailable for this
   // Interaction, matching "leave Track unselected".
   if (tracks.length > 0) {
-    const options = tracks.map((track) => ({
-      text: { type: "plain_text", text: track.name },
-      value: track.id,
-    }));
-    const trackElement = {
-      type: "static_select",
-      action_id: "track_select",
-      options,
-    };
-    const defaultOption = options.find((option) => option.value === defaultTrackId);
-    if (defaultOption) {
-      trackElement.initial_option = defaultOption;
-    }
-    blocks.push({
-      type: "input",
-      block_id: "track_block",
-      optional: true,
-      label: { type: "plain_text", text: "Track" },
-      element: trackElement,
-    });
+    blocks.push(trackSelectBlock(tracks, defaultTrackId));
   }
 
   blocks.push(
@@ -199,6 +236,81 @@ function buildAddInteractionView(
       thread_ts: threadTs,
     }),
     title: { type: "plain_text", text: "Add interaction" },
+    submit: { type: "plain_text", text: "Save" },
+    close: { type: "plain_text", text: "Cancel" },
+    blocks,
+  };
+}
+
+function buildAddFollowupTaskView(
+  personPageId,
+  personName,
+  channelId,
+  userId,
+  threadTs,
+  priorities = [],
+  tracks = [],
+  defaultTrackId = null
+) {
+  const blocks = [
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: `*Person:* ${personName}` },
+    },
+    {
+      type: "input",
+      block_id: "name_block",
+      label: { type: "plain_text", text: "Name" },
+      // Notion rejects a title text longer than 2000 characters.
+      element: {
+        type: "plain_text_input",
+        action_id: "name_input",
+        max_length: 2000,
+      },
+    },
+    {
+      type: "input",
+      block_id: "follow_up_block",
+      optional: true,
+      label: { type: "plain_text", text: "Follow-up" },
+      element: { type: "datepicker", action_id: "follow_up_select" },
+    },
+  ];
+
+  // Slack rejects a static_select with an empty options array, so optional
+  // selectors are only offered when there is something to choose from.
+  // followup_task.py re-validates both against Notion before any write.
+  if (priorities.length > 0) {
+    blocks.push({
+      type: "input",
+      block_id: "priority_block",
+      optional: true,
+      label: { type: "plain_text", text: "Priority" },
+      element: {
+        type: "static_select",
+        action_id: "priority_select",
+        options: priorities.map((option) => ({
+          text: { type: "plain_text", text: option },
+          value: option,
+        })),
+      },
+    });
+  }
+  if (tracks.length > 0) {
+    blocks.push(trackSelectBlock(tracks, defaultTrackId));
+  }
+
+  return {
+    type: "modal",
+    callback_id: ADD_FOLLOWUP_TASK_CALLBACK_ID,
+    private_metadata: JSON.stringify({
+      person_page_id: personPageId,
+      person_name: personName,
+      channel_id: channelId,
+      user_id: userId,
+      thread_ts: threadTs,
+    }),
+    title: { type: "plain_text", text: "Add follow-up task" },
     submit: { type: "plain_text", text: "Save" },
     close: { type: "plain_text", text: "Cancel" },
     blocks,
@@ -394,9 +506,84 @@ export async function handleSlackRequest(
               )
             );
           }
+        } else if (
+          action?.action_id === ADD_FOLLOWUP_TASK_ACTION_ID &&
+          body.trigger_id &&
+          // Same retried-click guard as Add Interaction above.
+          !request.headers.get("x-slack-retry-num")
+        ) {
+          const person = parseAddFollowupTaskButtonValue(action.value ?? "");
+          if (person && openModal) {
+            const channelId = body.channel?.id ?? "";
+            const threadTs = body.message?.thread_ts || body.message?.ts || "";
+            await openModal(
+              body.trigger_id,
+              buildAddFollowupTaskView(
+                person.pageId,
+                person.name,
+                channelId,
+                body.user?.id ?? "",
+                threadTs,
+                person.priorities,
+                person.tracks,
+                person.defaultTrackId
+              )
+            );
+          }
         }
 
         return new Response("", { status: 200 });
+      }
+
+      // -----------------------------------------------------
+      // Add follow-up Task modal submission
+      // -----------------------------------------------------
+      if (
+        body?.type === "view_submission" &&
+        body?.view?.callback_id === ADD_FOLLOWUP_TASK_CALLBACK_ID
+      ) {
+        // A Slack retry of an already-handled submission must not trigger a
+        // second Task write.
+        if (request.headers.get("x-slack-retry-num")) {
+          return new Response("", { status: 200 });
+        }
+
+        const metadata = parseAddInteractionPrivateMetadata(
+          body.view?.private_metadata
+        );
+
+        if (metadata) {
+          const values = body.view?.state?.values ?? {};
+          // Task fields are bundled into one JSON field, like the Person
+          // identity, to stay within GitHub's 10-property client_payload
+          // limit. callback_id tells main.py which modal this came from.
+          defer(
+            triggerGitHub({
+              channel_id: metadata.channel_id,
+              user_id: metadata.user_id,
+              channel_type: commandChannelType(metadata.channel_id),
+              thread_ts: metadata.thread_ts,
+              slack_event_type: "view_submission",
+              callback_id: ADD_FOLLOWUP_TASK_CALLBACK_ID,
+              person: JSON.stringify({
+                page_id: metadata.person_page_id,
+                name: metadata.person_name,
+              }),
+              task: JSON.stringify({
+                name: values.name_block?.name_input?.value ?? "",
+                follow_up:
+                  values.follow_up_block?.follow_up_select?.selected_date ?? "",
+                priority:
+                  values.priority_block?.priority_select?.selected_option?.value ??
+                  "",
+                track_id:
+                  values.track_block?.track_select?.selected_option?.value ?? "",
+              }),
+            })
+          );
+        }
+
+        return Response.json({});
       }
 
       // -----------------------------------------------------

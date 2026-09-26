@@ -304,9 +304,17 @@ def resolve_tracks(tasks, notion_get, api_key, sleep=time.sleep):
 
 
 def call_notion_with_retries(
-    request, sleep, credential_failure_status_codes=(401, 403)
+    request,
+    sleep,
+    credential_failure_status_codes=(401, 403),
+    is_retryable=None,
 ):
-    """Make one Notion read, retrying only bounded transient failures."""
+    """Make one Notion request, retrying only bounded transient failures.
+
+    ``is_retryable`` narrows which failures are retried (default:
+    is_retryable_notion_error), e.g. for a non-idempotent write.
+    """
+    is_retryable = is_retryable or is_retryable_notion_error
     for retry_number in range(3):
         try:
             response = request()
@@ -318,7 +326,7 @@ def call_notion_with_retries(
                 raise NotionAuthenticationError(
                     f"Notion authentication failed (HTTP {status_code})."
                 ) from None
-            if not is_retryable_notion_error(error) or retry_number == 2:
+            if not is_retryable(error) or retry_number == 2:
                 raise TaskListCommandError() from error
             sleep(retry_delay(error, retry_number))
 

@@ -1042,3 +1042,216 @@ test("a view_submission for a different modal is ignored without dispatch", asyn
   assert.equal(response.status, 200);
   assert.deepEqual(dependencies.dispatched, []);
 });
+
+function addFollowupTaskButtonClickBody(value, overrides = {}) {
+  return new URLSearchParams({
+    payload: JSON.stringify({
+      type: "block_actions",
+      trigger_id: "trigger-456",
+      actions: [
+        {
+          action_id: "add_followup_task",
+          value: JSON.stringify(value),
+        },
+      ],
+      channel: { id: "C123" },
+      user: { id: "U123" },
+      message: { ts: "111.222", thread_ts: "100.001" },
+      ...overrides,
+    }),
+  }).toString();
+}
+
+test("clicking Add follow-up task opens the Task modal with Person shown and Track prefilled", async () => {
+  const body = addFollowupTaskButtonClickBody({
+    page_id: "person-page-id",
+    name: "Jane Doe",
+    priorities: ["High", "Medium", "Low"],
+    tracks: [
+      { id: "track-1", name: "AI Network" },
+      { id: "track-2", name: "Investors" },
+    ],
+    default_track_id: "track-2",
+  });
+  const dependencies = testDependencies();
+
+  const response = await handleSlackRequest(
+    slackRequest(body),
+    dependencies.options
+  );
+  await Promise.all(dependencies.deferred);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(dependencies.dispatched, []);
+  assert.equal(dependencies.openedModals.length, 1);
+  const { triggerId, view } = dependencies.openedModals[0];
+  assert.equal(triggerId, "trigger-456");
+  assert.equal(view.callback_id, "add_followup_task_modal");
+  assert.deepEqual(JSON.parse(view.private_metadata), {
+    person_page_id: "person-page-id",
+    person_name: "Jane Doe",
+    channel_id: "C123",
+    user_id: "U123",
+    thread_ts: "100.001",
+  });
+
+  assert.equal(view.blocks[0].text.text, "*Person:* Jane Doe");
+  const block = (id) => view.blocks.find((candidate) => candidate.block_id === id);
+  assert.equal(block("name_block").optional, undefined);
+  assert.equal(block("name_block").element.type, "plain_text_input");
+  assert.equal(block("name_block").element.max_length, 2000);
+  assert.equal(block("follow_up_block").optional, true);
+  assert.equal(block("follow_up_block").element.type, "datepicker");
+  assert.equal(block("follow_up_block").element.initial_date, undefined);
+  assert.equal(block("priority_block").optional, true);
+  assert.deepEqual(
+    block("priority_block").element.options.map((option) => option.value),
+    ["High", "Medium", "Low"]
+  );
+  assert.equal(block("priority_block").element.initial_option, undefined);
+  assert.equal(block("track_block").optional, true);
+  assert.deepEqual(block("track_block").element.initial_option, {
+    text: { type: "plain_text", text: "Investors" },
+    value: "track-2",
+  });
+});
+
+test("a Task button without Priority or Track options omits those selectors", async () => {
+  const body = addFollowupTaskButtonClickBody({
+    page_id: "person-page-id",
+    name: "Jane Doe",
+  });
+  const dependencies = testDependencies();
+
+  await handleSlackRequest(slackRequest(body), dependencies.options);
+
+  const { view } = dependencies.openedModals[0];
+  assert.deepEqual(
+    view.blocks.map((block) => block.block_id).filter(Boolean),
+    ["name_block", "follow_up_block"]
+  );
+});
+
+test("a malformed, retried, or trigger-less Task click does not open a modal", async (t) => {
+  const cases = [
+    ["malformed value", addFollowupTaskButtonClickBody({ name: "Jane Doe" }), {}],
+    [
+      "missing trigger_id",
+      addFollowupTaskButtonClickBody(
+        { page_id: "person-page-id", name: "Jane Doe" },
+        { trigger_id: "" }
+      ),
+      {},
+    ],
+    [
+      "retried click",
+      addFollowupTaskButtonClickBody({ page_id: "person-page-id", name: "Jane Doe" }),
+      { "x-slack-retry-num": "1" },
+    ],
+  ];
+  for (const [name, body, extraHeaders] of cases) {
+    await t.test(name, async () => {
+      const dependencies = testDependencies();
+      const request = slackRequest(body);
+      for (const [header, value] of Object.entries(extraHeaders)) {
+        request.headers.set(header, value);
+      }
+
+      const response = await handleSlackRequest(request, dependencies.options);
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(dependencies.openedModals, []);
+      assert.deepEqual(dependencies.dispatched, []);
+    });
+  }
+});
+
+function addFollowupTaskSubmissionBody(values) {
+  return new URLSearchParams({
+    payload: JSON.stringify({
+      type: "view_submission",
+      view: {
+        callback_id: "add_followup_task_modal",
+        private_metadata: JSON.stringify({
+          person_page_id: "person-page-id",
+          person_name: "Jane Doe",
+          channel_id: "C123",
+          user_id: "U123",
+          thread_ts: "100.001",
+        }),
+        state: { values },
+      },
+    }),
+  }).toString();
+}
+
+test("submitting the Task modal dispatches the bundled Task fields to GitHub", async () => {
+  const body = addFollowupTaskSubmissionBody({
+    name_block: { name_input: { value: "Send the article" } },
+    follow_up_block: { follow_up_select: { selected_date: "2026-10-01" } },
+    priority_block: { priority_select: { selected_option: { value: "High" } } },
+    track_block: { track_select: { selected_option: { value: "track-2" } } },
+  });
+  const dependencies = testDependencies();
+
+  const response = await handleSlackRequest(
+    slackRequest(body),
+    dependencies.options
+  );
+  await Promise.all(dependencies.deferred);
+
+  assert.deepEqual(await response.json(), {});
+  assert.deepEqual(dependencies.openedModals, []);
+  assert.deepEqual(dependencies.dispatched, [
+    {
+      channel_id: "C123",
+      user_id: "U123",
+      channel_type: "channel",
+      thread_ts: "100.001",
+      slack_event_type: "view_submission",
+      callback_id: "add_followup_task_modal",
+      person: JSON.stringify({ page_id: "person-page-id", name: "Jane Doe" }),
+      task: JSON.stringify({
+        name: "Send the article",
+        follow_up: "2026-10-01",
+        priority: "High",
+        track_id: "track-2",
+      }),
+    },
+  ]);
+  assert.ok(Object.keys(dependencies.dispatched[0]).length <= 10);
+});
+
+test("empty optional Task fields are dispatched as empty strings", async () => {
+  const body = addFollowupTaskSubmissionBody({
+    name_block: { name_input: { value: "Send the article" } },
+    follow_up_block: { follow_up_select: { selected_date: null } },
+    priority_block: { priority_select: { selected_option: null } },
+  });
+  const dependencies = testDependencies();
+
+  await handleSlackRequest(slackRequest(body), dependencies.options);
+  await Promise.all(dependencies.deferred);
+
+  assert.deepEqual(JSON.parse(dependencies.dispatched[0].task), {
+    name: "Send the article",
+    follow_up: "",
+    priority: "",
+    track_id: "",
+  });
+});
+
+test("a retried Task submission is acknowledged without a second dispatch", async () => {
+  const body = addFollowupTaskSubmissionBody({
+    name_block: { name_input: { value: "Send the article" } },
+  });
+  const dependencies = testDependencies();
+  const request = slackRequest(body);
+  request.headers.set("x-slack-retry-num", "1");
+
+  const response = await handleSlackRequest(request, dependencies.options);
+  await Promise.all(dependencies.deferred);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(dependencies.dispatched, []);
+});

@@ -25,8 +25,9 @@ jobs:
           # them - and it prints every step's resolved `env:` block into its
           # log. Without an explicit ::add-mask:: here, the "Run Python bot"
           # step's log would show these values (Slack text, person name,
-          # interaction type, notes) in plaintext, exactly like response_url
-          # would without the mask already applied below.
+          # interaction type, notes, follow-up task fields) in plaintext,
+          # exactly like response_url would without the mask already applied
+          # below.
           node -e '
             const fs = require("fs");
             const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
@@ -35,7 +36,7 @@ jobs:
             if (typeof payload.response_url === "string" && payload.response_url) {
               out.push("RESPONSE_URL\t" + payload.response_url);
             }
-            for (const field of ["text", "person", "interaction_type", "notes"]) {
+            for (const field of ["text", "person", "interaction_type", "notes", "task"]) {
               const value = payload[field];
               if (typeof value === "string" && value) {
                 for (const line of value.split("\n")) {
@@ -68,6 +69,8 @@ jobs:
           SLACK_INTERACTION_NOTES: ${{ github.event.client_payload.notes }}
           SLACK_INTERACTION_DATE: ${{ github.event.client_payload.date }}
           SLACK_INTERACTION_TRACK_ID: ${{ github.event.client_payload.track_id }}
+          SLACK_VIEW_CALLBACK_ID: ${{ github.event.client_payload.callback_id }}
+          SLACK_TASK: ${{ github.event.client_payload.task }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           AUTHORIZED_SLACK_USER_ID: ${{ secrets.AUTHORIZED_SLACK_USER_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

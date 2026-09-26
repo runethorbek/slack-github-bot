@@ -4,6 +4,12 @@ import sys
 import requests
 from google import genai
 
+from followup_task import (
+    ADD_FOLLOWUP_TASK_CALLBACK_ID,
+    build_followup_task_button,
+    handle_add_followup_task_submission,
+    parse_task_payload,
+)
 from people_due import PEOPLE_CHANNEL_REFUSAL, handle_people_command
 from people_interaction import handle_add_interaction_submission
 from slack_authorization import is_private_data_request_authorized
@@ -238,10 +244,29 @@ if event_type == "view_submission":
         authorized_user_id=authorized_slack_user_id,
         authorized_channel_id=os.environ.get("TASKS_SLACK_CHANNEL_ID", ""),
     ):
-        print("Unauthorized Add Interaction submission ignored")
+        print("Unauthorized modal submission ignored")
         sys.exit(0)
 
     person = parse_person_payload(os.environ.get("SLACK_PERSON", ""))
+
+    if os.environ.get("SLACK_VIEW_CALLBACK_ID", "") == ADD_FOLLOWUP_TASK_CALLBACK_ID:
+        task = parse_task_payload(os.environ.get("SLACK_TASK", ""))
+        handle_add_followup_task_submission(
+            person["page_id"],
+            person["name"],
+            task["name"],
+            task["follow_up"],
+            task["priority"],
+            task["track_id"],
+            post_slack_message,
+            requests.post,
+            requests.get,
+            os.environ,
+            thread_ts=thread_ts or None,
+        )
+        print("Add follow-up Task submission handled")
+        sys.exit(0)
+
     handle_add_interaction_submission(
         person["page_id"],
         person["name"],
@@ -254,6 +279,9 @@ if event_type == "view_submission":
         requests.get,
         os.environ,
         thread_ts=thread_ts or None,
+        build_followup_button=lambda page_id, name, track_id: build_followup_task_button(
+            page_id, name, track_id, requests.post, requests.get, os.environ
+        ),
     )
     print("Add Interaction submission handled")
     sys.exit(0)

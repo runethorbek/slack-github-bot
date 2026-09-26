@@ -280,6 +280,150 @@ class MainRoutingTests(unittest.TestCase):
         reply_text = requests_module.post.call_args_list[-1].kwargs["json"]["text"]
         self.assertEqual(reply_text, "Interaction added for Jane Doe.")
 
+    def run_main(self, environment, requests_module, google_module, genai_module):
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.dict(
+                sys.modules,
+                {
+                    "requests": requests_module,
+                    "google": google_module,
+                    "google.genai": genai_module,
+                },
+            ),
+            patch("builtins.print"),
+            self.assertRaises(SystemExit) as exit_context,
+        ):
+            runpy.run_module("main", run_name="__main__")
+        self.assertEqual(exit_context.exception.code, 0)
+
+    @staticmethod
+    def tasks_schema_response():
+        response = Mock()
+        response.json.return_value = {
+            "properties": {
+                "Navn": {"id": "title", "type": "title"},
+                "Priority": {
+                    "type": "select",
+                    "select": {"options": [{"name": "High"}, {"name": "Low"}]},
+                },
+                "Status": {
+                    "type": "status",
+                    "status": {"options": [{"name": "Ikke started"}]},
+                },
+            }
+        }
+        return response
+
+    def followup_task_environment(self, user_id="U-authorized"):
+        return {
+            "SLACK_EVENT_TYPE": "view_submission",
+            "SLACK_VIEW_CALLBACK_ID": "add_followup_task_modal",
+            "SLACK_TEXT": "",
+            "SLACK_CHANNEL_ID": "D-private",
+            "SLACK_USER_ID": user_id,
+            "SLACK_CHANNEL_TYPE": "im",
+            "SLACK_THREAD_TS": "100.001",
+            "SLACK_BOT_TOKEN": "test-slack-token",
+            "AUTHORIZED_SLACK_USER_ID": "U-authorized",
+            "TASKS_SLACK_CHANNEL_ID": "C-allowed",
+            "SLACK_PERSON": json.dumps({"page_id": "person-page-id", "name": "Jane Doe"}),
+            "SLACK_TASK": json.dumps(
+                {
+                    "name": "Send the article",
+                    "follow_up": "2026-10-01",
+                    "priority": "High",
+                    "track_id": "",
+                }
+            ),
+            "NOTION_API_KEY": "test-notion-token",
+            "NOTION_TASKS_DATA_SOURCE_ID": "tasks-id",
+            "NOTION_INTERACTIONS_DATA_SOURCE_ID": "interactions-id",
+        }
+
+    def test_unauthorized_followup_task_submission_stops_before_notion(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+
+        self.run_main(
+            self.followup_task_environment(user_id="U-other"),
+            requests_module,
+            google_module,
+            genai_module,
+        )
+
+        requests_module.post.assert_not_called()
+        requests_module.get.assert_not_called()
+
+    def test_authorized_followup_task_submission_writes_one_task_without_gemini(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        requests_module.get.return_value = self.tasks_schema_response()
+        create_response = Mock()
+        reply_response = Mock()
+        reply_response.json.return_value = {"ok": True}
+        requests_module.post.side_effect = [create_response, reply_response]
+
+        self.run_main(
+            self.followup_task_environment(),
+            requests_module,
+            google_module,
+            genai_module,
+        )
+
+        genai_module.Client.assert_not_called()
+        self.assertEqual(
+            [call.args[0] for call in requests_module.post.call_args_list],
+            ["https://api.notion.com/v1/pages", "https://slack.com/api/chat.postMessage"],
+        )
+        create_json = requests_module.post.call_args_list[0].kwargs["json"]
+        self.assertEqual(create_json["parent"], {"data_source_id": "tasks-id"})
+        properties = create_json["properties"]
+        self.assertEqual(properties["People"], {"relation": [{"id": "person-page-id"}]})
+        self.assertEqual(properties["Status"], {"status": {"name": "Ikke started"}})
+        self.assertEqual(properties["Priority"], {"select": {"name": "High"}})
+        reply_json = requests_module.post.call_args_list[-1].kwargs["json"]
+        self.assertEqual(reply_json["text"], "Follow-up task added for Jane Doe: Send the article")
+        self.assertEqual(reply_json["thread_ts"], "100.001")
+
+    def test_interaction_confirmation_offers_the_followup_task_button(self):
+        requests_module, google_module, genai_module = self.fake_modules()
+        interactions_schema = Mock()
+        interactions_schema.json.return_value = {
+            "properties": {
+                "Title of interaction": {"type": "title"},
+                "Type": {"type": "select", "select": {"options": [{"name": "Coffee"}]}},
+            }
+        }
+        requests_module.get.side_effect = [
+            interactions_schema,
+            interactions_schema,
+            self.tasks_schema_response(),
+        ]
+        reply_response = Mock()
+        reply_response.json.return_value = {"ok": True}
+        requests_module.post.side_effect = [Mock(), reply_response]
+        environment = {
+            **self.followup_task_environment(),
+            "SLACK_VIEW_CALLBACK_ID": "",
+            "SLACK_TASK": "",
+            "SLACK_INTERACTION_TYPE": "Coffee",
+            "SLACK_INTERACTION_DATE": "2026-09-22",
+        }
+
+        self.run_main(environment, requests_module, google_module, genai_module)
+
+        reply_json = requests_module.post.call_args_list[-1].kwargs["json"]
+        self.assertEqual(reply_json["text"], "Interaction added for Jane Doe.")
+        button = reply_json["blocks"][-1]["elements"][0]
+        self.assertEqual(button["action_id"], "add_followup_task")
+        self.assertEqual(
+            json.loads(button["value"]),
+            {
+                "page_id": "person-page-id",
+                "name": "Jane Doe",
+                "priorities": ["High", "Low"],
+            },
+        )
+
     def test_authorized_add_interaction_submission_writes_a_selected_track(self):
         requests_module, google_module, genai_module = self.fake_modules()
         schema_response = Mock()

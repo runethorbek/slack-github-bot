@@ -214,6 +214,7 @@ def handle_add_interaction_submission(
     thread_ts=None,
     today=None,
     sleep=time.sleep,
+    build_followup_button=None,
 ):
     """Validate and perform exactly one Interaction write.
 
@@ -226,7 +227,10 @@ def handle_add_interaction_submission(
     ``thread_ts`` keeps the confirmation/failure reply in the same Slack
     thread as the suggestion message the "Add interaction" button was
     clicked from, matching every other command's root-message/threaded-reply
-    convention.
+    convention. ``build_followup_button`` (followup_task.py, injected by
+    main.py) is called only after a successful write, with the Person and
+    validated Track; when it returns None the confirmation is posted as
+    plain text without the "Add follow-up task" button.
     """
     if not person_page_id or not person_name:
         # A malformed or spoofed submission with no Person identity to
@@ -288,9 +292,22 @@ def handle_add_interaction_submission(
         post_slack_message(INTERACTION_FAILURE_MESSAGE, thread_ts=thread_ts)
         return
 
+    confirmation = INTERACTION_ADDED_MESSAGE_TEMPLATE.format(name=person_name)
+    followup_button = (
+        build_followup_button(person_page_id, person_name, track_id)
+        if build_followup_button
+        else None
+    )
+    if not followup_button:
+        post_slack_message(confirmation, thread_ts=thread_ts)
+        return
     post_slack_message(
-        INTERACTION_ADDED_MESSAGE_TEMPLATE.format(name=person_name),
+        confirmation,
         thread_ts=thread_ts,
+        blocks=[
+            {"type": "section", "text": {"type": "mrkdwn", "text": confirmation}},
+            {"type": "actions", "elements": [followup_button]},
+        ],
     )
 
 
