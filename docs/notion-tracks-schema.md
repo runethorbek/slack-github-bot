@@ -43,9 +43,15 @@ This property is not currently used by any command.
 
 Type: `text`
 
-Free-text purpose of the Track. Not currently used by any command; must
-not be sent to Slack or written to logs if that changes, consistent with
-this data source's other free-text fields.
+Free-text purpose of the Track. Used by `/people suggest`, which reads it
+from the already fetched Track page (no extra Notion request), truncates
+it to `MAX_TRACK_PURPOSE_CHARS` (500) characters, and sends it to Gemini
+as private context for the recap, next-step suggestion, and draft message.
+It may therefore appear in Slack, paraphrased, through Gemini's output;
+the draft-message prompt tells Gemini not to name a Track, quote a
+Purpose, or present it as the user's goal. It must never be written to
+logs. A missing, empty, or non-text `Purpose` is ignored, and the Track is
+still used by name.
 
 (This property was previously documented here as `Description`; the live
 schema now shows `Purpose` instead — confirm whether it was renamed or

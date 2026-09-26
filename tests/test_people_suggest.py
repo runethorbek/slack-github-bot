@@ -7,6 +7,8 @@ from people_due import PeopleDueCommandError
 from people_interaction import ADD_INTERACTION_ACTION_ID
 from people_suggest import (
     MAX_SUGGESTION_INTERACTIONS,
+    MAX_SUGGESTION_TRACKS,
+    MAX_TRACK_PURPOSE_CHARS,
     PEOPLE_SUGGEST_FAILURE_MESSAGE,
     SLACK_SECTION_TEXT_LIMIT,
     SUGGESTION_SYSTEM_INSTRUCTION,
@@ -18,16 +20,18 @@ from people_suggest import (
     collect_track_ids,
     extract_property_text,
     extract_relation_ids,
+    extract_track_purpose,
     fetch_recent_interactions,
     format_full_reply,
     format_next_steps,
+    group_relevant_tracks,
     handle_people_suggest,
     person_not_found_message,
     person_profile_from_notion_page,
-    relevant_track_names,
     resolve_person,
-    resolve_track_names,
+    resolve_tracks,
     split_recap_and_next_steps,
+    TrackContext,
 )
 
 
@@ -90,8 +94,8 @@ def interaction_page(
     return {"properties": properties}
 
 
-def track_page(name, priority=None):
-    return {
+def track_page(name, priority=None, purpose=None):
+    page = {
         "properties": {
             "Navn": {
                 "type": "title",
@@ -103,6 +107,9 @@ def track_page(name, priority=None):
             },
         }
     }
+    if purpose is not None:
+        page["properties"]["Purpose"] = rich_text(purpose)
+    return page
 
 
 def notion_response(results):
@@ -423,13 +430,13 @@ class CollectTrackIdsTests(unittest.TestCase):
         self.assertEqual(collect_track_ids(profile, []), ())
 
 
-class ResolveTrackNamesTests(unittest.TestCase):
+class ResolveTracksTests(unittest.TestCase):
     def test_resolves_each_distinct_id_once(self):
         notion_get = Mock(return_value=notion_get_response(track_page("AI Network")))
 
-        resolved = resolve_track_names(("t1", "t1"), notion_get, "secret", Mock())
+        resolved = resolve_tracks(("t1", "t1"), notion_get, "secret", Mock())
 
-        self.assertEqual(resolved, {"t1": "AI Network"})
+        self.assertEqual(resolved, {"t1": TrackContext("AI Network")})
         notion_get.assert_called_once()
 
     def test_multiple_distinct_tracks_each_resolved(self):
@@ -440,42 +447,144 @@ class ResolveTrackNamesTests(unittest.TestCase):
             ]
         )
 
-        resolved = resolve_track_names(("t1", "t2"), notion_get, "secret", Mock())
+        resolved = resolve_tracks(("t1", "t2"), notion_get, "secret", Mock())
 
-        self.assertEqual(resolved, {"t1": "AI Network", "t2": "Investors"})
+        self.assertEqual(
+            resolved,
+            {"t1": TrackContext("AI Network"), "t2": TrackContext("Investors")},
+        )
+
+    def test_purpose_is_read_from_the_same_page_without_extra_requests(self):
+        notion_get = Mock(
+            return_value=notion_get_response(
+                track_page("AI Network", purpose="Learn about AI")
+            )
+        )
+
+        resolved = resolve_tracks(("t1",), notion_get, "secret", Mock())
+
+        self.assertEqual(resolved, {"t1": TrackContext("AI Network", "Learn about AI")})
+        notion_get.assert_called_once()
 
     def test_notion_get_none_resolves_nothing(self):
-        resolved = resolve_track_names(("t1",), None, "secret", Mock())
+        resolved = resolve_tracks(("t1",), None, "secret", Mock())
 
         self.assertEqual(resolved, {})
 
     def test_malformed_track_page_is_omitted_not_raised(self):
         notion_get = Mock(return_value=notion_get_response({"properties": {}}))
 
-        resolved = resolve_track_names(("t1",), notion_get, "secret", Mock())
+        resolved = resolve_tracks(("t1",), notion_get, "secret", Mock())
 
         self.assertEqual(resolved, {"t1": None})
 
     def test_no_track_ids_makes_no_requests(self):
         notion_get = Mock()
 
-        resolved = resolve_track_names((), notion_get, "secret", Mock())
+        resolved = resolve_tracks((), notion_get, "secret", Mock())
 
         self.assertEqual(resolved, {})
         notion_get.assert_not_called()
 
 
-class RelevantTrackNamesTests(unittest.TestCase):
-    def test_filters_unresolved_and_dedupes_names(self):
-        names = relevant_track_names(
-            ("t1", "t2", "t3"),
-            {"t1": "AI Network", "t2": None, "t3": "AI Network"},
+class ExtractTrackPurposeTests(unittest.TestCase):
+    def test_present_purpose_is_returned(self):
+        page = track_page("AI Network", purpose="Learn about AI")
+
+        self.assertEqual(extract_track_purpose(page), "Learn about AI")
+
+    def test_multi_part_and_multi_line_purpose_is_joined_on_one_line(self):
+        page = track_page("AI Network")
+        page["properties"]["Purpose"] = {
+            "type": "rich_text",
+            "rich_text": [{"plain_text": "Learn about\n"}, {"plain_text": " AI  agents"}],
+        }
+
+        self.assertEqual(extract_track_purpose(page), "Learn about AI agents")
+
+    def test_empty_purpose_is_none(self):
+        self.assertIsNone(extract_track_purpose(track_page("AI Network", purpose="  ")))
+
+    def test_missing_purpose_is_none(self):
+        self.assertIsNone(extract_track_purpose(track_page("AI Network")))
+
+    def test_non_text_purpose_is_none(self):
+        page = track_page("AI Network")
+        page["properties"]["Purpose"] = select("Learn about AI")
+
+        self.assertIsNone(extract_track_purpose(page))
+
+    def test_malformed_rich_text_is_none(self):
+        page = track_page("AI Network")
+        page["properties"]["Purpose"] = {"type": "rich_text", "rich_text": None}
+
+        self.assertIsNone(extract_track_purpose(page))
+
+    def test_long_purpose_is_truncated_to_the_limit(self):
+        page = track_page("AI Network", purpose="x" * (MAX_TRACK_PURPOSE_CHARS + 50))
+
+        purpose = extract_track_purpose(page)
+
+        self.assertEqual(len(purpose), MAX_TRACK_PURPOSE_CHARS)
+        self.assertTrue(purpose.endswith("…"))
+
+    def test_purpose_exactly_at_the_limit_is_kept_whole(self):
+        text = "x" * MAX_TRACK_PURPOSE_CHARS
+
+        self.assertEqual(extract_track_purpose(track_page("AI", purpose=text)), text)
+
+
+class GroupRelevantTracksTests(unittest.TestCase):
+    @staticmethod
+    def profile(track_ids=()):
+        from people_suggest import PersonProfile
+
+        return PersonProfile(
+            page_id="p1", name="Jane", context_fields=(), track_ids=track_ids
         )
 
-        self.assertEqual(names, ["AI Network"])
+    def test_person_tracks_come_first_and_interaction_only_tracks_second(self):
+        person_tracks, other_tracks = group_relevant_tracks(
+            self.profile(("t1",)),
+            ("t1", "t2"),
+            {"t1": TrackContext("AI Network", "Learn"), "t2": TrackContext("Investors")},
+        )
+
+        self.assertEqual(person_tracks, [TrackContext("AI Network", "Learn")])
+        self.assertEqual(other_tracks, [TrackContext("Investors")])
+
+    def test_track_linked_from_person_and_interaction_is_a_person_track_once(self):
+        profile = self.profile(("t1",))
+        from people_suggest import InteractionSummary
+
+        interactions = [
+            InteractionSummary(
+                date=None, type=None, title=None, notes=None, track_ids=("t1", "t2")
+            )
+        ]
+        track_ids = collect_track_ids(profile, interactions)
+
+        person_tracks, other_tracks = group_relevant_tracks(
+            profile,
+            track_ids,
+            {"t1": TrackContext("AI Network"), "t2": TrackContext("Investors")},
+        )
+
+        self.assertEqual(person_tracks, [TrackContext("AI Network")])
+        self.assertEqual(other_tracks, [TrackContext("Investors")])
+
+    def test_filters_unresolved_and_dedupes_names(self):
+        person_tracks, other_tracks = group_relevant_tracks(
+            self.profile(),
+            ("t1", "t2", "t3"),
+            {"t1": TrackContext("AI Network"), "t2": None, "t3": TrackContext("AI Network")},
+        )
+
+        self.assertEqual(person_tracks, [])
+        self.assertEqual(other_tracks, [TrackContext("AI Network")])
 
     def test_empty_when_nothing_resolved(self):
-        self.assertEqual(relevant_track_names(("t1",), {}), [])
+        self.assertEqual(group_relevant_tracks(self.profile(), ("t1",), {}), ([], []))
 
 
 class BuildSuggestionPromptTests(unittest.TestCase):
@@ -513,6 +622,36 @@ class BuildSuggestionPromptTests(unittest.TestCase):
         self.assertNotIn("RELEVANT TRACKS", prompt)
         self.assertNotIn("Track", prompt)
 
+    def test_grouped_track_context_and_privacy_rule_are_included(self):
+        from people_suggest import PersonProfile
+
+        profile = PersonProfile(page_id="p1", name="Jane Doe", context_fields=())
+
+        prompt = build_suggestion_prompt(
+            profile,
+            [],
+            [TrackContext("AI Network", "Learn about AI")],
+            [TrackContext("Investors", "Raise a seed round")],
+        )
+
+        self.assertIn(
+            "RELEVANT TRACKS:\n"
+            "Person's Tracks (primary focus):\n"
+            "- AI Network\n"
+            "  Purpose: Learn about AI\n"
+            "Other Tracks from recent Interactions (secondary):\n"
+            "- Investors\n"
+            "  Purpose: Raise a seed round\n",
+            prompt,
+        )
+        self.assertIn(
+            "Never name a Track, quote a Purpose, or present a Purpose as the user's\n"
+            "  goal in the draft.",
+            prompt,
+        )
+        self.assertIn("may bring up the underlying topic", prompt)
+        self.assertIn("The Person's Tracks are the main focus", prompt)
+
 
 class BuildRecapPromptTests(unittest.TestCase):
     def test_no_tracks_omits_track_section(self):
@@ -523,17 +662,53 @@ class BuildRecapPromptTests(unittest.TestCase):
         prompt = build_recap_prompt(profile, [], [])
 
         self.assertNotIn("RELEVANT TRACKS", prompt)
+        self.assertNotIn("Rules for Track context", prompt)
 
     def test_track_names_are_included_verbatim(self):
         from people_suggest import PersonProfile
 
         profile = PersonProfile(page_id="p1", name="Jane Doe", context_fields=())
 
-        prompt = build_recap_prompt(profile, [], ["AI Network", "Investors"])
+        prompt = build_recap_prompt(
+            profile, [], [TrackContext("AI Network"), TrackContext("Investors")]
+        )
 
         self.assertIn("RELEVANT TRACKS:", prompt)
         self.assertIn("- AI Network", prompt)
         self.assertIn("- Investors", prompt)
+
+    def test_person_tracks_are_listed_before_interaction_only_tracks(self):
+        from people_suggest import PersonProfile
+
+        profile = PersonProfile(page_id="p1", name="Jane Doe", context_fields=())
+
+        prompt = build_recap_prompt(
+            profile,
+            [],
+            [TrackContext("AI Network", "Learn about AI")],
+            [TrackContext("Investors")],
+            ["Coffee", "Wait"],
+        )
+
+        self.assertLess(
+            prompt.index("Person's Tracks (primary focus):"),
+            prompt.index("Other Tracks from recent Interactions (secondary):"),
+        )
+        self.assertIn("- AI Network\n  Purpose: Learn about AI\n", prompt)
+        # A Track without a Purpose is still listed by name alone.
+        self.assertIn("- Investors\n", prompt)
+        self.assertNotIn("- Investors\n  Purpose:", prompt)
+        self.assertIn("Treat those Purposes as the main focus", prompt)
+
+    def test_group_heading_is_omitted_when_that_group_is_empty(self):
+        from people_suggest import PersonProfile
+
+        profile = PersonProfile(page_id="p1", name="Jane Doe", context_fields=())
+
+        prompt = build_recap_prompt(profile, [], [], [TrackContext("Investors")])
+
+        self.assertNotIn("Person's Tracks (primary focus):", prompt)
+        self.assertIn("Other Tracks from recent Interactions (secondary):\n- Investors", prompt)
 
     def test_no_interactions_says_so_explicitly(self):
         from people_suggest import PersonProfile
@@ -549,7 +724,7 @@ class BuildRecapPromptTests(unittest.TestCase):
 
         profile = PersonProfile(page_id="p1", name="Jane Doe", context_fields=())
 
-        prompt = build_recap_prompt(profile, [], [], [])
+        prompt = build_recap_prompt(profile, [], next_step_kinds=[])
 
         self.assertNotIn("NEXT STEP", prompt)
 
@@ -559,7 +734,10 @@ class BuildRecapPromptTests(unittest.TestCase):
         profile = PersonProfile(page_id="p1", name="Jane Doe", context_fields=())
 
         prompt = build_recap_prompt(
-            profile, [], ["AI Network"], ["Coffee", "Intro", "Wait"]
+            profile,
+            [],
+            [TrackContext("AI Network")],
+            next_step_kinds=["Coffee", "Intro", "Wait"],
         )
 
         self.assertIn("ALLOWED NEXT STEP KINDS:\n- Coffee\n- Intro\n- Wait", prompt)
@@ -573,8 +751,10 @@ class BuildRecapPromptTests(unittest.TestCase):
 
         profile = PersonProfile(page_id="p1", name="Jane Doe", context_fields=())
 
-        with_next_step = build_recap_prompt(profile, [], [], ["Coffee", "Wait"])
-        recap_only = build_recap_prompt(profile, [], [], [])
+        with_next_step = build_recap_prompt(
+            profile, [], next_step_kinds=["Coffee", "Wait"]
+        )
+        recap_only = build_recap_prompt(profile, [], next_step_kinds=[])
 
         self.assertNotIn("with\n  no heading, preamble, or explanation", with_next_step)
         self.assertIn("followed by the next-step part described below", with_next_step)
@@ -1347,18 +1527,41 @@ class HandlePeopleSuggestTests(unittest.TestCase):
         recap_prompt = generate_text.call_args_list[0].args[0]
         self.assertNotIn("RELEVANT TRACKS", recap_prompt)
 
-    def test_track_names_are_not_leaked_into_the_outbound_message_prompt(self):
+    def test_both_prompts_receive_grouped_tracks_with_purposes_as_private_context(self):
         notion_post = Mock(
             side_effect=[
-                notion_response([person_page("p1", "Jane Doe", track_ids=["track-1"])]),
-                notion_response([]),
+                notion_response(
+                    [person_page("p1", "Jane Doe", track_ids=["track-1"])]
+                ),
+                notion_response(
+                    [
+                        interaction_page(
+                            "2026-08-01", title="Coffee", track_ids=["track-2", "track-1"]
+                        )
+                    ]
+                ),
             ]
         )
-        notion_get = Mock(return_value=notion_get_response(track_page("AI Network")))
+        track_pages = {
+            "https://api.notion.com/v1/pages/track-1": track_page(
+                "AI Network", purpose="Learn about AI"
+            ),
+            "https://api.notion.com/v1/pages/track-2": track_page(
+                "Investors", purpose="Raise a seed round"
+            ),
+        }
+        type_response = interaction_type_schema_response()
+        notion_get = Mock(
+            side_effect=lambda url, **kwargs: (
+                type_response
+                if url == INTERACTIONS_TYPE_SCHEMA_URL
+                else notion_get_response(track_pages[url])
+            )
+        )
         post_slack_message = Mock(
             side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
         )
-        generate_text = Mock(side_effect=["- Relevant Track: AI Network", "Draft"])
+        generate_text = Mock(side_effect=["- Recap", "Draft"])
 
         handle_people_suggest(
             "Jane Doe",
@@ -1371,9 +1574,156 @@ class HandlePeopleSuggestTests(unittest.TestCase):
             notion_get=notion_get,
         )
 
+        expected_tracks = (
+            "Person's Tracks (primary focus):\n"
+            "- AI Network\n"
+            "  Purpose: Learn about AI\n"
+            "Other Tracks from recent Interactions (secondary):\n"
+            "- Investors\n"
+            "  Purpose: Raise a seed round\n"
+        )
+        recap_prompt = generate_text.call_args_list[0].args[0]
         message_prompt = generate_text.call_args_list[1].args[0]
-        self.assertNotIn("AI Network", message_prompt)
-        self.assertNotIn("RELEVANT TRACKS", message_prompt)
+        self.assertIn(expected_tracks, recap_prompt)
+        self.assertIn(expected_tracks, message_prompt)
+        # A Track linked from both the Person and an Interaction appears once.
+        self.assertEqual(message_prompt.count("- AI Network"), 1)
+        self.assertIn("Never name a Track, quote a Purpose", message_prompt)
+        # Still one GET per distinct Track id; Purpose needs no extra request.
+        track_calls = [
+            call
+            for call in notion_get.call_args_list
+            if call.args[0] != INTERACTIONS_TYPE_SCHEMA_URL
+        ]
+        self.assertEqual(len(track_calls), 2)
+
+    def test_person_tracks_take_precedence_within_the_track_cap(self):
+        person_track_ids = [f"person-{i}" for i in range(MAX_SUGGESTION_TRACKS - 1)]
+        notion_post = Mock(
+            side_effect=[
+                notion_response(
+                    [person_page("p1", "Jane Doe", track_ids=person_track_ids)]
+                ),
+                notion_response(
+                    [
+                        interaction_page(
+                            "2026-08-01",
+                            title="Coffee",
+                            track_ids=["other-1", "other-2"],
+                        )
+                    ]
+                ),
+            ]
+        )
+        type_response = interaction_type_schema_response()
+        notion_get = Mock(
+            side_effect=lambda url, **kwargs: (
+                type_response
+                if url == INTERACTIONS_TYPE_SCHEMA_URL
+                else notion_get_response(track_page(url.rsplit("/", 1)[1]))
+            )
+        )
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
+        )
+        generate_text = Mock(side_effect=["- Recap", "Draft"])
+
+        handle_people_suggest(
+            "Jane Doe",
+            post_slack_message,
+            notion_post,
+            generate_text,
+            self.environment(),
+            today=FIXED_TODAY,
+            sleep=Mock(),
+            notion_get=notion_get,
+        )
+
+        recap_prompt = generate_text.call_args_list[0].args[0]
+        for track_id in person_track_ids:
+            self.assertIn(f"- {track_id}\n", recap_prompt)
+        self.assertIn("- other-1\n", recap_prompt)
+        self.assertNotIn("other-2", recap_prompt)
+        track_calls = [
+            call
+            for call in notion_get.call_args_list
+            if call.args[0] != INTERACTIONS_TYPE_SCHEMA_URL
+        ]
+        self.assertEqual(len(track_calls), MAX_SUGGESTION_TRACKS)
+
+    def test_person_with_no_tracks_gets_the_unchanged_prompts(self):
+        from people_suggest import (
+            RECAP_WITH_NEXT_STEP_SYSTEM_INSTRUCTION,
+            SUGGESTION_SYSTEM_INSTRUCTION,
+            build_context_block,
+            person_profile_from_notion_page,
+        )
+
+        person = person_page("p1", "Jane Doe")
+        notion_post = Mock(
+            side_effect=[notion_response([person]), notion_response([])]
+        )
+        notion_get = Mock(return_value=interaction_type_schema_response())
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
+        )
+        generate_text = Mock(side_effect=["- Recap", "Draft"])
+
+        handle_people_suggest(
+            "Jane Doe",
+            post_slack_message,
+            notion_post,
+            generate_text,
+            self.environment(),
+            today=FIXED_TODAY,
+            sleep=Mock(),
+            notion_get=notion_get,
+        )
+
+        context_block = build_context_block(person_profile_from_notion_page(person), [])
+        self.assertEqual(
+            generate_text.call_args_list[0].args[0],
+            f"{RECAP_WITH_NEXT_STEP_SYSTEM_INSTRUCTION}\n\n{context_block}"
+            "\nALLOWED NEXT STEP KINDS:\n- Coffee\n- Wait\n",
+        )
+        self.assertEqual(
+            generate_text.call_args_list[1].args[0],
+            f"{SUGGESTION_SYSTEM_INSTRUCTION}\n\n{context_block}",
+        )
+
+    def test_purpose_text_is_never_written_to_logs(self):
+        import contextlib
+        import io
+
+        notion_post = Mock(
+            side_effect=[
+                notion_response([person_page("p1", "Jane Doe", track_ids=["track-1"])]),
+                notion_response([]),
+            ]
+        )
+        notion_get = notion_get_with_type_schema(
+            notion_get_response(track_page("AI Network", purpose="Secret purpose text"))
+        )
+        post_slack_message = Mock(
+            side_effect=lambda message, thread_ts=None, blocks=None: {"ts": "123.456"}
+        )
+        generate_text = Mock(side_effect=["- Recap", "Draft"])
+        stdout, stderr = io.StringIO(), io.StringIO()
+
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr), self.assertNoLogs():
+            handle_people_suggest(
+                "Jane Doe",
+                post_slack_message,
+                notion_post,
+                generate_text,
+                self.environment(),
+                today=FIXED_TODAY,
+                sleep=Mock(),
+                notion_get=notion_get,
+            )
+
+        self.assertNotIn("Secret purpose text", stdout.getvalue())
+        self.assertNotIn("Secret purpose text", stderr.getvalue())
 
     def test_no_notion_get_supplied_skips_track_resolution(self):
         notion_post = Mock(

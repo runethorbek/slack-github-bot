@@ -49,6 +49,12 @@ MAX_SUGGESTION_TRACKS = 5
 # (which also writes it) and imported above, rather than duplicated here.
 PERSON_TRACK_PROPERTY = "Track Goal"
 
+# Notion Tracks property holding the Track's free-text purpose, exactly as
+# named in the live schema. It is sent to Gemini (bounded by
+# MAX_TRACK_PURPOSE_CHARS) and must never be logged.
+TRACK_PURPOSE_PROPERTY = "Purpose"
+MAX_TRACK_PURPOSE_CHARS = 500
+
 # Suggestions beyond this are dropped by Python, whatever Gemini returns.
 MAX_NEXT_STEP_SUGGESTIONS = 2
 
@@ -126,6 +132,31 @@ Rules:
   so rather than inventing history.
 """
 
+# Appended to either recap instruction only when Tracks are supplied, so a
+# Person with no Tracks gets exactly the same prompt as before Purposes
+# were introduced.
+RECAP_TRACK_FOCUS_RULES = """
+Rules for Track context:
+- The Person's Tracks (primary focus) and their Purposes say what this
+  relationship is for. Treat those Purposes as the main focus when
+  choosing what to emphasize and, if requested, the next step.
+- Other Tracks from recent Interactions are secondary context only.
+- Do not invent a Purpose that is not supplied.
+"""
+
+# Appended to the draft instruction only when Tracks are supplied, for the
+# same reason as RECAP_TRACK_FOCUS_RULES.
+SUGGESTION_TRACK_RULES = """
+Rules for Track context:
+- The RELEVANT TRACKS below are the user's private context about why this
+  relationship matters. The Person's Tracks are the main focus; other
+  Tracks are secondary.
+- The draft may bring up the underlying topic of a Track's Purpose (for
+  example, a Purpose of "learn about AI" may lead the draft to mention AI).
+- Never name a Track, quote a Purpose, or present a Purpose as the user's
+  goal in the draft.
+"""
+
 RECAP_SYSTEM_INSTRUCTION = f"""{RECAP_RULES}- Respond with only the bullet list (each line starting with "- "), with
   no heading, preamble, or explanation.
 """
@@ -160,6 +191,12 @@ class PersonProfile:
     name: str
     context_fields: tuple[tuple[str, str], ...]
     track_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class TrackContext:
+    name: str
+    purpose: str | None = None
 
 
 @dataclass(frozen=True)
@@ -264,10 +301,12 @@ def handle_people_suggest(
         return
 
     track_ids = collect_track_ids(profile, interactions)[:MAX_SUGGESTION_TRACKS]
-    resolved_tracks = resolve_track_names(
+    resolved_tracks = resolve_tracks(
         track_ids, notion_get, environment["NOTION_API_KEY"], sleep
     )
-    track_names = relevant_track_names(track_ids, resolved_tracks)
+    person_tracks, other_tracks = group_relevant_tracks(
+        profile, track_ids, resolved_tracks
+    )
 
     selectable_tracks = fetch_selectable_tracks(
         notion_post, environment, sleep
@@ -282,9 +321,13 @@ def handle_people_suggest(
 
     try:
         recap_response = generate_text(
-            build_recap_prompt(profile, interactions, track_names, next_step_kinds)
+            build_recap_prompt(
+                profile, interactions, person_tracks, other_tracks, next_step_kinds
+            )
         ).strip()
-        answer = generate_text(build_suggestion_prompt(profile, interactions)).strip()
+        answer = generate_text(
+            build_suggestion_prompt(profile, interactions, person_tracks, other_tracks)
+        ).strip()
     except Exception as error:
         if not is_transient_gemini_status(external_error_status_code(error)):
             raise
@@ -626,13 +669,14 @@ def collect_track_ids(profile, interactions):
     return tuple(seen)
 
 
-def resolve_track_names(track_ids, notion_get, api_key, sleep):
-    """Resolve each distinct Track id to a name, at most once per id.
+def resolve_tracks(track_ids, notion_get, api_key, sleep):
+    """Resolve each distinct Track id to a TrackContext, at most once per id.
 
     Mirrors tasks_list.resolve_tracks: bounded to one GET per distinct
-    Track id, never per Interaction. A Track that fails to resolve, or is
-    malformed, is silently omitted rather than surfaced as an error, since
-    Track context here is only ever a best-effort aid for the recap.
+    Track id, never per Interaction. The Purpose is read from the same
+    fetched page, so it costs no extra request. A Track that fails to
+    resolve, or is malformed, is silently omitted rather than surfaced as
+    an error, since Track context here is only ever a best-effort aid.
     Notion credential failures still propagate, matching the Tasks Track
     resolution path.
     """
@@ -657,19 +701,82 @@ def resolve_track_names(track_ids, notion_get, api_key, sleep):
                 track_page = response.json()
             except (TypeError, ValueError) as error:
                 raise MalformedTrackPageError() from error
-            resolved[track_id] = track_from_notion_page(track_page).name
+            resolved[track_id] = TrackContext(
+                name=track_from_notion_page(track_page).name,
+                purpose=extract_track_purpose(track_page),
+            )
         except (TaskListCommandError, MalformedTrackPageError):
             resolved[track_id] = None
     return resolved
 
 
-def relevant_track_names(track_ids, resolved_tracks):
-    names = []
+def extract_track_purpose(track_page):
+    """Read a Track page's Purpose as bounded single-line text, if present.
+
+    A missing, empty, or non-rich-text Purpose yields None, so the Track is
+    still used by name alone.
+    """
+    try:
+        property_value = track_page["properties"].get(TRACK_PURPOSE_PROPERTY)
+    except (AttributeError, KeyError, TypeError):
+        return None
+    if not isinstance(property_value, dict) or property_value.get("type") != "rich_text":
+        return None
+    parts = property_value.get("rich_text")
+    if not isinstance(parts, list):
+        return None
+    text = " ".join(
+        "".join(
+            part.get("plain_text", "") for part in parts if isinstance(part, dict)
+        ).split()
+    )
+    if not text:
+        return None
+    if len(text) <= MAX_TRACK_PURPOSE_CHARS:
+        return text
+    suffix = "…"
+    return text[: MAX_TRACK_PURPOSE_CHARS - len(suffix)] + suffix
+
+
+def group_relevant_tracks(profile, track_ids, resolved_tracks):
+    """Split resolved Tracks into (Person's Tracks, Interaction-only Tracks).
+
+    Order follows track_ids (Person first, see collect_track_ids). A Track
+    linked from both the Person and an Interaction is a Person Track.
+    Unresolved Tracks are dropped, and a name already listed is not
+    repeated, so the Person group wins for duplicate names too.
+    """
+    person_tracks = []
+    other_tracks = []
+    seen_names = set()
     for track_id in track_ids:
-        name = resolved_tracks.get(track_id)
-        if name and name not in names:
-            names.append(name)
-    return names
+        track = resolved_tracks.get(track_id)
+        if track is None or track.name in seen_names:
+            continue
+        seen_names.add(track.name)
+        if track_id in profile.track_ids:
+            person_tracks.append(track)
+        else:
+            other_tracks.append(track)
+    return person_tracks, other_tracks
+
+
+def build_tracks_block(person_tracks, other_tracks):
+    if not person_tracks and not other_tracks:
+        return ""
+    lines = ["RELEVANT TRACKS:"]
+    for heading, tracks in (
+        ("Person's Tracks (primary focus):", person_tracks),
+        ("Other Tracks from recent Interactions (secondary):", other_tracks),
+    ):
+        if not tracks:
+            continue
+        lines.append(heading)
+        for track in tracks:
+            lines.append(f"- {track.name}")
+            if track.purpose:
+                lines.append(f"  Purpose: {track.purpose}")
+    return "\n".join(lines) + "\n"
 
 
 def build_context_block(profile, interactions):
@@ -694,20 +801,30 @@ def build_context_block(profile, interactions):
     )
 
 
-def build_suggestion_prompt(profile, interactions):
-    return f"{SUGGESTION_SYSTEM_INSTRUCTION}\n\n{build_context_block(profile, interactions)}"
-
-
-def build_recap_prompt(profile, interactions, track_names, next_step_kinds=()):
+def build_suggestion_prompt(profile, interactions, person_tracks=(), other_tracks=()):
     context_block = build_context_block(profile, interactions)
-    if track_names:
-        tracks_block = "\n".join(f"- {name}" for name in track_names)
-        context_block = f"{context_block}\nRELEVANT TRACKS:\n{tracks_block}\n"
+    tracks_block = build_tracks_block(person_tracks, other_tracks)
+    if not tracks_block:
+        return f"{SUGGESTION_SYSTEM_INSTRUCTION}\n\n{context_block}"
+    return (
+        f"{SUGGESTION_SYSTEM_INSTRUCTION}{SUGGESTION_TRACK_RULES}\n\n"
+        f"{context_block}\n{tracks_block}"
+    )
+
+
+def build_recap_prompt(
+    profile, interactions, person_tracks=(), other_tracks=(), next_step_kinds=()
+):
+    context_block = build_context_block(profile, interactions)
+    tracks_block = build_tracks_block(person_tracks, other_tracks)
+    if tracks_block:
+        context_block = f"{context_block}\n{tracks_block}"
+    track_rules = RECAP_TRACK_FOCUS_RULES if tracks_block else ""
     if not next_step_kinds:
-        return f"{RECAP_SYSTEM_INSTRUCTION}\n\n{context_block}"
+        return f"{RECAP_SYSTEM_INSTRUCTION}{track_rules}\n\n{context_block}"
     kinds_block = "\n".join(f"- {kind}" for kind in next_step_kinds)
     context_block = f"{context_block}\nALLOWED NEXT STEP KINDS:\n{kinds_block}\n"
-    return f"{RECAP_WITH_NEXT_STEP_SYSTEM_INSTRUCTION}\n\n{context_block}"
+    return f"{RECAP_WITH_NEXT_STEP_SYSTEM_INSTRUCTION}{track_rules}\n\n{context_block}"
 
 
 def formatted_interaction_fields(interaction):
