@@ -78,6 +78,7 @@ The Python process is stateless. Instead of storing conversation state itself, i
 ├── requirements.txt
 ├── docs/
 │   ├── notion-tasks-schema.md
+│   ├── people-suggest-gemini-context.md
 │   ├── notion-tracks-schema.md
 │   ├── ubiquitous-language.md
 │   └── specs/
@@ -169,7 +170,7 @@ Implements `/people due` and routes `/people suggest <person>`, fully determinis
 3. Sorts due People by next-contact-due date then name, caps the displayed list at 20, and posts a threaded reply as both formatted text and Block Kit sections.
 4. Each due Person's block includes a "Suggest message" button (see `api/slack-request.js`) that invokes `/people suggest <name>` on click.
 
-`/people suggest <person>` resolves the named Person by an exact, case-insensitive Name match (refusing to guess when zero or multiple People match), reads their context fields and up to 5 recent Interactions, and asks Gemini (via an injected `generate_text` callable) to draft a short reconnect message using only that supplied context. Gemini never accesses Notion directly and never decides who to contact.
+`/people suggest <person>` resolves the named Person by an exact, case-insensitive Name match (refusing to guess when zero or multiple People match), reads their context fields and up to 5 recent Interactions, and asks Gemini (via an injected `generate_text` callable) to draft a short reconnect message using only that supplied context. Gemini never accesses Notion directly and never decides who to contact. The exact context sent to Gemini, and its bounds, is documented in [docs/people-suggest-gemini-context.md](docs/people-suggest-gemini-context.md).
 
 The private recap call also returns a "Suggested next step" section with one or two advisory suggestions (issue #23). Each suggestion's kind must be an exact live Interaction Type option or `Wait`; Python drops anything else and keeps at most two. If the Type options could not be loaded, no next step is requested; if the next-step part is missing or has no valid suggestions, the section is simply omitted. Suggestions never trigger a write.
 
