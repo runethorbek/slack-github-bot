@@ -39,6 +39,34 @@ const SAVING_VIEW = {
   ],
 };
 
+// Fixed, generic ephemeral acknowledgement posted to a Suggest click's
+// response_url. It contains no request data; the suggestion itself is posted
+// later from Python.
+const SUGGEST_ACKNOWLEDGEMENT = {
+  response_type: "ephemeral",
+  replace_original: false,
+  text: "Working on a suggestion… It will be posted as a new message.",
+};
+
+const SLACK_RESPONSE_URL_PREFIX = "https://hooks.slack.com/";
+
+// Never throws. The response_url embeds a token, so neither it nor the
+// underlying error (whose message could repeat it) is logged.
+async function sendSuggestAcknowledgement(postToResponseUrl, responseUrl) {
+  try {
+    const response = await postToResponseUrl(responseUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(SUGGEST_ACKNOWLEDGEMENT),
+    });
+    if (!response?.ok) {
+      console.error("Slack Suggest acknowledgement failed:", response?.status);
+    }
+  } catch {
+    console.error("Slack Suggest acknowledgement failed");
+  }
+}
+
 function copenhagenToday(now) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Copenhagen",
@@ -422,7 +450,14 @@ export function hasValidSlackSignature(
 
 export async function handleSlackRequest(
   request,
-  { signingSecret, triggerGitHub, defer, openModal, now = Date.now }
+  {
+    signingSecret,
+    triggerGitHub,
+    defer,
+    openModal,
+    postToResponseUrl,
+    now = Date.now,
+  }
 ) {
   try {
     const rawBody = Buffer.from(await request.arrayBuffer());
@@ -539,6 +574,18 @@ export async function handleSlackRequest(
               slack_event_type: "block_actions",
             })
           );
+
+          // A retried delivery of the same click must not post a second
+          // acknowledgement. Only Slack's own response_url host is posted to.
+          const responseUrl = body.response_url;
+          if (
+            postToResponseUrl &&
+            !request.headers.get("x-slack-retry-num") &&
+            typeof responseUrl === "string" &&
+            responseUrl.startsWith(SLACK_RESPONSE_URL_PREFIX)
+          ) {
+            defer(sendSuggestAcknowledgement(postToResponseUrl, responseUrl));
+          }
         } else if (
           action?.action_id === ADD_INTERACTION_ACTION_ID &&
           body.trigger_id &&

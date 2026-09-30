@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import test from "node:test";
+import { inspect } from "node:util";
 
 import { handleSlackRequest } from "../api/slack-request.js";
 
@@ -40,16 +41,22 @@ function slackRequest(
   });
 }
 
-function testDependencies() {
+function testDependencies({ responseUrlReply = () => new Response("ok") } = {}) {
   const dispatched = [];
   const deferred = [];
   const openedModals = [];
+  const responseUrlPosts = [];
 
   return {
     dispatched,
     deferred,
     openedModals,
+    responseUrlPosts,
     options: {
+      postToResponseUrl: async (url, init) => {
+        responseUrlPosts.push({ url, init });
+        return responseUrlReply();
+      },
       signingSecret: SIGNING_SECRET,
       now: () => NOW_SECONDS * 1000,
       triggerGitHub: async (payload) => {
@@ -217,6 +224,260 @@ test("block_actions clicks with an unrecognized action or empty value are acknow
       assert.equal(response.status, 200);
       assert.deepEqual(dependencies.dispatched, []);
       assert.deepEqual(dependencies.deferred, []);
+    });
+  }
+});
+
+const SLACK_RESPONSE_URL =
+  "https://hooks.slack.com/actions/T000/1234/secretResponseToken";
+const SUGGEST_ACKNOWLEDGEMENT_BODY =
+  '{"response_type":"ephemeral","replace_original":false,"text":"Working on a suggestion… It will be posted as a new message."}';
+
+function suggestClickBody({
+  value = "Jane Doe",
+  responseUrl = SLACK_RESPONSE_URL,
+  channelId = "C123",
+  userId = "U123",
+  message,
+} = {}) {
+  const payload = {
+    type: "block_actions",
+    actions: [{ action_id: "people_suggest", value }],
+    channel: { id: channelId },
+    user: { id: userId },
+  };
+  if (responseUrl !== null) {
+    payload.response_url = responseUrl;
+  }
+  if (message !== undefined) {
+    payload.message = message;
+  }
+  return new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
+}
+
+function retriedRequest(body) {
+  const request = slackRequest(body);
+  request.headers.set("x-slack-retry-num", "1");
+  return request;
+}
+
+async function captureConsoleError(callback) {
+  const logged = [];
+  const originalConsoleError = console.error;
+  console.error = (...args) => {
+    logged.push(args.map((arg) => inspect(arg, { depth: 5 })).join(" "));
+  };
+  try {
+    await callback();
+  } finally {
+    console.error = originalConsoleError;
+  }
+  return logged;
+}
+
+test("a Suggest click posts one fixed ephemeral acknowledgement to its response_url", async () => {
+  const dependencies = testDependencies();
+
+  const response = await handleSlackRequest(
+    slackRequest(suggestClickBody()),
+    dependencies.options
+  );
+  await Promise.all(dependencies.deferred);
+
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), "");
+  assert.deepEqual(dependencies.responseUrlPosts, [
+    {
+      url: SLACK_RESPONSE_URL,
+      init: {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: SUGGEST_ACKNOWLEDGEMENT_BODY,
+      },
+    },
+  ]);
+  assert.deepEqual(dependencies.dispatched, [
+    {
+      command: "/people",
+      text: "suggest Jane Doe",
+      response_url: SLACK_RESPONSE_URL,
+      channel_id: "C123",
+      user_id: "U123",
+      channel_type: "channel",
+      thread_ts: "",
+      slack_event_type: "block_actions",
+    },
+  ]);
+});
+
+test("the Suggest acknowledgement is identical regardless of Person, user, channel or message", async () => {
+  const variants = [
+    suggestClickBody(),
+    suggestClickBody({
+      value: "John <Smith> & Co",
+      channelId: "D999",
+      userId: "U999",
+      message: { ts: "1700000000.000100", text: "People due" },
+    }),
+  ];
+
+  for (const body of variants) {
+    const dependencies = testDependencies();
+    await handleSlackRequest(slackRequest(body), dependencies.options);
+    await Promise.all(dependencies.deferred);
+
+    assert.equal(dependencies.responseUrlPosts.length, 1);
+    assert.equal(
+      dependencies.responseUrlPosts[0].init.body,
+      SUGGEST_ACKNOWLEDGEMENT_BODY
+    );
+  }
+});
+
+test("no Suggest acknowledgement is sent for retries, missing or non-Slack response URLs, or clicks that are not dispatched", async (t) => {
+  const cases = [
+    ["a retried click", retriedRequest(suggestClickBody()), 1],
+    ["a missing response_url", slackRequest(suggestClickBody({ responseUrl: null })), 1],
+    ["an empty response_url", slackRequest(suggestClickBody({ responseUrl: "" })), 1],
+    [
+      "a plain http response_url",
+      slackRequest(suggestClickBody({ responseUrl: "http://hooks.slack.com/actions/T/1/x" })),
+      1,
+    ],
+    [
+      "a look-alike host",
+      slackRequest(
+        suggestClickBody({ responseUrl: "https://hooks.slack.com.example.test/actions/T/1/x" })
+      ),
+      1,
+    ],
+    [
+      "a different host",
+      slackRequest(suggestClickBody({ responseUrl: "https://example.test/hooks.slack.com/" })),
+      1,
+    ],
+    ["an empty Person value", slackRequest(suggestClickBody({ value: "" })), 0],
+    [
+      "an unrecognized action",
+      slackRequest(
+        new URLSearchParams({
+          payload: JSON.stringify({
+            type: "block_actions",
+            actions: [{ action_id: "some_other_button", value: "Jane Doe" }],
+            response_url: SLACK_RESPONSE_URL,
+            channel: { id: "C123" },
+            user: { id: "U123" },
+          }),
+        }).toString()
+      ),
+      0,
+    ],
+  ];
+
+  for (const [name, request, expectedDispatches] of cases) {
+    await t.test(name, async () => {
+      const dependencies = testDependencies();
+
+      const response = await handleSlackRequest(request, dependencies.options);
+      await Promise.all(dependencies.deferred);
+
+      assert.equal(response.status, 200);
+      assert.equal(await response.text(), "");
+      assert.deepEqual(dependencies.responseUrlPosts, []);
+      assert.equal(dependencies.dispatched.length, expectedDispatches);
+    });
+  }
+});
+
+test("a failed Suggest acknowledgement does not affect the dispatch or response and logs no URL or token", async (t) => {
+  const cases = [
+    ["a non-2xx reply", () => new Response("invalid_token", { status: 404 })],
+    [
+      "a rejected call",
+      () => {
+        throw new TypeError(`fetch failed for ${SLACK_RESPONSE_URL}`, {
+          cause: new Error(`connect ECONNREFUSED ${SLACK_RESPONSE_URL}`),
+        });
+      },
+    ],
+  ];
+
+  for (const [name, responseUrlReply] of cases) {
+    await t.test(name, async () => {
+      const dependencies = testDependencies({ responseUrlReply });
+      let response;
+
+      const logged = await captureConsoleError(async () => {
+        response = await handleSlackRequest(
+          slackRequest(suggestClickBody()),
+          dependencies.options
+        );
+        await Promise.all(dependencies.deferred);
+      });
+
+      assert.equal(response.status, 200);
+      assert.equal(await response.text(), "");
+      assert.equal(dependencies.responseUrlPosts.length, 1);
+      assert.equal(dependencies.dispatched.length, 1);
+      assert.equal(dependencies.dispatched[0].text, "suggest Jane Doe");
+      assert.equal(logged.length, 1);
+      for (const line of logged) {
+        assert.ok(!line.includes("hooks.slack.com"), line);
+        assert.ok(!line.includes("secretResponseToken"), line);
+      }
+    });
+  }
+});
+
+test("request shapes other than a Suggest click never post to a response_url", async (t) => {
+  const cases = [
+    [
+      "a slash command",
+      new URLSearchParams({
+        command: "/people",
+        text: "due",
+        response_url: SLACK_RESPONSE_URL,
+        channel_id: "C123",
+        user_id: "U123",
+      }).toString(),
+    ],
+    [
+      "an Add Interaction click",
+      new URLSearchParams({
+        payload: JSON.stringify({
+          type: "block_actions",
+          trigger_id: "trigger-1",
+          actions: [
+            {
+              action_id: "people_add_interaction",
+              value: JSON.stringify({ page_id: "p1", name: "Jane Doe", types: ["Call"] }),
+            },
+          ],
+          response_url: SLACK_RESPONSE_URL,
+          channel: { id: "C123" },
+          user: { id: "U123" },
+        }),
+      }).toString(),
+    ],
+    [
+      "a different interaction type",
+      new URLSearchParams({
+        payload: JSON.stringify({
+          type: "view_submission",
+          response_url: SLACK_RESPONSE_URL,
+          view: { callback_id: "unknown" },
+        }),
+      }).toString(),
+    ],
+  ];
+
+  for (const [name, body] of cases) {
+    await t.test(name, async () => {
+      const dependencies = testDependencies();
+      await handleSlackRequest(slackRequest(body), dependencies.options);
+      await Promise.all(dependencies.deferred);
+
+      assert.deepEqual(dependencies.responseUrlPosts, []);
     });
   }
 });

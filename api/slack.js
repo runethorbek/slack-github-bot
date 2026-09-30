@@ -58,6 +58,7 @@ export default {
       signingSecret: process.env.SLACK_SIGNING_SECRET,
       triggerGitHub,
       openModal,
+      postToResponseUrl: fetch,
       defer: waitUntil,
     });
   },
