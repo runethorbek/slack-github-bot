@@ -21,6 +21,24 @@ const ADD_SUGGESTED_FOLLOWUP_TASK_ACTION_ID = "add_suggested_followup_task";
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
+// Fixed, generic view that replaces the Add Interaction and Add follow-up
+// task modals once a submission is dispatched. It contains no request data;
+// the actual result is posted in the thread later from Python.
+const SAVING_VIEW = {
+  type: "modal",
+  title: { type: "plain_text", text: "Saving…" },
+  close: { type: "plain_text", text: "Close" },
+  blocks: [
+    {
+      type: "section",
+      text: {
+        type: "plain_text",
+        text: "Saving… You can close this window. The result will be posted in the thread.",
+      },
+    },
+  ],
+};
+
 function copenhagenToday(now) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Copenhagen",
@@ -633,6 +651,8 @@ export async function handleSlackRequest(
               }),
             })
           );
+
+          return Response.json({ response_action: "update", view: SAVING_VIEW });
         }
 
         return Response.json({});
@@ -692,6 +712,8 @@ export async function handleSlackRequest(
               date: interactionDate,
             })
           );
+
+          return Response.json({ response_action: "update", view: SAVING_VIEW });
         }
 
         return Response.json({});

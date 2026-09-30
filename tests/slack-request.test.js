@@ -895,6 +895,23 @@ function addInteractionSubmissionBody() {
   }).toString();
 }
 
+// The fixed view both modals change to on a dispatched submission.
+const SAVING_RESPONSE_BODY =
+  '{"response_action":"update","view":{"type":"modal",' +
+  '"title":{"type":"plain_text","text":"Saving…"},' +
+  '"close":{"type":"plain_text","text":"Close"},' +
+  '"blocks":[{"type":"section","text":{"type":"plain_text",' +
+  '"text":"Saving… You can close this window. The result will be posted in the thread."}}]}}';
+
+async function assertSavingResponse(response) {
+  assert.equal(response.status, 200);
+  assert.match(
+    response.headers.get("content-type") ?? "",
+    /^application\/json\b/
+  );
+  assert.equal(await response.text(), SAVING_RESPONSE_BODY);
+}
+
 test("submitting the Add Interaction modal dispatches the structured write to GitHub, not the modal-open path", async () => {
   const body = addInteractionSubmissionBody();
   const dependencies = testDependencies();
@@ -905,8 +922,7 @@ test("submitting the Add Interaction modal dispatches the structured write to Gi
   );
   await Promise.all(dependencies.deferred);
 
-  assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), {});
+  await assertSavingResponse(response);
   assert.deepEqual(dependencies.dispatched, [
     {
       channel_id: "C123",
@@ -1024,7 +1040,99 @@ test("a retried Add Interaction submission is acknowledged without a second disp
   await Promise.all(dependencies.deferred);
 
   assert.equal(response.status, 200);
+  assert.equal(await response.text(), "");
   assert.deepEqual(dependencies.dispatched, []);
+});
+
+test("submissions with missing or invalid metadata return {} without dispatch", async (t) => {
+  const invalidMetadata = [
+    ["missing", undefined],
+    ["malformed JSON", "{not json"],
+    [
+      "without a Person page id",
+      JSON.stringify({
+        person_name: "Jane Doe",
+        channel_id: "C123",
+        user_id: "U123",
+      }),
+    ],
+  ];
+
+  for (const callbackId of ["add_interaction_modal", "add_followup_task_modal"]) {
+    for (const [name, privateMetadata] of invalidMetadata) {
+      await t.test(`${callbackId}: ${name}`, async () => {
+        const body = new URLSearchParams({
+          payload: JSON.stringify({
+            type: "view_submission",
+            view: {
+              callback_id: callbackId,
+              private_metadata: privateMetadata,
+              state: { values: {} },
+            },
+          }),
+        }).toString();
+        const dependencies = testDependencies();
+
+        const response = await handleSlackRequest(
+          slackRequest(body),
+          dependencies.options
+        );
+        await Promise.all(dependencies.deferred);
+
+        assert.equal(response.status, 200);
+        assert.equal(await response.text(), "{}");
+        assert.deepEqual(dependencies.dispatched, []);
+      });
+    }
+  }
+});
+
+test("the Saving view is identical regardless of Person, form values, user, channel or thread", async (t) => {
+  const submissions = [
+    ["add_interaction_modal", "Jane Doe", "C123", "U123", "100.001", {
+      notes_block: { notes_input: { value: "Caught up over coffee." } },
+    }],
+    ["add_interaction_modal", "John Roe", "D456", "U456", undefined, {
+      notes_block: { notes_input: { value: "Something else entirely." } },
+    }],
+    ["add_followup_task_modal", "Jane Doe", "C123", "U123", "100.001", {
+      name_block: { name_input: { value: "Send the article" } },
+    }],
+    ["add_followup_task_modal", "John Roe", "D456", "U456", "200.002", {
+      name_block: { name_input: { value: "Book a lunch" } },
+    }],
+  ];
+
+  for (const [callbackId, personName, channelId, userId, threadTs, values] of submissions) {
+    await t.test(`${callbackId} for ${personName} in ${channelId}`, async () => {
+      const body = new URLSearchParams({
+        payload: JSON.stringify({
+          type: "view_submission",
+          view: {
+            callback_id: callbackId,
+            private_metadata: JSON.stringify({
+              person_page_id: `${personName}-page-id`,
+              person_name: personName,
+              channel_id: channelId,
+              user_id: userId,
+              thread_ts: threadTs,
+            }),
+            state: { values },
+          },
+        }),
+      }).toString();
+      const dependencies = testDependencies();
+
+      const response = await handleSlackRequest(
+        slackRequest(body),
+        dependencies.options
+      );
+      await Promise.all(dependencies.deferred);
+
+      await assertSavingResponse(response);
+      assert.equal(dependencies.dispatched.length, 1);
+    });
+  }
 });
 
 test("a view_submission for a different modal is ignored without dispatch", async () => {
@@ -1047,6 +1155,7 @@ test("a view_submission for a different modal is ignored without dispatch", asyn
   await Promise.all(dependencies.deferred);
 
   assert.equal(response.status, 200);
+  assert.equal(await response.text(), "");
   assert.deepEqual(dependencies.dispatched, []);
 });
 
@@ -1283,7 +1392,7 @@ test("submitting the Task modal dispatches the bundled Task fields to GitHub", a
   );
   await Promise.all(dependencies.deferred);
 
-  assert.deepEqual(await response.json(), {});
+  await assertSavingResponse(response);
   assert.deepEqual(dependencies.openedModals, []);
   assert.deepEqual(dependencies.dispatched, [
     {
@@ -1338,5 +1447,6 @@ test("a retried Task submission is acknowledged without a second dispatch", asyn
   await Promise.all(dependencies.deferred);
 
   assert.equal(response.status, 200);
+  assert.equal(await response.text(), "");
   assert.deepEqual(dependencies.dispatched, []);
 });
