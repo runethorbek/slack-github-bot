@@ -38,6 +38,7 @@ Slack
 → Slack
 
 The Vercel endpoint should remain a thin transport layer.
+Vercel may return a fixed, generic acknowledgement in its HTTP response to Slack: no user data, no Gemini output, no authorization decisions.
 
 Application logic belongs in Python unless existing repository conventions clearly indicate otherwise.
 

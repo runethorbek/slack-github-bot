@@ -727,9 +727,13 @@ export async function handleSlackRequest(
       })
     );
 
-    // Acknowledge within Slack's three-second deadline. Command-specific
+    // Acknowledge within Slack's three-second deadline with a fixed, generic
+    // ephemeral message that contains no request data. Command-specific
     // responses are sent later from Python through the signed response_url.
-    return new Response("", { status: 200 });
+    return Response.json({
+      response_type: "ephemeral",
+      text: "Working on it…",
+    });
   } catch (error) {
     console.error("Slack webhook failed:", error);
 

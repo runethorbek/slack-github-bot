@@ -101,7 +101,7 @@ Before parsing or dispatching a request, it verifies Slack's `X-Slack-Signature`
 
 It handles three request shapes:
 
-1. **Slash commands** (`/testbot`, `/tasks`, `/people`) — preserves the command, text, and response URL in the dispatch payload, and returns an immediate empty acknowledgement. Python uses the response URL for ephemeral validation/refusal responses.
+1. **Slash commands** (`/testbot`, `/tasks`, `/people`) — preserves the command, text, and response URL in the dispatch payload, and immediately returns a fixed ephemeral acknowledgement (`Working on it…`) that is identical for every command and contains no request data. The final reply follows from Python as before. Python uses the response URL for ephemeral validation/refusal responses.
 2. **Events API callbacks** (message events and URL verification) — forwards thread replies and authorized root DMs; ignores the bot's own messages and ordinary top-level channel messages.
 3. **Block Kit interactivity** (button clicks) — a "Suggest message" button attached to a `/people due` result is dispatched as if the user had typed `/people suggest <name>`, reusing the exact same Person-resolution and Gemini-drafting path as the typed command.
 

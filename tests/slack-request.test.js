@@ -241,21 +241,21 @@ test("a malformed interaction payload fails without dispatch", async () => {
   }
 });
 
-test("authenticated slash commands receive an empty acknowledgement", async (t) => {
+test("authenticated slash commands receive a fixed ephemeral acknowledgement", async (t) => {
   const commands = [
-    ["/tasks", "list"],
-    ["/people", "due"],
-    ["/testbot", "hello"],
+    ["/tasks", "list", "C123", "U123"],
+    ["/people", "due", "D456", "U456"],
+    ["/testbot", "hello <@U999> secret", "C789", "U789"],
   ];
 
-  for (const [command, text] of commands) {
+  for (const [command, text, channelId, userId] of commands) {
     await t.test(command, async () => {
       const body = new URLSearchParams({
         command,
         text,
         response_url: "https://hooks.slack.test/response",
-        channel_id: "C123",
-        user_id: "U123",
+        channel_id: channelId,
+        user_id: userId,
       }).toString();
       const dependencies = testDependencies();
 
@@ -266,7 +266,14 @@ test("authenticated slash commands receive an empty acknowledgement", async (t) 
       await Promise.all(dependencies.deferred);
 
       assert.equal(response.status, 200);
-      assert.equal(await response.text(), "");
+      assert.match(
+        response.headers.get("content-type") ?? "",
+        /^application\/json\b/
+      );
+      assert.equal(
+        await response.text(),
+        '{"response_type":"ephemeral","text":"Working on it…"}'
+      );
     });
   }
 });
