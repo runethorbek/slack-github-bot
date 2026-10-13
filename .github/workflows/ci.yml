@@ -50,3 +50,7 @@ jobs:
       - name: Check the end-to-end scenario goldens are current
         if: hashFiles('requirements.txt') != ''
         run: python tests/equivalence/record_python.py --check
+
+      - name: Check the /people suggest prompt fixture is current
+        if: hashFiles('requirements.txt') != ''
+        run: python tests/equivalence/generate_people_suggest_prompts.py --check

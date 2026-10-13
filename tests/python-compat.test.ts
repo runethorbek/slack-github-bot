@@ -24,6 +24,7 @@ import {
   pyLen,
   pySlice,
   pySplitWhitespace,
+  pySplitlines,
   pyStartsWithSpace,
   pyStrip,
   pyTruncate,
@@ -125,6 +126,23 @@ test("pyStrip matches str.strip()", () => {
 
 test("pySplitWhitespace matches str.split()", () => {
   assert.deepEqual(expectRows(golden.split, pySplitWhitespace), []);
+});
+
+test("pySplitlines matches str.splitlines()", () => {
+  assert.ok(golden.splitlines.length > 50);
+  assert.deepEqual(expectRows(golden.splitlines, pySplitlines), []);
+  // Every Python line boundary, \r\n as one, and no empty final line.
+  const boundaries = [0x0a, 0x0b, 0x0c, 0x0d, 0x1c, 0x1d, 0x1e, 0x85, 0x2028, 0x2029];
+  for (const cp of boundaries) {
+    assert.deepEqual(pySplitlines(`a${String.fromCodePoint(cp)}b`), ["a", "b"], cp.toString(16));
+  }
+  assert.deepEqual(pySplitlines("a\x1fb\uFEFFc"), ["a\x1fb\uFEFFc"]);
+  assert.deepEqual(pySplitlines("a\r\n\r\nb\n"), ["a", "", "b"]);
+  assert.deepEqual(pySplitlines(""), []);
+});
+
+test("Python's re \\s is exactly str.isspace() (the people-suggest marker pattern relies on it)", () => {
+  assert.deepEqual(golden.regex_space, golden.isspace_all);
 });
 
 test("pyLen counts code points like len()", () => {

@@ -1,0 +1,607 @@
+{
+ "meta": {
+  "python": "3.12"
+ },
+ "constants": {
+  "SUGGESTION_SYSTEM_INSTRUCTION": "\nYou are drafting a short reconnect message on behalf of the user. The user\nwill review the draft before deciding whether to send anything themselves.\n\nRules:\n- Use only the context supplied below.\n- Do not invent facts, relationship history, interests, commitments, or\n  meetings that are not present in the supplied context.\n- Do not decide who to contact; a person to contact has already been chosen.\n- Draft a short, natural reconnect message.\n- Keep it concise.\n- Avoid sounding sales-oriented.\n- Do not mention Notion, CRM fields, cadence, or internal metadata.\n- If there is not enough context for a specific message, produce a generic\n  but honest draft rather than inventing details.\n- Respond with only the drafted message text, with no preamble or\n  explanation.\n",
+  "RECAP_RULES": "\nYou are preparing a short private recap for the user about a Person, so\nthey can quickly recall relevant context before reaching out. This recap\nis for the user only; it is never sent to the Person.\n\nRules:\n- Use only the context supplied below.\n- Do not invent facts, relationship history, interests, commitments,\n  meetings, or Track membership that are not present in the supplied\n  context.\n- Summarize the most relevant recent Interactions in roughly 2 to 4 short\n  bullet points. Do not mechanically restate every Interaction line by\n  line; synthesize what matters.\n- If Relevant Tracks are supplied below, add one final bullet naming them\n  exactly as given, for example \"Relevant Track: <name>\". Never rename,\n  invent, or omit a supplied Track name.\n- If no Relevant Tracks are supplied, do not mention Track at all.\n- If there are no previous Interactions, write one honest bullet saying\n  so rather than inventing history.\n",
+  "RECAP_TRACK_FOCUS_RULES": "\nRules for Track context:\n- The Person's Tracks (primary focus) and their Purposes say what this\n  relationship is for. Treat those Purposes as the main focus when\n  choosing what to emphasize and, if requested, the next step.\n- Other Tracks from recent Interactions are secondary context only.\n- Do not invent a Purpose that is not supplied.\n",
+  "SUGGESTION_TRACK_RULES": "\nRules for Track context:\n- The RELEVANT TRACKS below are the user's private context about why this\n  relationship matters. The Person's Tracks are the main focus; other\n  Tracks are secondary.\n- The draft may bring up the underlying topic of a Track's Purpose (for\n  example, a Purpose of \"learn about AI\" may lead the draft to mention AI).\n- Never name a Track, quote a Purpose, or present a Purpose as the user's\n  goal in the draft.\n",
+  "RECAP_SYSTEM_INSTRUCTION": "\nYou are preparing a short private recap for the user about a Person, so\nthey can quickly recall relevant context before reaching out. This recap\nis for the user only; it is never sent to the Person.\n\nRules:\n- Use only the context supplied below.\n- Do not invent facts, relationship history, interests, commitments,\n  meetings, or Track membership that are not present in the supplied\n  context.\n- Summarize the most relevant recent Interactions in roughly 2 to 4 short\n  bullet points. Do not mechanically restate every Interaction line by\n  line; synthesize what matters.\n- If Relevant Tracks are supplied below, add one final bullet naming them\n  exactly as given, for example \"Relevant Track: <name>\". Never rename,\n  invent, or omit a supplied Track name.\n- If no Relevant Tracks are supplied, do not mention Track at all.\n- If there are no previous Interactions, write one honest bullet saying\n  so rather than inventing history.\n- Respond with only the bullet list (each line starting with \"- \"), with\n  no heading, preamble, or explanation.\n",
+  "RECAP_WITH_NEXT_STEP_SYSTEM_INSTRUCTION": "\nYou are preparing a short private recap for the user about a Person, so\nthey can quickly recall relevant context before reaching out. This recap\nis for the user only; it is never sent to the Person.\n\nRules:\n- Use only the context supplied below.\n- Do not invent facts, relationship history, interests, commitments,\n  meetings, or Track membership that are not present in the supplied\n  context.\n- Summarize the most relevant recent Interactions in roughly 2 to 4 short\n  bullet points. Do not mechanically restate every Interaction line by\n  line; synthesize what matters.\n- If Relevant Tracks are supplied below, add one final bullet naming them\n  exactly as given, for example \"Relevant Track: <name>\". Never rename,\n  invent, or omit a supplied Track name.\n- If no Relevant Tracks are supplied, do not mention Track at all.\n- If there are no previous Interactions, write one honest bullet saying\n  so rather than inventing history.\n- Respond with only the bullet list (each line starting with \"- \"),\n  followed by the next-step part described below, with no other heading,\n  preamble, or explanation.\n\nAfter the recap bullet list, also suggest the user's next relationship\naction with this Person. This part is also private to the user.\n\nRules for the next step:\n- Use only the context supplied below. Do not invent history, meetings,\n  commitments, interests, or Track membership.\n- Each suggestion's kind must be exactly one of the ALLOWED NEXT STEP\n  KINDS listed below, spelled exactly as given.\n- \"Wait\" means reaching out now seems premature given the\n  context.\n- Give 1 suggestion when there is little context. Give at most\n  2, and a second only when the context supports a\n  distinct alternative.\n- Keep each reason or idea to one short sentence.\n- Format: after the recap bullets, write one line containing exactly\n  \"NEXT STEP:\", then one line per suggestion in the form\n  \"- <Kind>: <short reason or idea>\". Use no bold or other formatting.\n",
+  "PEOPLE_SUGGEST_FAILURE_MESSAGE": "Unable to prepare a suggested message right now. Please try again later.",
+  "GEMINI_TRANSIENT_FAILURE_MESSAGE": "Gemini is currently experiencing high demand. Please try again shortly.",
+  "INTERACTION_TYPE_UNAVAILABLE_NOTE": "Add interaction is unavailable right now (couldn't load Notion Type options).",
+  "NEXT_STEP_MARKER": "NEXT STEP:",
+  "WAIT_NEXT_STEP_KIND": "Wait",
+  "PERSON_TRACK_PROPERTY": "Track Goal",
+  "TRACK_PURPOSE_PROPERTY": "Purpose",
+  "MAX_SUGGESTION_INTERACTIONS": 5,
+  "MAX_SUGGESTION_TRACKS": 5,
+  "MAX_TRACK_PURPOSE_CHARS": 500,
+  "MAX_NEXT_STEP_SUGGESTIONS": 2,
+  "SLACK_SECTION_TEXT_LIMIT": 3000,
+  "PERSON_CONTEXT_PROPERTIES": [
+   "Why this person",
+   "Relationship intent",
+   "Relationship status",
+   "Relationship strength",
+   "Interests",
+   "Expertise",
+   "Notes"
+  ]
+ },
+ "messages": [
+  {
+   "input": "Jane Doe",
+   "person_not_found": "No Person found matching \"Jane Doe\".",
+   "ambiguous": "Multiple People match \"Jane Doe\" exactly; cannot determine which one was meant."
+  },
+  {
+   "input": "Jane \"JD\" Doe",
+   "person_not_found": "No Person found matching \"Jane \"JD\" Doe\".",
+   "ambiguous": "Multiple People match \"Jane \"JD\" Doe\" exactly; cannot determine which one was meant."
+  },
+  {
+   "input": "\u00c6r\u00f8 \u00d8sterg\u00e5rd \ud83d\ude00",
+   "person_not_found": "No Person found matching \"\u00c6r\u00f8 \u00d8sterg\u00e5rd \ud83d\ude00\".",
+   "ambiguous": "Multiple People match \"\u00c6r\u00f8 \u00d8sterg\u00e5rd \ud83d\ude00\" exactly; cannot determine which one was meant."
+  }
+ ],
+ "prompts": [
+  {
+   "name": "bare person",
+   "profile": {
+    "page_id": "p1",
+    "name": "Jane Doe",
+    "context_fields": [],
+    "track_ids": []
+   },
+   "interactions": [],
+   "person_tracks": [],
+   "other_tracks": [],
+   "next_step_kinds": [],
+   "recap_prompt": "\nYou are preparing a short private recap for the user about a Person, so\nthey can quickly recall relevant context before reaching out. This recap\nis for the user only; it is never sent to the Person.\n\nRules:\n- Use only the context supplied below.\n- Do not invent facts, relationship history, interests, commitments,\n  meetings, or Track membership that are not present in the supplied\n  context.\n- Summarize the most relevant recent Interactions in roughly 2 to 4 short\n  bullet points. Do not mechanically restate every Interaction line by\n  line; synthesize what matters.\n- If Relevant Tracks are supplied below, add one final bullet naming them\n  exactly as given, for example \"Relevant Track: <name>\". Never rename,\n  invent, or omit a supplied Track name.\n- If no Relevant Tracks are supplied, do not mention Track at all.\n- If there are no previous Interactions, write one honest bullet saying\n  so rather than inventing history.\n- Respond with only the bullet list (each line starting with \"- \"), with\n  no heading, preamble, or explanation.\n\n\nPERSON CONTEXT:\nName: Jane Doe\n\nRECENT INTERACTIONS:\nNo previous Interactions are recorded.\n",
+   "suggestion_prompt": "\nYou are drafting a short reconnect message on behalf of the user. The user\nwill review the draft before deciding whether to send anything themselves.\n\nRules:\n- Use only the context supplied below.\n- Do not invent facts, relationship history, interests, commitments, or\n  meetings that are not present in the supplied context.\n- Do not decide who to contact; a person to contact has already been chosen.\n- Draft a short, natural reconnect message.\n- Keep it concise.\n- Avoid sounding sales-oriented.\n- Do not mention Notion, CRM fields, cadence, or internal metadata.\n- If there is not enough context for a specific message, produce a generic\n  but honest draft rather than inventing details.\n- Respond with only the drafted message text, with no preamble or\n  explanation.\n\n\nPERSON CONTEXT:\nName: Jane Doe\n\nRECENT INTERACTIONS:\nNo previous Interactions are recorded.\n"
+  },
+  {
+   "name": "context fields and interactions, next step requested",
+   "profile": {
+    "page_id": "p1",
+    "name": "Jane Doe",
+    "context_fields": [
+     [
+      "Why this person",
+      "Former colleague"
+     ],
+     [
+      "Relationship intent",
+      "Mentor"
+     ],
+     [
+      "Interests",
+      "Climbing, Chess"
+     ],
+     [
+      "Notes",
+      "Met at the conference"
+     ]
+    ],
+    "track_ids": []
+   },
+   "interactions": [
+    {
+     "date": "2026-08-01",
+     "type": "Call",
+     "title": "Catch-up",
+     "notes": "Talked shop",
+     "track_ids": []
+    },
+    {
+     "date": "2026-07-01",
+     "type": null,
+     "title": null,
+     "notes": "Only notes",
+     "track_ids": []
+    },
+    {
+     "date": null,
+     "type": "Coffee",
+     "title": "No date",
+     "notes": null,
+     "track_ids": []
+    }
+   ],
+   "person_tracks": [],
+   "other_tracks": [],
+   "next_step_kinds": [
+    "Coffee",
+    "Wait"
+   ],
+   "recap_prompt": "\nYou are preparing a short private recap for the user about a Person, so\nthey can quickly recall relevant context before reaching out. This recap\nis for the user only; it is never sent to the Person.\n\nRules:\n- Use only the context supplied below.\n- Do not invent facts, relationship history, interests, commitments,\n  meetings, or Track membership that are not present in the supplied\n  context.\n- Summarize the most relevant recent Interactions in roughly 2 to 4 short\n  bullet points. Do not mechanically restate every Interaction line by\n  line; synthesize what matters.\n- If Relevant Tracks are supplied below, add one final bullet naming them\n  exactly as given, for example \"Relevant Track: <name>\". Never rename,\n  invent, or omit a supplied Track name.\n- If no Relevant Tracks are supplied, do not mention Track at all.\n- If there are no previous Interactions, write one honest bullet saying\n  so rather than inventing history.\n- Respond with only the bullet list (each line starting with \"- \"),\n  followed by the next-step part described below, with no other heading,\n  preamble, or explanation.\n\nAfter the recap bullet list, also suggest the user's next relationship\naction with this Person. This part is also private to the user.\n\nRules for the next step:\n- Use only the context supplied below. Do not invent history, meetings,\n  commitments, interests, or Track membership.\n- Each suggestion's kind must be exactly one of the ALLOWED NEXT STEP\n  KINDS listed below, spelled exactly as given.\n- \"Wait\" means reaching out now seems premature given the\n  context.\n- Give 1 suggestion when there is little context. Give at most\n  2, and a second only when the context supports a\n  distinct alternative.\n- Keep each reason or idea to one short sentence.\n- Format: after the recap bullets, write one line containing exactly\n  \"NEXT STEP:\", then one line per suggestion in the form\n  \"- <Kind>: <short reason or idea>\". Use no bold or other formatting.\n\n\nPERSON CONTEXT:\nName: Jane Doe\nWhy this person: Former colleague\nRelationship intent: Mentor\nInterests: Climbing, Chess\nNotes: Met at the conference\n\nRECENT INTERACTIONS:\n- Date: 2026-08-01; Type: Call; Title: Catch-up; Notes: Talked shop\n- Date: 2026-07-01; Notes: Only notes\n- Type: Coffee; Title: No date\n\nALLOWED NEXT STEP KINDS:\n- Coffee\n- Wait\n",
+   "suggestion_prompt": "\nYou are drafting a short reconnect message on behalf of the user. The user\nwill review the draft before deciding whether to send anything themselves.\n\nRules:\n- Use only the context supplied below.\n- Do not invent facts, relationship history, interests, commitments, or\n  meetings that are not present in the supplied context.\n- Do not decide who to contact; a person to contact has already been chosen.\n- Draft a short, natural reconnect message.\n- Keep it concise.\n- Avoid sounding sales-oriented.\n- Do not mention Notion, CRM fields, cadence, or internal metadata.\n- If there is not enough context for a specific message, produce a generic\n  but honest draft rather than inventing details.\n- Respond with only the drafted message text, with no preamble or\n  explanation.\n\n\nPERSON CONTEXT:\nName: Jane Doe\nWhy this person: Former colleague\nRelationship intent: Mentor\nInterests: Climbing, Chess\nNotes: Met at the conference\n\nRECENT INTERACTIONS:\n- Date: 2026-08-01; Type: Call; Title: Catch-up; Notes: Talked shop\n- Date: 2026-07-01; Notes: Only notes\n- Type: Coffee; Title: No date\n"
+  },
+  {
+   "name": "both Track groups with and without Purposes",
+   "profile": {
+    "page_id": "p1",
+    "name": "Jane Doe",
+    "context_fields": [],
+    "track_ids": [
+     "t1"
+    ]
+   },
+   "interactions": [
+    {
+     "date": "2026-08-01",
+     "type": "Coffee",
+     "title": "Coffee",
+     "notes": null,
+     "track_ids": [
+      "t2"
+     ]
+    }
+   ],
+   "person_tracks": [
+    {
+     "name": "AI Network",
+     "purpose": "Learn about AI"
+    },
+    {
+     "name": "Board",
+     "purpose": null
+    }
+   ],
+   "other_tracks": [
+    {
+     "name": "Investors",
+     "purpose": "Raise a seed round"
+    },
+    {
+     "name": "Hiring",
+     "purpose": null
+    }
+   ],
+   "next_step_kinds": [
+    "Coffee",
+    "Call: video",
+    "Wait"
+   ],
+   "recap_prompt": "\nYou are preparing a short private recap for the user about a Person, so\nthey can quickly recall relevant context before reaching out. This recap\nis for the user only; it is never sent to the Person.\n\nRules:\n- Use only the context supplied below.\n- Do not invent facts, relationship history, interests, commitments,\n  meetings, or Track membership that are not present in the supplied\n  context.\n- Summarize the most relevant recent Interactions in roughly 2 to 4 short\n  bullet points. Do not mechanically restate every Interaction line by\n  line; synthesize what matters.\n- If Relevant Tracks are supplied below, add one final bullet naming them\n  exactly as given, for example \"Relevant Track: <name>\". Never rename,\n  invent, or omit a supplied Track name.\n- If no Relevant Tracks are supplied, do not mention Track at all.\n- If there are no previous Interactions, write one honest bullet saying\n  so rather than inventing history.\n- Respond with only the bullet list (each line starting with \"- \"),\n  followed by the next-step part described below, with no other heading,\n  preamble, or explanation.\n\nAfter the recap bullet list, also suggest the user's next relationship\naction with this Person. This part is also private to the user.\n\nRules for the next step:\n- Use only the context supplied below. Do not invent history, meetings,\n  commitments, interests, or Track membership.\n- Each suggestion's kind must be exactly one of the ALLOWED NEXT STEP\n  KINDS listed below, spelled exactly as given.\n- \"Wait\" means reaching out now seems premature given the\n  context.\n- Give 1 suggestion when there is little context. Give at most\n  2, and a second only when the context supports a\n  distinct alternative.\n- Keep each reason or idea to one short sentence.\n- Format: after the recap bullets, write one line containing exactly\n  \"NEXT STEP:\", then one line per suggestion in the form\n  \"- <Kind>: <short reason or idea>\". Use no bold or other formatting.\n\nRules for Track context:\n- The Person's Tracks (primary focus) and their Purposes say what this\n  relationship is for. Treat those Purposes as the main focus when\n  choosing what to emphasize and, if requested, the next step.\n- Other Tracks from recent Interactions are secondary context only.\n- Do not invent a Purpose that is not supplied.\n\n\nPERSON CONTEXT:\nName: Jane Doe\n\nRECENT INTERACTIONS:\n- Date: 2026-08-01; Type: Coffee; Title: Coffee\n\nRELEVANT TRACKS:\nPerson's Tracks (primary focus):\n- AI Network\n  Purpose: Learn about AI\n- Board\nOther Tracks from recent Interactions (secondary):\n- Investors\n  Purpose: Raise a seed round\n- Hiring\n\nALLOWED NEXT STEP KINDS:\n- Coffee\n- Call: video\n- Wait\n",
+   "suggestion_prompt": "\nYou are drafting a short reconnect message on behalf of the user. The user\nwill review the draft before deciding whether to send anything themselves.\n\nRules:\n- Use only the context supplied below.\n- Do not invent facts, relationship history, interests, commitments, or\n  meetings that are not present in the supplied context.\n- Do not decide who to contact; a person to contact has already been chosen.\n- Draft a short, natural reconnect message.\n- Keep it concise.\n- Avoid sounding sales-oriented.\n- Do not mention Notion, CRM fields, cadence, or internal metadata.\n- If there is not enough context for a specific message, produce a generic\n  but honest draft rather than inventing details.\n- Respond with only the drafted message text, with no preamble or\n  explanation.\n\nRules for Track context:\n- The RELEVANT TRACKS below are the user's private context about why this\n  relationship matters. The Person's Tracks are the main focus; other\n  Tracks are secondary.\n- The draft may bring up the underlying topic of a Track's Purpose (for\n  example, a Purpose of \"learn about AI\" may lead the draft to mention AI).\n- Never name a Track, quote a Purpose, or present a Purpose as the user's\n  goal in the draft.\n\n\nPERSON CONTEXT:\nName: Jane Doe\n\nRECENT INTERACTIONS:\n- Date: 2026-08-01; Type: Coffee; Title: Coffee\n\nRELEVANT TRACKS:\nPerson's Tracks (primary focus):\n- AI Network\n  Purpose: Learn about AI\n- Board\nOther Tracks from recent Interactions (secondary):\n- Investors\n  Purpose: Raise a seed round\n- Hiring\n"
+  },
+  {
+   "name": "only other Tracks, no next step",
+   "profile": {
+    "page_id": "p1",
+    "name": "Jane Doe",
+    "context_fields": [],
+    "track_ids": []
+   },
+   "interactions": [],
+   "person_tracks": [],
+   "other_tracks": [
+    {
+     "name": "Investors",
+     "purpose": null
+    }
+   ],
+   "next_step_kinds": [],
+   "recap_prompt": "\nYou are preparing a short private recap for the user about a Person, so\nthey can quickly recall relevant context before reaching out. This recap\nis for the user only; it is never sent to the Person.\n\nRules:\n- Use only the context supplied below.\n- Do not invent facts, relationship history, interests, commitments,\n  meetings, or Track membership that are not present in the supplied\n  context.\n- Summarize the most relevant recent Interactions in roughly 2 to 4 short\n  bullet points. Do not mechanically restate every Interaction line by\n  line; synthesize what matters.\n- If Relevant Tracks are supplied below, add one final bullet naming them\n  exactly as given, for example \"Relevant Track: <name>\". Never rename,\n  invent, or omit a supplied Track name.\n- If no Relevant Tracks are supplied, do not mention Track at all.\n- If there are no previous Interactions, write one honest bullet saying\n  so rather than inventing history.\n- Respond with only the bullet list (each line starting with \"- \"), with\n  no heading, preamble, or explanation.\n\nRules for Track context:\n- The Person's Tracks (primary focus) and their Purposes say what this\n  relationship is for. Treat those Purposes as the main focus when\n  choosing what to emphasize and, if requested, the next step.\n- Other Tracks from recent Interactions are secondary context only.\n- Do not invent a Purpose that is not supplied.\n\n\nPERSON CONTEXT:\nName: Jane Doe\n\nRECENT INTERACTIONS:\nNo previous Interactions are recorded.\n\nRELEVANT TRACKS:\nOther Tracks from recent Interactions (secondary):\n- Investors\n",
+   "suggestion_prompt": "\nYou are drafting a short reconnect message on behalf of the user. The user\nwill review the draft before deciding whether to send anything themselves.\n\nRules:\n- Use only the context supplied below.\n- Do not invent facts, relationship history, interests, commitments, or\n  meetings that are not present in the supplied context.\n- Do not decide who to contact; a person to contact has already been chosen.\n- Draft a short, natural reconnect message.\n- Keep it concise.\n- Avoid sounding sales-oriented.\n- Do not mention Notion, CRM fields, cadence, or internal metadata.\n- If there is not enough context for a specific message, produce a generic\n  but honest draft rather than inventing details.\n- Respond with only the drafted message text, with no preamble or\n  explanation.\n\nRules for Track context:\n- The RELEVANT TRACKS below are the user's private context about why this\n  relationship matters. The Person's Tracks are the main focus; other\n  Tracks are secondary.\n- The draft may bring up the underlying topic of a Track's Purpose (for\n  example, a Purpose of \"learn about AI\" may lead the draft to mention AI).\n- Never name a Track, quote a Purpose, or present a Purpose as the user's\n  goal in the draft.\n\n\nPERSON CONTEXT:\nName: Jane Doe\n\nRECENT INTERACTIONS:\nNo previous Interactions are recorded.\n\nRELEVANT TRACKS:\nOther Tracks from recent Interactions (secondary):\n- Investors\n"
+  },
+  {
+   "name": "only Person Tracks, next step requested",
+   "profile": {
+    "page_id": "p1",
+    "name": "Jane Doe",
+    "context_fields": [],
+    "track_ids": [
+     "t1"
+    ]
+   },
+   "interactions": [],
+   "person_tracks": [
+    {
+     "name": "AI Network",
+     "purpose": "Learn about AI"
+    }
+   ],
+   "other_tracks": [],
+   "next_step_kinds": [
+    "Wait",
+    "Coffee"
+   ],
+   "recap_prompt": "\nYou are preparing a short private recap for the user about a Person, so\nthey can quickly recall relevant context before reaching out. This recap\nis for the user only; it is never sent to the Person.\n\nRules:\n- Use only the context supplied below.\n- Do not invent facts, relationship history, interests, commitments,\n  meetings, or Track membership that are not present in the supplied\n  context.\n- Summarize the most relevant recent Interactions in roughly 2 to 4 short\n  bullet points. Do not mechanically restate every Interaction line by\n  line; synthesize what matters.\n- If Relevant Tracks are supplied below, add one final bullet naming them\n  exactly as given, for example \"Relevant Track: <name>\". Never rename,\n  invent, or omit a supplied Track name.\n- If no Relevant Tracks are supplied, do not mention Track at all.\n- If there are no previous Interactions, write one honest bullet saying\n  so rather than inventing history.\n- Respond with only the bullet list (each line starting with \"- \"),\n  followed by the next-step part described below, with no other heading,\n  preamble, or explanation.\n\nAfter the recap bullet list, also suggest the user's next relationship\naction with this Person. This part is also private to the user.\n\nRules for the next step:\n- Use only the context supplied below. Do not invent history, meetings,\n  commitments, interests, or Track membership.\n- Each suggestion's kind must be exactly one of the ALLOWED NEXT STEP\n  KINDS listed below, spelled exactly as given.\n- \"Wait\" means reaching out now seems premature given the\n  context.\n- Give 1 suggestion when there is little context. Give at most\n  2, and a second only when the context supports a\n  distinct alternative.\n- Keep each reason or idea to one short sentence.\n- Format: after the recap bullets, write one line containing exactly\n  \"NEXT STEP:\", then one line per suggestion in the form\n  \"- <Kind>: <short reason or idea>\". Use no bold or other formatting.\n\nRules for Track context:\n- The Person's Tracks (primary focus) and their Purposes say what this\n  relationship is for. Treat those Purposes as the main focus when\n  choosing what to emphasize and, if requested, the next step.\n- Other Tracks from recent Interactions are secondary context only.\n- Do not invent a Purpose that is not supplied.\n\n\nPERSON CONTEXT:\nName: Jane Doe\n\nRECENT INTERACTIONS:\nNo previous Interactions are recorded.\n\nRELEVANT TRACKS:\nPerson's Tracks (primary focus):\n- AI Network\n  Purpose: Learn about AI\n\nALLOWED NEXT STEP KINDS:\n- Wait\n- Coffee\n",
+   "suggestion_prompt": "\nYou are drafting a short reconnect message on behalf of the user. The user\nwill review the draft before deciding whether to send anything themselves.\n\nRules:\n- Use only the context supplied below.\n- Do not invent facts, relationship history, interests, commitments, or\n  meetings that are not present in the supplied context.\n- Do not decide who to contact; a person to contact has already been chosen.\n- Draft a short, natural reconnect message.\n- Keep it concise.\n- Avoid sounding sales-oriented.\n- Do not mention Notion, CRM fields, cadence, or internal metadata.\n- If there is not enough context for a specific message, produce a generic\n  but honest draft rather than inventing details.\n- Respond with only the drafted message text, with no preamble or\n  explanation.\n\nRules for Track context:\n- The RELEVANT TRACKS below are the user's private context about why this\n  relationship matters. The Person's Tracks are the main focus; other\n  Tracks are secondary.\n- The draft may bring up the underlying topic of a Track's Purpose (for\n  example, a Purpose of \"learn about AI\" may lead the draft to mention AI).\n- Never name a Track, quote a Purpose, or present a Purpose as the user's\n  goal in the draft.\n\n\nPERSON CONTEXT:\nName: Jane Doe\n\nRECENT INTERACTIONS:\nNo previous Interactions are recorded.\n\nRELEVANT TRACKS:\nPerson's Tracks (primary focus):\n- AI Network\n  Purpose: Learn about AI\n"
+  },
+  {
+   "name": "Unicode everywhere",
+   "profile": {
+    "page_id": "p-\u00e6",
+    "name": "\u00c6r\u00f8 \u00d8sterg\u00e5rd \ud83d\ude00",
+    "context_fields": [
+     [
+      "Why this person",
+      "Stra\u00dfe \u2014 \u201cquoted\u201d"
+     ],
+     [
+      "Expertise",
+      "\u65e5\u672c\u8a9e"
+     ]
+    ],
+    "track_ids": [
+     "t1"
+    ]
+   },
+   "interactions": [
+    {
+     "date": "2026-08-01",
+     "type": "M\u00f8de",
+     "title": "Fika \u2615",
+     "notes": "Talked about \u00e6bler og \u00f8l\nSecond line\tand a tab \ud83d\ude00",
+     "track_ids": [
+      "t1"
+     ]
+    }
+   ],
+   "person_tracks": [
+    {
+     "name": "\u00c5rhus netv\u00e6rk",
+     "purpose": "L\u00e6r om AI xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u2026"
+    }
+   ],
+   "other_tracks": [],
+   "next_step_kinds": [
+    "M\u00f8de",
+    "\ud83d\ude00 Chat",
+    "Wait"
+   ],
+   "recap_prompt": "\nYou are preparing a short private recap for the user about a Person, so\nthey can quickly recall relevant context before reaching out. This recap\nis for the user only; it is never sent to the Person.\n\nRules:\n- Use only the context supplied below.\n- Do not invent facts, relationship history, interests, commitments,\n  meetings, or Track membership that are not present in the supplied\n  context.\n- Summarize the most relevant recent Interactions in roughly 2 to 4 short\n  bullet points. Do not mechanically restate every Interaction line by\n  line; synthesize what matters.\n- If Relevant Tracks are supplied below, add one final bullet naming them\n  exactly as given, for example \"Relevant Track: <name>\". Never rename,\n  invent, or omit a supplied Track name.\n- If no Relevant Tracks are supplied, do not mention Track at all.\n- If there are no previous Interactions, write one honest bullet saying\n  so rather than inventing history.\n- Respond with only the bullet list (each line starting with \"- \"),\n  followed by the next-step part described below, with no other heading,\n  preamble, or explanation.\n\nAfter the recap bullet list, also suggest the user's next relationship\naction with this Person. This part is also private to the user.\n\nRules for the next step:\n- Use only the context supplied below. Do not invent history, meetings,\n  commitments, interests, or Track membership.\n- Each suggestion's kind must be exactly one of the ALLOWED NEXT STEP\n  KINDS listed below, spelled exactly as given.\n- \"Wait\" means reaching out now seems premature given the\n  context.\n- Give 1 suggestion when there is little context. Give at most\n  2, and a second only when the context supports a\n  distinct alternative.\n- Keep each reason or idea to one short sentence.\n- Format: after the recap bullets, write one line containing exactly\n  \"NEXT STEP:\", then one line per suggestion in the form\n  \"- <Kind>: <short reason or idea>\". Use no bold or other formatting.\n\nRules for Track context:\n- The Person's Tracks (primary focus) and their Purposes say what this\n  relationship is for. Treat those Purposes as the main focus when\n  choosing what to emphasize and, if requested, the next step.\n- Other Tracks from recent Interactions are secondary context only.\n- Do not invent a Purpose that is not supplied.\n\n\nPERSON CONTEXT:\nName: \u00c6r\u00f8 \u00d8sterg\u00e5rd \ud83d\ude00\nWhy this person: Stra\u00dfe \u2014 \u201cquoted\u201d\nExpertise: \u65e5\u672c\u8a9e\n\nRECENT INTERACTIONS:\n- Date: 2026-08-01; Type: M\u00f8de; Title: Fika \u2615; Notes: Talked about \u00e6bler og \u00f8l\nSecond line\tand a tab \ud83d\ude00\n\nRELEVANT TRACKS:\nPerson's Tracks (primary focus):\n- \u00c5rhus netv\u00e6rk\n  Purpose: L\u00e6r om AI xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u2026\n\nALLOWED NEXT STEP KINDS:\n- M\u00f8de\n- \ud83d\ude00 Chat\n- Wait\n",
+   "suggestion_prompt": "\nYou are drafting a short reconnect message on behalf of the user. The user\nwill review the draft before deciding whether to send anything themselves.\n\nRules:\n- Use only the context supplied below.\n- Do not invent facts, relationship history, interests, commitments, or\n  meetings that are not present in the supplied context.\n- Do not decide who to contact; a person to contact has already been chosen.\n- Draft a short, natural reconnect message.\n- Keep it concise.\n- Avoid sounding sales-oriented.\n- Do not mention Notion, CRM fields, cadence, or internal metadata.\n- If there is not enough context for a specific message, produce a generic\n  but honest draft rather than inventing details.\n- Respond with only the drafted message text, with no preamble or\n  explanation.\n\nRules for Track context:\n- The RELEVANT TRACKS below are the user's private context about why this\n  relationship matters. The Person's Tracks are the main focus; other\n  Tracks are secondary.\n- The draft may bring up the underlying topic of a Track's Purpose (for\n  example, a Purpose of \"learn about AI\" may lead the draft to mention AI).\n- Never name a Track, quote a Purpose, or present a Purpose as the user's\n  goal in the draft.\n\n\nPERSON CONTEXT:\nName: \u00c6r\u00f8 \u00d8sterg\u00e5rd \ud83d\ude00\nWhy this person: Stra\u00dfe \u2014 \u201cquoted\u201d\nExpertise: \u65e5\u672c\u8a9e\n\nRECENT INTERACTIONS:\n- Date: 2026-08-01; Type: M\u00f8de; Title: Fika \u2615; Notes: Talked about \u00e6bler og \u00f8l\nSecond line\tand a tab \ud83d\ude00\n\nRELEVANT TRACKS:\nPerson's Tracks (primary focus):\n- \u00c5rhus netv\u00e6rk\n  Purpose: L\u00e6r om AI xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u2026\n"
+  }
+ ],
+ "splits": [
+  {
+   "response": "- R.\nNEXT STEP:\n- Coffee: A.\n- Wait: B.",
+   "allowed_kinds": [
+    "Coffee",
+    "Wait"
+   ],
+   "recap": "- R.",
+   "next_steps": [
+    [
+     "Coffee",
+     "A."
+    ],
+    [
+     "Wait",
+     "B."
+    ]
+   ]
+  },
+  {
+   "response": "- R.\r\nNEXT STEP:\r\n- Coffee: A.\r\n- Wait: B.\r\n",
+   "allowed_kinds": [
+    "Coffee",
+    "Wait"
+   ],
+   "recap": "- R.",
+   "next_steps": [
+    [
+     "Coffee",
+     "A."
+    ],
+    [
+     "Wait",
+     "B."
+    ]
+   ]
+  },
+  {
+   "response": "- R.\u2028NEXT STEP:\u2029- Coffee: A.",
+   "allowed_kinds": [
+    "Coffee",
+    "Wait"
+   ],
+   "recap": "- R.",
+   "next_steps": [
+    [
+     "Coffee",
+     "A."
+    ]
+   ]
+  },
+  {
+   "response": "- R.\u0085**Next step:**\u0085\u2022 Coffee: A.\f* Wait: B.\u001c- Coffee: C.",
+   "allowed_kinds": [
+    "Coffee",
+    "Wait"
+   ],
+   "recap": "- R.",
+   "next_steps": [
+    [
+     "Coffee",
+     "A."
+    ],
+    [
+     "Wait",
+     "B."
+    ]
+   ]
+  },
+  {
+   "response": "  - R.  \n\nnext steps: Coffee:   idea  \n- Call: video: X\n",
+   "allowed_kinds": [
+    "Call",
+    "Call: video",
+    "Coffee",
+    "Wait"
+   ],
+   "recap": "- R.",
+   "next_steps": [
+    [
+     "Coffee",
+     "idea"
+    ],
+    [
+     "Call: video",
+     "X"
+    ]
+   ]
+  },
+  {
+   "response": "- R.\nNEXT STEP:\n- \ud83d\ude00 Chat: \ud83c\udf89 party",
+   "allowed_kinds": [
+    "\ud83d\ude00 Chat",
+    "Wait"
+   ],
+   "recap": "- R.",
+   "next_steps": [
+    [
+     "\ud83d\ude00 Chat",
+     "\ud83c\udf89 party"
+    ]
+   ]
+  },
+  {
+   "response": "- R.\nNEXT STEP:\n- Coffee:   \n- Coffee\n-Coffee: no space",
+   "allowed_kinds": [
+    "Coffee",
+    "Wait"
+   ],
+   "recap": "- R.",
+   "next_steps": []
+  },
+  {
+   "response": "- R.\nNEXT STEP:\n\u3000- Coffee: A.\u3000\n\u001f- Wait: B.\u001f",
+   "allowed_kinds": [
+    "Coffee",
+    "Wait"
+   ],
+   "recap": "- R.",
+   "next_steps": [
+    [
+     "Coffee",
+     "A."
+    ],
+    [
+     "Wait",
+     "B."
+    ]
+   ]
+  },
+  {
+   "response": "- R.\nNext step - Coffee: A.",
+   "allowed_kinds": [
+    "Coffee",
+    "Wait"
+   ],
+   "recap": "- R.\nNext step - Coffee: A.",
+   "next_steps": []
+  },
+  {
+   "response": "NEXT STEP:\n- Coffee: A.",
+   "allowed_kinds": [
+    "Coffee",
+    "Wait"
+   ],
+   "recap": "",
+   "next_steps": [
+    [
+     "Coffee",
+     "A."
+    ]
+   ]
+  },
+  {
+   "response": "",
+   "allowed_kinds": [
+    "Coffee",
+    "Wait"
+   ],
+   "recap": "",
+   "next_steps": []
+  },
+  {
+   "response": "- R.\nNEXT STEP:\n- Coffee: A.",
+   "allowed_kinds": [],
+   "recap": "- R.\nNEXT STEP:\n- Coffee: A.",
+   "next_steps": []
+  },
+  {
+   "response": "- R.\n\u017fuggested next \u017ftep: Wait: B.",
+   "allowed_kinds": [
+    "Coffee",
+    "Wait"
+   ],
+   "recap": "- R.",
+   "next_steps": [
+    [
+     "Wait",
+     "B."
+    ]
+   ]
+  },
+  {
+   "response": "- R.\nNEXT STEP:\n- Lunch: X.\n- coffee: Y.\n- **Coffee**: Z.",
+   "allowed_kinds": [
+    "Coffee",
+    "Wait"
+   ],
+   "recap": "- R.",
+   "next_steps": []
+  }
+ ],
+ "blocks": [
+  {
+   "name": "recap, next step, button with Tracks and a default",
+   "profile": {
+    "page_id": "p1",
+    "name": "J\u00f8rgen \u00c5se",
+    "context_fields": [],
+    "track_ids": [
+     "t1"
+    ]
+   },
+   "recap": "- Recap one.\n- Recap two.",
+   "answer": "Hej J\u00f8rgen! \ud83d\ude00",
+   "next_steps": [
+    [
+     "M\u00f8de",
+     "Catch up."
+    ],
+    [
+     "Wait",
+     "Recently in touch."
+    ]
+   ],
+   "tracks": [
+    {
+     "id": "t1",
+     "name": "\u00c5rhus"
+    },
+    {
+     "id": "t2",
+     "name": "Investors"
+    }
+   ],
+   "default_track_id": "t1",
+   "interaction_types": [
+    "M\u00f8de",
+    "Call"
+   ],
+   "reply_text": "Context:\n- Recap one.\n- Recap two.\n\nSuggested next step:\n- M\u00f8de: Catch up.\n- Wait: Recently in touch.\n\nSuggested message for J\u00f8rgen \u00c5se:\n\nHej J\u00f8rgen! \ud83d\ude00",
+   "blocks": [
+    {
+     "type": "section",
+     "text": {
+      "type": "mrkdwn",
+      "text": "Context:\n- Recap one.\n- Recap two."
+     }
+    },
+    {
+     "type": "section",
+     "text": {
+      "type": "mrkdwn",
+      "text": "Suggested next step:\n- M\u00f8de: Catch up.\n- Wait: Recently in touch."
+     }
+    },
+    {
+     "type": "section",
+     "text": {
+      "type": "mrkdwn",
+      "text": "Suggested message for J\u00f8rgen \u00c5se:\n\nHej J\u00f8rgen! \ud83d\ude00"
+     }
+    },
+    {
+     "type": "actions",
+     "elements": [
+      {
+       "type": "button",
+       "text": {
+        "type": "plain_text",
+        "text": "Add interaction"
+       },
+       "action_id": "people_add_interaction",
+       "value": "{\"page_id\": \"p1\", \"name\": \"J\\u00f8rgen \\u00c5se\", \"types\": [\"M\\u00f8de\", \"Call\"], \"tracks\": [{\"id\": \"t1\", \"name\": \"\\u00c5rhus\"}, {\"id\": \"t2\", \"name\": \"Investors\"}], \"default_track_id\": \"t1\"}"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "no recap, no next step, no Type options (no button)",
+   "profile": {
+    "page_id": "p1",
+    "name": "Jane Doe",
+    "context_fields": [],
+    "track_ids": []
+   },
+   "recap": "",
+   "answer": "Hi",
+   "next_steps": [],
+   "tracks": [],
+   "default_track_id": null,
+   "interaction_types": [],
+   "reply_text": "Suggested message for Jane Doe:\n\nHi",
+   "blocks": [
+    {
+     "type": "section",
+     "text": {
+      "type": "mrkdwn",
+      "text": "Suggested message for Jane Doe:\n\nHi"
+     }
+    }
+   ]
+  },
+  {
+   "name": "oversized draft with astral characters is truncated by code points",
+   "profile": {
+    "page_id": "p1",
+    "name": "Jane Doe",
+    "context_fields": [],
+    "track_ids": []
+   },
+   "recap": "- Recap.",
+   "answer": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00",
+   "next_steps": [],
+   "tracks": [],
+   "default_track_id": null,
+   "interaction_types": [
+    "Coffee"
+   ],
+   "reply_text": "Context:\n- Recap.\n\nSuggested message for Jane Doe:\n\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00",
+   "blocks": [
+    {
+     "type": "section",
+     "text": {
+      "type": "mrkdwn",
+      "text": "Context:\n- Recap."
+     }
+    },
+    {
+     "type": "section",
+     "text": {
+      "type": "mrkdwn",
+      "text": "Suggested message for Jane Doe:\n\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d\ude00\ud83d\ude00\u2026"
+     }
+    },
+    {
+     "type": "actions",
+     "elements": [
+      {
+       "type": "button",
+       "text": {
+        "type": "plain_text",
+        "text": "Add interaction"
+       },
+       "action_id": "people_add_interaction",
+       "value": "{\"page_id\": \"p1\", \"name\": \"Jane Doe\", \"types\": [\"Coffee\"]}"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

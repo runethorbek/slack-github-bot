@@ -5,6 +5,10 @@ port must reproduce (see `docs/experiments/typescript-migration/ACCEPTANCE.md`).
 
 - `golden/python-compat.json`: the Python-semantics table, written by
   `generate_python_compat_golden.py`.
+- `people-suggest-prompts.json`: `people_suggest`'s prompt constants, built
+  Gemini prompts, next-step splits and reply blocks, written by
+  `generate_people_suggest_prompts.py`. It lives outside `golden/`, which
+  holds only the recorder's scenario goldens and the compat table.
 - `scenarios/<name>.json` and `golden/<name>.json`: end-to-end scenarios and
   the observables Python produced for them, written by `record_python.py`.
 

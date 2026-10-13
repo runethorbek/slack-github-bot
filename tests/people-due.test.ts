@@ -9,15 +9,15 @@
 // NotionHttpError(status, headers)` becomes a response with that status and
 // headers, whose raise_for_status() throws the real HTTPError.
 //
-// Two Python tests drive the real suggest path and are deferred to S5, when
-// people-suggest.ts is ported (TEST-MAPPING.md):
-// test_clicking_the_button_reuses_the_existing_suggest_command_route and
-// test_notion_get_is_threaded_through_to_suggest_for_track_resolution.
+// Two Python tests drive the real suggest path
+// (test_clicking_the_button_reuses_the_existing_suggest_command_route and
+// test_notion_get_is_threaded_through_to_suggest_for_track_resolution); they
+// were deferred from S3 and ported in S5 with the real people-suggest.ts.
 
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { HttpResponse, type PostOptions } from "../src/http.ts";
+import { HttpResponse, type GetOptions, type PostOptions } from "../src/http.ts";
 import {
   CadenceStatus,
   INCOMPLETE_SCAN_MESSAGE,
@@ -822,6 +822,92 @@ test("test_handle_people_due_passes_no_blocks_when_no_people_are_due", async () 
   assert.equal(finalOptions.blocks, null);
 });
 
+type NotionGetMock = Mock<[string, GetOptions], Promise<NotionResponse>>;
+
+/** PeopleDueSuggestButtonTests.type_schema_response() */
+function typeSchemaResponse(): HttpResponse {
+  return new HttpResponse(
+    200,
+    new Headers(),
+    JSON.stringify({
+      properties: {
+        Type: {
+          type: "select",
+          select: { options: [{ name: "Coffee" }] },
+        },
+      },
+    }),
+  );
+}
+
+test("test_clicking_the_button_reuses_the_existing_suggest_command_route", async () => {
+  // The button's synthesized command must reach the suggest path:
+  // api/slack-request.js turns a button click into command="/people",
+  // text=`suggest ${value}`, and that is handled by the same
+  // handlePeopleCommand / handlePeopleSuggest route as a typed
+  // `/people suggest <person>` command, with no duplicated logic.
+  const duePerson = buttonDuePerson("Jane Doe", "1 month");
+  const button = duePersonBlock(duePerson).accessory as { value: string };
+  const [command, text] = ["/people", `suggest ${button.value}`];
+
+  const notionPost = notionPostMock([response([person("p1", "Jane Doe", "1 month")]), response([])]);
+  const postSlackMessage = slackMock();
+  const generateText = mock(async (_prompt: string) => "Hey Jane, been a while!");
+  const notionGet: NotionGetMock = mock(async (_url: string, _options: GetOptions) => typeSchemaResponse());
+
+  const handled = await handlePeopleCommand(command, text, postSlackMessage, notionPost, environment(), {
+    generateText,
+    today: FIXED_TODAY,
+    sleep: sleepMock(),
+    notionGet,
+  });
+
+  assert.equal(handled, true);
+  // One Gemini call drafts the recap, another drafts the message.
+  assert.equal(generateText.calls.length, 2);
+  const output = lastMessage(postSlackMessage);
+  assert.equal(
+    output,
+    "Context:\nHey Jane, been a while!\n\n" + "Suggested message for Jane Doe:\n\nHey Jane, been a while!",
+  );
+});
+
+test("test_notion_get_is_threaded_through_to_suggest_for_track_resolution", async () => {
+  const personPage = person("p1", "Jane Doe", "1 month");
+  personPage.properties["Track Goal"] = {
+    type: "relation",
+    relation: [{ id: "track-1" }],
+  };
+  const notionPost = notionPostMock([response([personPage]), response([])]);
+  const postSlackMessage = slackMock();
+  const generateText = mock(async (_prompt: string) => "Draft");
+  const trackResponse = new HttpResponse(
+    200,
+    new Headers(),
+    JSON.stringify({
+      properties: {
+        Navn: { type: "title", title: [{ plain_text: "AI Network" }] },
+      },
+    }),
+  );
+  const typeSchemaUrl = "https://api.notion.com/v1/data_sources/interactions-id";
+  const notionGet: NotionGetMock = mock(async (url: string, _options: GetOptions) =>
+    url === typeSchemaUrl ? typeSchemaResponse() : trackResponse,
+  );
+
+  await handlePeopleCommand("/people", "suggest Jane Doe", postSlackMessage, notionPost, environment(), {
+    generateText,
+    today: FIXED_TODAY,
+    sleep: sleepMock(),
+    notionGet,
+  });
+
+  // One GET for the Track name, one for the unrelated Add Interaction
+  // Type-schema fetch.
+  const trackCalls = notionGet.calls.filter((call) => call[0] === "https://api.notion.com/v1/pages/track-1");
+  assert.equal(trackCalls.length, 1);
+});
+
 // ---------------------------------------------------------------------------
 // PeopleDueRobustnessTests
 // ---------------------------------------------------------------------------
@@ -1006,22 +1092,26 @@ test("test_malformed_query_response_produces_a_safe_message_without_raw_payload"
 // ---------------------------------------------------------------------------
 
 test("handlePeopleCommand: suggest <person> dispatches to the lazily imported people-suggest module", async () => {
-  // Until S5 ports people-suggest.ts, its placeholder throws. The error
-  // propagating here shows the branch reached the dynamically imported module,
-  // with nothing posted and no Notion access before it.
-  const notionPost = notionPostMock([]);
+  // The branch reaches handlePeopleSuggest with the stripped name (the
+  // keyword's case and the whitespace before the name are dropped; the
+  // name's own inner spacing is kept), and nothing touches Notion first.
+  const notionPost = notionPostReturning(response([]));
   const postSlackMessage = slackMock();
 
-  await assert.rejects(
-    handlePeopleCommand("/people", "  Suggest   Jane Doe ", postSlackMessage, notionPost, environment(), {
-      today: FIXED_TODAY,
-      sleep: sleepMock(),
-    }),
-    /people-suggest is ported in migration slice S5/,
-  );
+  const handled = await handlePeopleCommand("/people", "  Suggest   Jane  Doe ", postSlackMessage, notionPost, environment(), {
+    today: FIXED_TODAY,
+    sleep: sleepMock(),
+  });
 
-  assert.equal(postSlackMessage.calls.length, 0);
-  assert.equal(notionPost.calls.length, 0);
+  assert.equal(handled, true);
+  assert.deepEqual(postSlackMessage.calls, [
+    ["/people suggest Jane  Doe"],
+    ['No Person found matching "Jane  Doe".', { threadTs: "123.456" }],
+  ]);
+  assert.deepEqual(
+    notionPost.calls.map((call) => call[0]),
+    [PEOPLE_URL],
+  );
 });
 
 test("handlePeopleCommand: other commands are not owned; invalid text gets the usage response", async (t) => {

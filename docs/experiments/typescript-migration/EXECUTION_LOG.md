@@ -137,3 +137,28 @@ Phase 2 started 2026-10-13 12:20, on branch `experiment/typescript-migration`.
 - **Outcome: ACCEPTED** at 15:57.
   - Totals: 1 implementation attempt, 1 review round. Findings: 0 blocking, 0 should-fix, 1 nit (accepted; claim corrected here).
   - 0 human interventions.
+
+### S5 — people-suggest (largest slice; Gemini model-output boundary)
+
+- Started 15:58. The slice was not split; the Implementer completed it in one run.
+- **Implementation attempt 1** (~31.3 min, the longest run so far): DONE.
+  - 110/110 tests ported, plus 22 TS-only tests. The 2 people_due tests deferred from S3 now pass; the S3 placeholder test was rewritten to the real route. 552/552 overall.
+  - New `pySplitlines` with golden rows. The marker regex was translated with Python `re` semantics and verified by an exhaustive code-point probe against Python-generated sets.
+  - New Python-generated prompt fixture with `--check`; prompts byte-identical.
+  - 11 mutations, each caught.
+  - Reported 6 discrepancies between `docs/people-suggest-gemini-context.md` and the code, unfixed as instructed.
+  - **Tooling hazard recurred**: `\uXXXX` was turned into literal characters in 3 places, even via bash heredocs; repaired at the byte level.
+- The Orchestrator re-ran everything: typecheck 0, 552/552 (~6 s), 358 OK, all 3 generators `--check` OK, mapping OK.
+  - **Gap found by the Orchestrator: CI did not run the new prompt generator's `--check`.**
+- **Review 1** (~4.6 min): **PASS**, 0 blocking, 1 should-fix, 0 nit.
+  - The Reviewer independently confirmed the AI boundary (S5), the exact context (S6), the code-point bounds (S10), the credential handling (S11), regex fidelity, and over 25 tests assertion by assertion.
+  - R1 (should-fix): CI is missing the prompt fixture check. This is the same as the Orchestrator's observation.
+  - It independently found 4 of the doc-drift items; the Implementer's list was not visible to it.
+  - It could not re-run the mutations.
+- Orchestrator actions:
+  - R1 fixed by the Orchestrator (one CI step added).
+  - **Spot-checked one mutation itself**: `MAX_NEXT_STEP_SUGGESTIONS` 2→3 makes 13 tests fail; file restored, 0 fail.
+  - The doc drift is recorded as TECH-DEBT TD9 (doc corrected in S9). The truncated-scan "not found" is recorded as TD10.
+- **Outcome: ACCEPTED** at 16:35.
+  - Totals: 1 implementation attempt, 1 review round. Findings: 0 blocking, 1 should-fix (fixed by the Orchestrator), 0 nit.
+  - 0 human interventions.

@@ -182,6 +182,35 @@ export function pySplitWhitespace(s: string): string[] {
   return parts;
 }
 
+// The line boundaries of Python 3.12 `str.splitlines()`: \n \v \f \r \x1c
+// \x1d \x1e \x85 U+2028 U+2029, with \r\n counted as one boundary. All are
+// single UTF-16 units, so scanning units cannot split a surrogate pair.
+const PY_LINE_BREAK_UNITS = new Set<number>([
+  0x0a, 0x0b, 0x0c, 0x0d, 0x1c, 0x1d, 0x1e, 0x85, 0x2028, 0x2029,
+]);
+
+/**
+ * `s.splitlines()` with no arguments: the line boundaries are dropped, and a
+ * trailing boundary does not start an empty final line ("" gives []).
+ */
+export function pySplitlines(s: string): string[] {
+  const lines: string[] = [];
+  let start = 0;
+  let index = 0;
+  while (index < s.length) {
+    const unit = s.charCodeAt(index);
+    if (PY_LINE_BREAK_UNITS.has(unit)) {
+      lines.push(s.slice(start, index));
+      index += unit === 0x0d && s.charCodeAt(index + 1) === 0x0a ? 2 : 1;
+      start = index;
+    } else {
+      index += 1;
+    }
+  }
+  if (start < s.length) lines.push(s.slice(start));
+  return lines;
+}
+
 // ---------------------------------------------------------------------------
 // casefold
 // ---------------------------------------------------------------------------

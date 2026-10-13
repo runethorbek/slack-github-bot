@@ -1,5 +1,6 @@
 """Generate the Python-semantics golden table for src/python-compat.ts and
-src/plain-date.ts.
+src/plain-date.ts, plus the `re` facts that src/people-suggest.ts's
+NEXT_STEP_MARKER_PATTERN translation relies on.
 
 Run with the CI reference Python (3.12):
 
@@ -13,6 +14,7 @@ clock, no randomness without a fixed seed, and no locale dependence.
 
 import json
 import random
+import re
 import sys
 import unicodedata
 from datetime import date, datetime, timedelta, timezone
@@ -24,6 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 from people_due import add_calendar_months  # noqa: E402
+from people_suggest import NEXT_STEP_MARKER_PATTERN  # noqa: E402
 
 GOLDEN_PATH = Path(__file__).resolve().parent / "golden" / "python-compat.json"
 
@@ -534,6 +537,101 @@ COPENHAGEN_INSTANTS = [
 ]
 
 
+# str.splitlines() inputs, in addition to STRING_SAMPLES: every line boundary
+# Python recognizes (\n \r \r\n \v \f \x1c \x1d \x1e \x85 \u2028 \u2029), and
+# characters that are whitespace but not line boundaries (\x1f, U+FEFF is
+# neither).
+SPLITLINES_SAMPLES = [
+    "a\nb",
+    "a\rb",
+    "a\r\nb",
+    "a\n\rb",
+    "a\r\rb",
+    "a\x0bb\x0cc",
+    "a\x1cb\x1dc\x1ed\x1fe",
+    "a\x85b",
+    "a\u2028b\u2029c",
+    "trailing\n",
+    "trailing\r\n",
+    "trailing\r",
+    "\n",
+    "\n\n",
+    "\r\n\r\n",
+    "only",
+    "a\n\nb\n",
+    "\ufeffbom\nx",
+    "\U0001f600\n\U0001f600\r\n\U0001f600",
+    "- Recap.\nNEXT STEP:\n- Coffee: Idea.",
+    "x\x85y\x0cz",
+]
+
+# The letters of people_suggest.NEXT_STEP_MARKER_PATTERN ("suggested next
+# steps"), each matched alone with re.IGNORECASE against every code point.
+REGEX_IGNORECASE_LETTERS = ["s", "u", "g", "e", "t", "d", "n", "x", "p"]
+
+# Lines run through people_suggest.NEXT_STEP_MARKER_PATTERN.match: the output
+# is group(1), or None when the line is not a marker. Unicode whitespace,
+# case-folding characters (U+017F), emphasis variants, `.` and `$` edges.
+NEXT_STEP_MARKER_LINES = [
+    "NEXT STEP:",
+    "next step:",
+    "Next Steps:",
+    "NEXT  STEPS :",
+    "NEXT STEPSS:",
+    "NEXT STEP;",
+    "nextstep:",
+    "Next step",
+    "Next step - Coffee: Idea.",
+    "**NEXT STEP:**",
+    "### Next steps:",
+    "**Suggested next step**:",
+    "_Next step_: Coffee: Idea.",
+    "Suggestednext step:",
+    "suggested \t next step:",
+    "Next step: Coffee: Idea.",
+    "NEXT STEP: - Lunch: Not allowed.",
+    "NEXT STEP:**  - Coffee: Idea.",
+    "#*_ \tnext\tsteps\t*_:\t*_Coffee: x",
+    "- Next step: they promised to send the deck.",
+    "1. Next step: Coffee: Idea.",
+    "\u017fuggested next \u017ftep\u017f:",
+    "NEXT \u017fTEP: Coffee: x",
+    "NEXT \u212aSTEP:",
+    "NEXT\u00a0STEP:",
+    "NEXT\u2028STEP:",
+    "NEXT\u2029STEP: x",
+    "\u3000NEXT STEP:",
+    "\x1cNEXT STEP:\x1f",
+    "\x1fNEXT\x1dSTEP\x1e:\x1c Coffee: x",
+    "\x85NEXT STEP:\x85",
+    "\ufeffNEXT STEP:",
+    "NEXT\ufeffSTEP:",
+    "\u200bNEXT STEP:",
+    "NEXT\u200bSTEP:",
+    "NEXT\u180eSTEP:",
+    "\uff2e\uff25\uff38\uff34 \uff33\uff34\uff25\uff30:",
+    "n\u0435xt step:",
+    "NEXT STEP:\rCoffee: x",
+    "NEXT STEP: a\rb",
+    "NEXT STEP: a\u2028b",
+    "NEXT STEP: a\n",
+    "NEXT STEP:\n",
+    "NEXT STEP: a\nb",
+    "NEXT STEP: \U0001f600 \ud800",
+    "NEXT STEP:\x0b\x0c Coffee: x",
+]
+
+
+def regex_code_points(pattern, flags=0):
+    """Every code point that `pattern` matches as a single character."""
+    every_code_point = "".join(chr(code_point) for code_point in range(0x110000))
+    return [match.start() for match in re.finditer(pattern, every_code_point, flags)]
+
+
+def next_step_marker_group(line):
+    match = NEXT_STEP_MARKER_PATTERN.match(line)
+    return match.group(1) if match else None
+
 def raises(function, *args):
     try:
         return False, function(*args)
@@ -664,6 +762,22 @@ def build_table():
                 .isoformat(),
             }
             for instant in COPENHAGEN_INSTANTS
+        ],
+        "splitlines": [
+            {"input": s, "output": s.splitlines()}
+            for s in STRING_SAMPLES + SPLITLINES_SAMPLES
+        ],
+        "regex_ignorecase_letters": [
+            {"input": letter, "output": regex_code_points(letter, re.IGNORECASE)}
+            for letter in REGEX_IGNORECASE_LETTERS
+        ],
+        "regex_space": regex_code_points(r"\s", re.IGNORECASE),
+        "regex_dot_excluded": sorted(
+            set(range(0x110000)) - set(regex_code_points(".", re.IGNORECASE))
+        ),
+        "next_step_marker": [
+            {"input": line, "output": next_step_marker_group(line)}
+            for line in NEXT_STEP_MARKER_LINES
         ],
     }
 
