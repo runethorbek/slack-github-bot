@@ -1,0 +1,40 @@
+{
+  "name": "slack_post_http_401",
+  "description": "Authorized DM where chat.postMessage returns HTTP 401: raise_slack_credential_error turns it into a secret-free RuntimeError that escapes uncaught.",
+  "entrypoint": "main",
+  "today": "2026-10-13",
+  "env": {
+    "SLACK_BOT_TOKEN": "xoxb-CANARY-SLACK-TOKEN",
+    "AUTHORIZED_SLACK_USER_ID": "U-AUTH",
+    "TASKS_SLACK_CHANNEL_ID": "C-TASKS",
+    "GEMINI_API_KEY": "CANARY-GEMINI-KEY",
+    "NOTION_API_KEY": "secret_CANARY_NOTION_KEY",
+    "NOTION_TASKS_DATA_SOURCE_ID": "ds-tasks",
+    "NOTION_PEOPLE_DATA_SOURCE_ID": "ds-people",
+    "NOTION_INTERACTIONS_DATA_SOURCE_ID": "ds-interactions",
+    "NOTION_TRACKS_DATA_SOURCE_ID": "ds-tracks",
+    "SLACK_EVENT_TYPE": "message",
+    "SLACK_CHANNEL_TYPE": "im",
+    "SLACK_CHANNEL_ID": "D-PRIVATE",
+    "SLACK_USER_ID": "U-AUTH",
+    "SLACK_TEXT": "Hej, her er noget privat: CANARY-PRIVATE æøå",
+    "SLACK_EVENT_TS": "100.001",
+    "SLACK_THREAD_TS": ""
+  },
+  "http": [
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage"
+      },
+      "response": {
+        "status": 401,
+        "json": {
+          "ok": false,
+          "error": "invalid_auth"
+        }
+      }
+    }
+  ],
+  "gemini": []
+}

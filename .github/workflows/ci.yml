@@ -46,3 +46,7 @@ jobs:
       - name: Check the Python-semantics golden table is current
         if: hashFiles('requirements.txt') != ''
         run: python tests/equivalence/generate_python_compat_golden.py --check
+
+      - name: Check the end-to-end scenario goldens are current
+        if: hashFiles('requirements.txt') != ''
+        run: python tests/equivalence/record_python.py --check

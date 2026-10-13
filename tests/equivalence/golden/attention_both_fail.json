@@ -1,0 +1,34 @@
+{
+  "exit": {
+    "code": 1
+  },
+  "gemini_calls": [],
+  "http_calls": [
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "filter": {
+          "property": "Status",
+          "status": {
+            "does_not_equal": "F\u00e6rdig"
+          }
+        },
+        "page_size": 100
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-tasks/query"
+    }
+  ],
+  "sleeps": [],
+  "stdout": [
+    "::error::Tasks unavailable: Notion authentication failed (HTTP 401).",
+    "::error::People unavailable: missing configuration NOTION_PEOPLE_DATA_SOURCE_ID",
+    "::error::Tasks and People are both unavailable; no summary sent."
+  ]
+}

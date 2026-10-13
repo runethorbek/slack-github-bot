@@ -1,0 +1,13 @@
+{
+  "exit": {
+    "code": 1,
+    "uncaught": {
+      "message": "Received Slack DM event without a conversation root timestamp",
+      "type": "RuntimeError"
+    }
+  },
+  "gemini_calls": [],
+  "http_calls": [],
+  "sleeps": [],
+  "stdout": []
+}

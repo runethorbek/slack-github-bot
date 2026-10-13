@@ -1,0 +1,29 @@
+{
+  "name": "attention_both_fail",
+  "description": "Attention summary where Tasks gets Notion 401 and People lacks NOTION_PEOPLE_DATA_SOURCE_ID: both described safely, no DM, exit 1.",
+  "entrypoint": "attention_summary",
+  "today": "2026-10-13",
+  "env": {
+    "SLACK_BOT_TOKEN": "xoxb-CANARY-SLACK-TOKEN",
+    "AUTHORIZED_SLACK_USER_ID": "U-AUTH",
+    "NOTION_API_KEY": "secret_CANARY_NOTION_KEY",
+    "NOTION_TASKS_DATA_SOURCE_ID": "ds-tasks",
+    "NOTION_INTERACTIONS_DATA_SOURCE_ID": "ds-interactions"
+  },
+  "http": [
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/data_sources/ds-tasks/query"
+      },
+      "response": {
+        "status": 401,
+        "json": {
+          "object": "error",
+          "status": 401
+        }
+      }
+    }
+  ],
+  "gemini": []
+}

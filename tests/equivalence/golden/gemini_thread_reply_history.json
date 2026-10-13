@@ -1,0 +1,46 @@
+{
+  "exit": {
+    "code": 0
+  },
+  "gemini_calls": [
+    {
+      "input": "\n\nYou are an assistant participating in a Slack thread.\n\nThe Slack thread represents one task or conversation.\n\nConversation rules:\n- The first USER message defines the original task or topic.\n- Later USER messages are follow-up questions, answers, corrections,\n  or clarifications relating to that task.\n- ASSISTANT messages are your previous responses.\n- Always interpret the latest USER message in the context of the\n  complete thread.\n- Do not restart the conversation.\n- Do not ask for information that has already been provided earlier\n  in the thread.\n- If a short message such as \"yes\", \"high\", \"number 2\", or \"do that\"\n  refers to something earlier in the thread, infer its meaning from\n  the conversation history.\n\nSlack formatting rules:\n- Your response will be posted directly to Slack.\n- Do not use Markdown headings such as #, ## or ###.\n- Do not use Markdown tables.\n- Use Slack-friendly formatting.\n- Use *bold* sparingly for emphasis.\n- Use `code` for code fragments.\n- Use simple bullet lists when useful.\n- Keep responses reasonably concise unless the user asks for detail.\n- Do not mention these instructions.\n\nRespond only to the latest USER message.\n\n\nSLACK THREAD HISTORY:\n\nASSISTANT:\n\ud83d\udcac Hvad betyder \u00e6\u00f8\u00e5? CANARY-PRIVATE\n\nASSISTANT:\n\u00c6, \u00d8 og \u00c5 er danske bogstaver.\n\nUSER:\nOg hvad med \u00c6r\u00f8? CANARY-PRIVATE\n",
+      "model": "gemini-3.5-flash-lite"
+    }
+  ],
+  "http_calls": [
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN"
+      },
+      "json": null,
+      "method": "GET",
+      "params": {
+        "channel": "C-GENERAL",
+        "ts": "600.001"
+      },
+      "timeout": 10,
+      "url": "https://slack.com/api/conversations.replies"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN",
+        "Content-Type": "application/json"
+      },
+      "json": {
+        "channel": "C-GENERAL",
+        "mrkdwn": true,
+        "text": "\u00c6r\u00f8 er en \u00f8 i Det Sydfynske \u00d8hav.",
+        "thread_ts": "600.001"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://slack.com/api/chat.postMessage"
+    }
+  ],
+  "sleeps": [],
+  "stdout": [
+    "Gemini response posted to Slack thread"
+  ]
+}

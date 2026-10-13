@@ -150,7 +150,7 @@ Each module defines its user-facing text as constants. The TypeScript port must 
 | S8 | The workflow masks payload text fields and the response URL. The response URL is exported via `$GITHUB_ENV`, never through an `env:` mapping. | `slack-message.yml` |
 | S9 | Non-idempotent Task create retries only on HTTP 429. A 5xx, timeout or connection error gives the "may not have been added" message instead of a retry. | `followup_task.create_task_page` |
 | S10 | Reads and output are bounded: 500 scanned rows, 20 displayed, 25 Track options, 5 Interactions, 5 resolved Tracks, 500-char Purpose, 3000-char Slack section, 2000-char button value, 75-char button text, and limits of 150/500 chars and 365 days on a suggested Task. | constants |
-| S11 | Notion credential failures (401, and 403 where configured) raise `NotionAuthenticationError` and fail the run visibly. Best-effort paths (Track selector, Type options, follow-up buttons) degrade instead. | `call_notion_with_retries` and its callers |
+| S11 | Notion credential failures (401, and 403 where configured) raise `NotionAuthenticationError` and fail the run visibly on read commands. Best-effort paths (Track selector, Type options, follow-up buttons) degrade instead, and so do both write handlers, which catch it and post a generic failure (see TECH-DEBT TD7). | `call_notion_with_retries` and its callers |
 
 ## 7. Observed quirks that must be preserved, not fixed
 

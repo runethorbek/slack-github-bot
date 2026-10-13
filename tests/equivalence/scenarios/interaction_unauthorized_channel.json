@@ -1,0 +1,31 @@
+{
+  "name": "interaction_unauthorized_channel",
+  "description": "Add Interaction submitted from a non-configured channel (S2): ignored before any Notion call.",
+  "entrypoint": "main",
+  "today": "2026-10-13",
+  "env": {
+    "SLACK_BOT_TOKEN": "xoxb-CANARY-SLACK-TOKEN",
+    "AUTHORIZED_SLACK_USER_ID": "U-AUTH",
+    "TASKS_SLACK_CHANNEL_ID": "C-TASKS",
+    "GEMINI_API_KEY": "CANARY-GEMINI-KEY",
+    "NOTION_API_KEY": "secret_CANARY_NOTION_KEY",
+    "NOTION_TASKS_DATA_SOURCE_ID": "ds-tasks",
+    "NOTION_PEOPLE_DATA_SOURCE_ID": "ds-people",
+    "NOTION_INTERACTIONS_DATA_SOURCE_ID": "ds-interactions",
+    "NOTION_TRACKS_DATA_SOURCE_ID": "ds-tracks",
+    "SLACK_EVENT_TYPE": "view_submission",
+    "SLACK_TEXT": "",
+    "SLACK_CHANNEL_ID": "C-OTHER",
+    "SLACK_CHANNEL_TYPE": "channel",
+    "SLACK_USER_ID": "U-AUTH",
+    "SLACK_THREAD_TS": "500.001",
+    "SLACK_PERSON": "{\"page_id\": \"p-aase\", \"name\": \"\\u00c5se \\u00d8rsted\"}",
+    "SLACK_VIEW_CALLBACK_ID": "add_interaction_modal",
+    "SLACK_INTERACTION_TYPE": "Kaffe",
+    "SLACK_INTERACTION_NOTES": "Aftalte at sende AI-artiklen fredag. CANARY-PRIVATE",
+    "SLACK_INTERACTION_DATE": "2026-10-12",
+    "SLACK_INTERACTION_TRACK_ID": "track-ai"
+  },
+  "http": [],
+  "gemini": []
+}

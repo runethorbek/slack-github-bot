@@ -1,0 +1,669 @@
+{
+  "name": "tasks_list_mixed",
+  "description": "/tasks list: overdue, today, <=7 days, >7 days (excluded), undated, priorities and name ordering, Track resolution (one 404 Track shown as unavailable, a Task with 4 Tracks shows 3 plus '+1 more'), a Færdig task (excluded), one malformed task and one Follow-up with a time (BASELINE §7 quirk 1, skipped as malformed).",
+  "entrypoint": "main",
+  "today": "2026-10-13",
+  "env": {
+    "SLACK_BOT_TOKEN": "xoxb-CANARY-SLACK-TOKEN",
+    "AUTHORIZED_SLACK_USER_ID": "U-AUTH",
+    "TASKS_SLACK_CHANNEL_ID": "C-TASKS",
+    "GEMINI_API_KEY": "CANARY-GEMINI-KEY",
+    "NOTION_API_KEY": "secret_CANARY_NOTION_KEY",
+    "NOTION_TASKS_DATA_SOURCE_ID": "ds-tasks",
+    "NOTION_PEOPLE_DATA_SOURCE_ID": "ds-people",
+    "NOTION_INTERACTIONS_DATA_SOURCE_ID": "ds-interactions",
+    "NOTION_TRACKS_DATA_SOURCE_ID": "ds-tracks",
+    "SLACK_EVENT_TYPE": "slash_command",
+    "SLACK_COMMAND": "/tasks",
+    "SLACK_TEXT": " LIST ",
+    "SLACK_CHANNEL_ID": "C-TASKS",
+    "SLACK_CHANNEL_TYPE": "channel",
+    "SLACK_USER_ID": "U-AUTH",
+    "SLACK_RESPONSE_URL": "https://hooks.slack.com/commands/CANARY-RESPONSE-URL"
+  },
+  "http": [
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "ok": true,
+          "ts": "200.001"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/data_sources/ds-tasks/query"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "object": "list",
+          "results": [
+            {
+              "id": "task-later",
+              "url": "https://www.notion.so/task-later",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Planlæg næste kvartal"
+                    }
+                  ]
+                },
+                "Status": {
+                  "type": "status",
+                  "status": {
+                    "name": "Ikke startet"
+                  }
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": {
+                    "name": "High"
+                  }
+                },
+                "Follow-up": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-10-25"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "task-today-medium",
+              "url": "https://www.notion.so/task-today-medium",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Ring til Søren"
+                    }
+                  ]
+                },
+                "Status": {
+                  "type": "status",
+                  "status": {
+                    "name": "Ikke startet"
+                  }
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": {
+                    "name": "Medium"
+                  }
+                },
+                "Follow-up": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-10-13"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": [
+                    {
+                      "id": "track-ai"
+                    },
+                    {
+                      "id": "track-gone"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "id": "task-overdue",
+              "url": "https://www.notion.so/task-overdue",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Svar på Åses mail"
+                    }
+                  ]
+                },
+                "Status": {
+                  "type": "status",
+                  "status": {
+                    "name": "Ikke startet"
+                  }
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": {
+                    "name": "Low"
+                  }
+                },
+                "Follow-up": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-10-01"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": [
+                    {
+                      "id": "track-ai"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "id": "task-today-high",
+              "url": "https://www.notion.so/task-today-high",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Øv præsentation"
+                    }
+                  ]
+                },
+                "Status": {
+                  "type": "status",
+                  "status": {
+                    "name": "Ikke startet"
+                  }
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": {
+                    "name": "High"
+                  }
+                },
+                "Follow-up": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-10-13"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "task-today-high-b",
+              "url": "https://www.notion.so/task-today-high-b",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "bestil æbler"
+                    }
+                  ]
+                },
+                "Status": {
+                  "type": "status",
+                  "status": {
+                    "name": "Ikke startet"
+                  }
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": {
+                    "name": "High"
+                  }
+                },
+                "Follow-up": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-10-13"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "task-soon",
+              "url": "https://www.notion.so/task-soon",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Forbered workshop"
+                    }
+                  ]
+                },
+                "Status": {
+                  "type": "status",
+                  "status": {
+                    "name": "Ikke startet"
+                  }
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": null
+                },
+                "Follow-up": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-10-20"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": [
+                    {
+                      "id": "track-oresund"
+                    },
+                    {
+                      "id": "track-net"
+                    },
+                    {
+                      "id": "track-x1"
+                    },
+                    {
+                      "id": "track-x2"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "id": "task-week-edge",
+              "url": "https://www.notion.so/task-week-edge",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Skriv rapport"
+                    }
+                  ]
+                },
+                "Status": {
+                  "type": "status",
+                  "status": {
+                    "name": "Ikke startet"
+                  }
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": {
+                    "name": "Medium"
+                  }
+                },
+                "Follow-up": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-10-20"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "task-undated",
+              "url": "https://www.notion.so/task-undated",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Læs bog om æstetik"
+                    }
+                  ]
+                },
+                "Status": {
+                  "type": "status",
+                  "status": {
+                    "name": "Ikke startet"
+                  }
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": null
+                },
+                "Follow-up": {
+                  "type": "date",
+                  "date": null
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "task-undated-high",
+              "url": "https://www.notion.so/task-undated-high",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Aftal frokost"
+                    }
+                  ]
+                },
+                "Status": {
+                  "type": "status",
+                  "status": {
+                    "name": "Ikke startet"
+                  }
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": {
+                    "name": "High"
+                  }
+                },
+                "Follow-up": {
+                  "type": "date",
+                  "date": null
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "task-done",
+              "url": "https://www.notion.so/task-done",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Afsluttet opgave"
+                    }
+                  ]
+                },
+                "Status": {
+                  "type": "status",
+                  "status": {
+                    "name": "Færdig"
+                  }
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": {
+                    "name": "High"
+                  }
+                },
+                "Follow-up": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-10-01"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "task-broken",
+              "url": "https://www.notion.so/task-broken",
+              "properties": {
+                "Name": {
+                  "type": "title",
+                  "title": []
+                },
+                "Status": {
+                  "type": "status",
+                  "status": {
+                    "name": "Ikke startet"
+                  }
+                }
+              }
+            },
+            {
+              "id": "task-with-time",
+              "url": "https://www.notion.so/task-with-time",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Opgave med klokkeslæt"
+                    }
+                  ]
+                },
+                "Status": {
+                  "type": "status",
+                  "status": {
+                    "name": "Ikke startet"
+                  }
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": {
+                    "name": "High"
+                  }
+                },
+                "Follow-up": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-10-13T09:00:00.000+02:00"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            }
+          ],
+          "has_more": false,
+          "next_cursor": null
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "GET",
+        "url": "https://api.notion.com/v1/pages/track-ai"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "id": "track-ai",
+          "object": "page",
+          "properties": {
+            "Navn": {
+              "id": "title",
+              "type": "title",
+              "title": [
+                {
+                  "plain_text": "Læring om AI"
+                }
+              ]
+            },
+            "Priority": {
+              "type": "select",
+              "select": {
+                "name": "High"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "GET",
+        "url": "https://api.notion.com/v1/pages/track-gone"
+      },
+      "response": {
+        "status": 404,
+        "json": {
+          "object": "error",
+          "status": 404
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "GET",
+        "url": "https://api.notion.com/v1/pages/track-oresund"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "id": "track-oresund",
+          "object": "page",
+          "properties": {
+            "Navn": {
+              "id": "title",
+              "type": "title",
+              "title": [
+                {
+                  "plain_text": "Øresund-projekt"
+                }
+              ]
+            },
+            "Priority": {
+              "type": "select",
+              "select": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "GET",
+        "url": "https://api.notion.com/v1/pages/track-net"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "id": "track-net",
+          "object": "page",
+          "properties": {
+            "Navn": {
+              "id": "title",
+              "type": "title",
+              "title": [
+                {
+                  "plain_text": "Netværk"
+                }
+              ]
+            },
+            "Priority": {
+              "type": "select",
+              "select": {
+                "name": "Medium"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "GET",
+        "url": "https://api.notion.com/v1/pages/track-x1"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "id": "track-x1",
+          "object": "page",
+          "properties": {
+            "Navn": {
+              "id": "title",
+              "type": "title",
+              "title": [
+                {
+                  "plain_text": "Ærø-samarbejde"
+                }
+              ]
+            },
+            "Priority": {
+              "type": "select",
+              "select": {
+                "name": "Low"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "GET",
+        "url": "https://api.notion.com/v1/pages/track-x2"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "id": "track-x2",
+          "object": "page",
+          "properties": {
+            "Navn": {
+              "id": "title",
+              "type": "title",
+              "title": [
+                {
+                  "plain_text": "Bestyrelse"
+                }
+              ]
+            },
+            "Priority": {
+              "type": "select",
+              "select": {
+                "name": "High"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "ok": true,
+          "ts": "200.002"
+        }
+      }
+    }
+  ],
+  "gemini": []
+}

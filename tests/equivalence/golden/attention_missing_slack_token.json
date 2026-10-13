@@ -1,0 +1,11 @@
+{
+  "exit": {
+    "code": 1
+  },
+  "gemini_calls": [],
+  "http_calls": [],
+  "sleeps": [],
+  "stdout": [
+    "::error::SLACK_BOT_TOKEN and AUTHORIZED_SLACK_USER_ID are required"
+  ]
+}

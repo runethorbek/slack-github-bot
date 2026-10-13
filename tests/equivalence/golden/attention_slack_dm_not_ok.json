@@ -1,0 +1,103 @@
+{
+  "exit": {
+    "code": 1
+  },
+  "gemini_calls": [],
+  "http_calls": [
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "filter": {
+          "property": "Status",
+          "status": {
+            "does_not_equal": "F\u00e6rdig"
+          }
+        },
+        "page_size": 100
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-tasks/query"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "filter": {
+          "property": "Contact cadence",
+          "select": {
+            "is_not_empty": true
+          }
+        },
+        "page_size": 100
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-people/query"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "filter": {
+          "and": [
+            {
+              "date": {
+                "is_not_empty": true
+              },
+              "property": "Date"
+            },
+            {
+              "date": {
+                "on_or_before": "2026-10-13"
+              },
+              "property": "Date"
+            }
+          ]
+        },
+        "page_size": 100,
+        "sorts": [
+          {
+            "direction": "descending",
+            "property": "Date"
+          }
+        ]
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-interactions/query"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN",
+        "Content-Type": "application/json"
+      },
+      "json": {
+        "channel": "U-AUTH",
+        "mrkdwn": true,
+        "text": "*Attention summary*\n\n*Tasks*\n\u2022 <https://www.notion.so/task-overdue|Svar p\u00e5 \u00c5ses mail> \u2014 Priority: Low \u2014 Overdue: 2026-10-01"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://slack.com/api/chat.postMessage"
+    }
+  ],
+  "sleeps": [],
+  "stdout": [
+    "::error::Slack DM delivery failed (channel_not_found)."
+  ]
+}

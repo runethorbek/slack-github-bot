@@ -1,0 +1,126 @@
+{
+  "exit": {
+    "code": 0
+  },
+  "gemini_calls": [],
+  "http_calls": [
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": null,
+      "method": "GET",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-tasks"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "page_size": 25
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-tracks/query"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "parent": {
+          "data_source_id": "ds-tasks"
+        },
+        "properties": {
+          "Created": {
+            "date": {
+              "start": "2026-10-13"
+            }
+          },
+          "Description": {
+            "rich_text": [
+              {
+                "text": {
+                  "content": "Husk \u00e6\u00f8\u00e5 og linket. CANARY-PRIVATE"
+                },
+                "type": "text"
+              }
+            ]
+          },
+          "Follow-up": {
+            "date": {
+              "start": "2026-10-20"
+            }
+          },
+          "Opgave": {
+            "title": [
+              {
+                "text": {
+                  "content": "Send AI-artiklen"
+                },
+                "type": "text"
+              }
+            ]
+          },
+          "People": {
+            "relation": [
+              {
+                "id": "p-aase"
+              }
+            ]
+          },
+          "Priority": {
+            "select": {
+              "name": "High"
+            }
+          },
+          "Status": {
+            "status": {
+              "name": "Ikke startet"
+            }
+          },
+          "Track": {
+            "relation": [
+              {
+                "id": "track-ai"
+              }
+            ]
+          }
+        }
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/pages"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN",
+        "Content-Type": "application/json"
+      },
+      "json": {
+        "channel": "C-TASKS",
+        "mrkdwn": true,
+        "text": "Follow-up task added for \u00c5se \u00d8rsted: Send AI-artiklen",
+        "thread_ts": "500.001"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://slack.com/api/chat.postMessage"
+    }
+  ],
+  "sleeps": [],
+  "stdout": [
+    "Add follow-up Task submission handled"
+  ]
+}

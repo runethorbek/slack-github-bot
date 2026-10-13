@@ -1,0 +1,594 @@
+{
+  "name": "people_due_mixed",
+  "description": "/people due from the authorized DM: due today (with LinkedIn link), overdue, leap-day and month-end calendar arithmetic, a datetime Interaction in its own offset, not-due, no valid interaction, a future-dated Interaction ignored, and one malformed Person skipped; blocks with Suggest buttons.",
+  "entrypoint": "main",
+  "today": "2026-10-13",
+  "env": {
+    "SLACK_BOT_TOKEN": "xoxb-CANARY-SLACK-TOKEN",
+    "AUTHORIZED_SLACK_USER_ID": "U-AUTH",
+    "TASKS_SLACK_CHANNEL_ID": "C-TASKS",
+    "GEMINI_API_KEY": "CANARY-GEMINI-KEY",
+    "NOTION_API_KEY": "secret_CANARY_NOTION_KEY",
+    "NOTION_TASKS_DATA_SOURCE_ID": "ds-tasks",
+    "NOTION_PEOPLE_DATA_SOURCE_ID": "ds-people",
+    "NOTION_INTERACTIONS_DATA_SOURCE_ID": "ds-interactions",
+    "NOTION_TRACKS_DATA_SOURCE_ID": "ds-tracks",
+    "SLACK_EVENT_TYPE": "slash_command",
+    "SLACK_COMMAND": "/people",
+    "SLACK_TEXT": "Due",
+    "SLACK_CHANNEL_ID": "D-PRIVATE",
+    "SLACK_CHANNEL_TYPE": "im",
+    "SLACK_USER_ID": "U-AUTH",
+    "SLACK_RESPONSE_URL": "https://hooks.slack.com/commands/CANARY-RESPONSE-URL"
+  },
+  "http": [
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "ok": true,
+          "ts": "300.001"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/data_sources/ds-people/query"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "object": "list",
+          "results": [
+            {
+              "id": "p-aase",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Åse Ørsted"
+                    }
+                  ]
+                },
+                "Contact cadence": {
+                  "type": "select",
+                  "select": {
+                    "name": "1 month"
+                  }
+                },
+                "LinkedIn": {
+                  "type": "url",
+                  "url": "https://www.linkedin.com/in/aase-orsted"
+                }
+              }
+            },
+            {
+              "id": "p-bjorn",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Bjørn Ågård"
+                    }
+                  ]
+                },
+                "Contact cadence": {
+                  "type": "select",
+                  "select": {
+                    "name": "3 months"
+                  }
+                }
+              }
+            },
+            {
+              "id": "p-dorthe",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Dorthe Æbelø"
+                    }
+                  ]
+                },
+                "Contact cadence": {
+                  "type": "select",
+                  "select": {
+                    "name": "12 months"
+                  }
+                }
+              }
+            },
+            {
+              "id": "p-erik",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Erik Nielsen"
+                    }
+                  ]
+                },
+                "Contact cadence": {
+                  "type": "select",
+                  "select": {
+                    "name": "1 month"
+                  }
+                }
+              }
+            },
+            {
+              "id": "p-frida",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Frida Holm"
+                    }
+                  ]
+                },
+                "Contact cadence": {
+                  "type": "select",
+                  "select": {
+                    "name": "6 months"
+                  }
+                }
+              }
+            },
+            {
+              "id": "p-gustav",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Gustav Lund"
+                    }
+                  ]
+                },
+                "Contact cadence": {
+                  "type": "select",
+                  "select": {
+                    "name": "1 month"
+                  }
+                }
+              }
+            },
+            {
+              "id": "p-hanne",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "hanne Berg"
+                    }
+                  ]
+                },
+                "Contact cadence": {
+                  "type": "select",
+                  "select": {
+                    "name": "2 months"
+                  }
+                }
+              }
+            },
+            {
+              "id": "p-malformed",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Ingen Kadence"
+                    }
+                  ]
+                },
+                "Contact cadence": {
+                  "type": "select",
+                  "select": {
+                    "name": "weekly"
+                  }
+                }
+              }
+            }
+          ],
+          "has_more": false,
+          "next_cursor": null
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/data_sources/ds-interactions/query"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "object": "list",
+          "results": [
+            {
+              "id": "i-1",
+              "properties": {
+                "Navn": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": ""
+                    }
+                  ]
+                },
+                "Date": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-09-13"
+                  }
+                },
+                "People": {
+                  "type": "relation",
+                  "relation": [
+                    {
+                      "id": "p-aase"
+                    }
+                  ]
+                },
+                "Type": {
+                  "type": "select",
+                  "select": {
+                    "name": "Kaffe"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "i-2",
+              "properties": {
+                "Navn": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": ""
+                    }
+                  ]
+                },
+                "Date": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-08-01"
+                  }
+                },
+                "People": {
+                  "type": "relation",
+                  "relation": [
+                    {
+                      "id": "p-aase"
+                    }
+                  ]
+                },
+                "Type": {
+                  "type": "select",
+                  "select": {
+                    "name": "Møde"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "i-3",
+              "properties": {
+                "Navn": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": ""
+                    }
+                  ]
+                },
+                "Date": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-06-30"
+                  }
+                },
+                "People": {
+                  "type": "relation",
+                  "relation": [
+                    {
+                      "id": "p-bjorn"
+                    }
+                  ]
+                },
+                "Type": {
+                  "type": "select",
+                  "select": {
+                    "name": "Opkald"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "i-4",
+              "properties": {
+                "Navn": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": ""
+                    }
+                  ]
+                },
+                "Date": {
+                  "type": "date",
+                  "date": {
+                    "start": "2024-02-29"
+                  }
+                },
+                "People": {
+                  "type": "relation",
+                  "relation": [
+                    {
+                      "id": "p-dorthe"
+                    }
+                  ]
+                },
+                "Type": {
+                  "type": "select",
+                  "select": {
+                    "name": "Møde"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "i-5",
+              "properties": {
+                "Navn": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": ""
+                    }
+                  ]
+                },
+                "Date": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-09-14"
+                  }
+                },
+                "People": {
+                  "type": "relation",
+                  "relation": [
+                    {
+                      "id": "p-erik"
+                    }
+                  ]
+                },
+                "Type": {
+                  "type": "select",
+                  "select": {
+                    "name": "Kaffe"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "i-6",
+              "properties": {
+                "Navn": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": ""
+                    }
+                  ]
+                },
+                "Date": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-10-20"
+                  }
+                },
+                "People": {
+                  "type": "relation",
+                  "relation": [
+                    {
+                      "id": "p-erik"
+                    }
+                  ]
+                },
+                "Type": {
+                  "type": "select",
+                  "select": {
+                    "name": "Kaffe"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "i-7",
+              "properties": {
+                "Navn": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": ""
+                    }
+                  ]
+                },
+                "Date": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-08-31T23:30:00.000-01:00"
+                  }
+                },
+                "People": {
+                  "type": "relation",
+                  "relation": [
+                    {
+                      "id": "p-gustav"
+                    }
+                  ]
+                },
+                "Type": {
+                  "type": "select",
+                  "select": {
+                    "name": "Opkald"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "i-8",
+              "properties": {
+                "Navn": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": ""
+                    }
+                  ]
+                },
+                "Date": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-07-31"
+                  }
+                },
+                "People": {
+                  "type": "relation",
+                  "relation": [
+                    {
+                      "id": "p-hanne"
+                    },
+                    {
+                      "id": "p-unknown"
+                    }
+                  ]
+                },
+                "Type": {
+                  "type": "select",
+                  "select": {
+                    "name": "Møde"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "i-9",
+              "properties": {
+                "Navn": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": ""
+                    }
+                  ]
+                },
+                "Date": {
+                  "type": "date",
+                  "date": {
+                    "start": "not-a-date"
+                  }
+                },
+                "People": {
+                  "type": "relation",
+                  "relation": [
+                    {
+                      "id": "p-frida"
+                    }
+                  ]
+                },
+                "Type": {
+                  "type": "select",
+                  "select": {
+                    "name": "Møde"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            }
+          ],
+          "has_more": false,
+          "next_cursor": null
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "ok": true,
+          "ts": "300.002"
+        }
+      }
+    }
+  ],
+  "gemini": []
+}

@@ -1,0 +1,11 @@
+{
+  "exit": {
+    "code": 0
+  },
+  "gemini_calls": [],
+  "http_calls": [],
+  "sleeps": [],
+  "stdout": [
+    "Unauthorized Slack DM ignored"
+  ]
+}

@@ -1,0 +1,614 @@
+{
+  "name": "attention_both_sections_over_5",
+  "description": "Attention summary with 7 dated tasks, 2 undated and 1 malformed, and 7 due People (one with LinkedIn) plus an incomplete Interactions scan and a malformed Person: both sections capped at 5 with '+2 more'; DM sent; exit 0.",
+  "entrypoint": "attention_summary",
+  "today": "2026-10-13",
+  "env": {
+    "SLACK_BOT_TOKEN": "xoxb-CANARY-SLACK-TOKEN",
+    "AUTHORIZED_SLACK_USER_ID": "U-AUTH",
+    "NOTION_API_KEY": "secret_CANARY_NOTION_KEY",
+    "NOTION_TASKS_DATA_SOURCE_ID": "ds-tasks",
+    "NOTION_PEOPLE_DATA_SOURCE_ID": "ds-people",
+    "NOTION_INTERACTIONS_DATA_SOURCE_ID": "ds-interactions"
+  },
+  "http": [
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/data_sources/ds-tasks/query"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "object": "list",
+          "results": [
+            {
+              "id": "task-due-0",
+              "url": "https://www.notion.so/task-due-0",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Opgave 0 – æøå"
+                    }
+                  ]
+                },
+                "Status": {
+                  "type": "status",
+                  "status": {
+                    "name": "Ikke startet"
+                  }
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": {
+                    "name": "High"
+                  }
+                },
+                "Follow-up": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-10-05"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "task-due-1",
+              "url": "https://www.notion.so/task-due-1",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Opgave 1 – æøå"
+                    }
+                  ]
+                },
+                "Status": {
+                  "type": "status",
+                  "status": {
+                    "name": "Ikke startet"
+                  }
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": null
+                },
+                "Follow-up": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-10-06"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "task-due-2",
+              "url": "https://www.notion.so/task-due-2",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Opgave 2 – æøå"
+                    }
+                  ]
+                },
+                "Status": {
+                  "type": "status",
+                  "status": {
+                    "name": "Ikke startet"
+                  }
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": {
+                    "name": "Low"
+                  }
+                },
+                "Follow-up": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-10-07"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "task-due-3",
+              "url": "https://www.notion.so/task-due-3",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Opgave 3 – æøå"
+                    }
+                  ]
+                },
+                "Status": {
+                  "type": "status",
+                  "status": {
+                    "name": "Ikke startet"
+                  }
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": {
+                    "name": "High"
+                  }
+                },
+                "Follow-up": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-10-08"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "task-due-4",
+              "url": "https://www.notion.so/task-due-4",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Opgave 4 – æøå"
+                    }
+                  ]
+                },
+                "Status": {
+                  "type": "status",
+                  "status": {
+                    "name": "Ikke startet"
+                  }
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": null
+                },
+                "Follow-up": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-10-09"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "task-due-5",
+              "url": "https://www.notion.so/task-due-5",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Opgave 5 – æøå"
+                    }
+                  ]
+                },
+                "Status": {
+                  "type": "status",
+                  "status": {
+                    "name": "Ikke startet"
+                  }
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": {
+                    "name": "Low"
+                  }
+                },
+                "Follow-up": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-10-10"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "task-due-6",
+              "url": "https://www.notion.so/task-due-6",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Opgave 6 – æøå"
+                    }
+                  ]
+                },
+                "Status": {
+                  "type": "status",
+                  "status": {
+                    "name": "Ikke startet"
+                  }
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": {
+                    "name": "High"
+                  }
+                },
+                "Follow-up": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-10-11"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "task-undated-1",
+              "url": "https://www.notion.so/task-undated-1",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Udateret 1"
+                    }
+                  ]
+                },
+                "Status": {
+                  "type": "status",
+                  "status": {
+                    "name": "Ikke startet"
+                  }
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": {
+                    "name": "High"
+                  }
+                },
+                "Follow-up": {
+                  "type": "date",
+                  "date": null
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "task-undated-2",
+              "url": "https://www.notion.so/task-undated-2",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Udateret 2"
+                    }
+                  ]
+                },
+                "Status": {
+                  "type": "status",
+                  "status": {
+                    "name": "Ikke startet"
+                  }
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": null
+                },
+                "Follow-up": {
+                  "type": "date",
+                  "date": null
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            },
+            {
+              "id": "task-broken",
+              "url": "",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Uden URL"
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "has_more": false,
+          "next_cursor": null
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/data_sources/ds-people/query"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "object": "list",
+          "results": [
+            {
+              "id": "p-0",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Person 0 Ø"
+                    }
+                  ]
+                },
+                "Contact cadence": {
+                  "type": "select",
+                  "select": {
+                    "name": "1 month"
+                  }
+                },
+                "LinkedIn": {
+                  "type": "url",
+                  "url": "https://www.linkedin.com/in/p0"
+                }
+              }
+            },
+            {
+              "id": "p-1",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Person 1 Ø"
+                    }
+                  ]
+                },
+                "Contact cadence": {
+                  "type": "select",
+                  "select": {
+                    "name": "1 month"
+                  }
+                }
+              }
+            },
+            {
+              "id": "p-2",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Person 2 Ø"
+                    }
+                  ]
+                },
+                "Contact cadence": {
+                  "type": "select",
+                  "select": {
+                    "name": "1 month"
+                  }
+                }
+              }
+            },
+            {
+              "id": "p-3",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Person 3 Ø"
+                    }
+                  ]
+                },
+                "Contact cadence": {
+                  "type": "select",
+                  "select": {
+                    "name": "1 month"
+                  }
+                }
+              }
+            },
+            {
+              "id": "p-4",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Person 4 Ø"
+                    }
+                  ]
+                },
+                "Contact cadence": {
+                  "type": "select",
+                  "select": {
+                    "name": "1 month"
+                  }
+                }
+              }
+            },
+            {
+              "id": "p-5",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Person 5 Ø"
+                    }
+                  ]
+                },
+                "Contact cadence": {
+                  "type": "select",
+                  "select": {
+                    "name": "1 month"
+                  }
+                }
+              }
+            },
+            {
+              "id": "p-6",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Person 6 Ø"
+                    }
+                  ]
+                },
+                "Contact cadence": {
+                  "type": "select",
+                  "select": {
+                    "name": "1 month"
+                  }
+                }
+              }
+            },
+            {
+              "id": "p-bad",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Ugyldig"
+                    }
+                  ]
+                },
+                "Contact cadence": {
+                  "type": "select",
+                  "select": null
+                }
+              }
+            }
+          ],
+          "has_more": false,
+          "next_cursor": null
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/data_sources/ds-interactions/query"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "object": "list",
+          "results": [
+            {
+              "id": "i-1",
+              "properties": {
+                "Navn": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": ""
+                    }
+                  ]
+                },
+                "Date": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-08-01"
+                  }
+                },
+                "People": {
+                  "type": "relation",
+                  "relation": [
+                    {
+                      "id": "p-3"
+                    }
+                  ]
+                },
+                "Type": {
+                  "type": "select",
+                  "select": null
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            }
+          ],
+          "has_more": true,
+          "next_cursor": null
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "ok": true,
+          "ts": "700.001"
+        }
+      }
+    }
+  ],
+  "gemini": []
+}

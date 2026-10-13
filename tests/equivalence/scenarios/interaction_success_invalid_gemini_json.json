@@ -1,0 +1,230 @@
+{
+  "name": "interaction_success_invalid_gemini_json",
+  "description": "Add Interaction from the authorized DM without a Track and without a Tracks data source: create succeeds; Gemini's non-JSON reply is discarded so only the plain 'Add follow-up task' button is offered.",
+  "entrypoint": "main",
+  "today": "2026-10-13",
+  "env": {
+    "SLACK_BOT_TOKEN": "xoxb-CANARY-SLACK-TOKEN",
+    "AUTHORIZED_SLACK_USER_ID": "U-AUTH",
+    "TASKS_SLACK_CHANNEL_ID": "C-TASKS",
+    "GEMINI_API_KEY": "CANARY-GEMINI-KEY",
+    "NOTION_API_KEY": "secret_CANARY_NOTION_KEY",
+    "NOTION_TASKS_DATA_SOURCE_ID": "ds-tasks",
+    "NOTION_PEOPLE_DATA_SOURCE_ID": "ds-people",
+    "NOTION_INTERACTIONS_DATA_SOURCE_ID": "ds-interactions",
+    "SLACK_EVENT_TYPE": "view_submission",
+    "SLACK_TEXT": "",
+    "SLACK_CHANNEL_ID": "D-PRIVATE",
+    "SLACK_CHANNEL_TYPE": "im",
+    "SLACK_USER_ID": "U-AUTH",
+    "SLACK_THREAD_TS": "500.001",
+    "SLACK_PERSON": "{\"page_id\": \"p-aase\", \"name\": \"\\u00c5se \\u00d8rsted\"}",
+    "SLACK_VIEW_CALLBACK_ID": "add_interaction_modal",
+    "SLACK_INTERACTION_TYPE": "Kaffe",
+    "SLACK_INTERACTION_NOTES": "Aftalte at sende AI-artiklen fredag. CANARY-PRIVATE",
+    "SLACK_INTERACTION_DATE": "2026-10-12",
+    "SLACK_INTERACTION_TRACK_ID": ""
+  },
+  "http": [
+    {
+      "expect": {
+        "method": "GET",
+        "url": "https://api.notion.com/v1/data_sources/ds-interactions"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "object": "data_source",
+          "properties": {
+            "Navn": {
+              "id": "title",
+              "type": "title",
+              "title": {}
+            },
+            "Type": {
+              "type": "select",
+              "select": {
+                "options": [
+                  {
+                    "name": "Kaffe"
+                  },
+                  {
+                    "name": "Møde"
+                  },
+                  {
+                    "name": "Opkald"
+                  }
+                ]
+              }
+            },
+            "Date": {
+              "type": "date",
+              "date": {}
+            },
+            "Notes": {
+              "type": "rich_text",
+              "rich_text": {}
+            },
+            "People": {
+              "type": "relation",
+              "relation": {}
+            },
+            "Track": {
+              "type": "relation",
+              "relation": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "GET",
+        "url": "https://api.notion.com/v1/data_sources/ds-interactions"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "object": "data_source",
+          "properties": {
+            "Navn": {
+              "id": "title",
+              "type": "title",
+              "title": {}
+            },
+            "Type": {
+              "type": "select",
+              "select": {
+                "options": [
+                  {
+                    "name": "Kaffe"
+                  },
+                  {
+                    "name": "Møde"
+                  },
+                  {
+                    "name": "Opkald"
+                  }
+                ]
+              }
+            },
+            "Date": {
+              "type": "date",
+              "date": {}
+            },
+            "Notes": {
+              "type": "rich_text",
+              "rich_text": {}
+            },
+            "People": {
+              "type": "relation",
+              "relation": {}
+            },
+            "Track": {
+              "type": "relation",
+              "relation": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/pages"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "object": "page",
+          "id": "new-page-id"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "GET",
+        "url": "https://api.notion.com/v1/data_sources/ds-tasks"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "object": "data_source",
+          "properties": {
+            "Opgave": {
+              "id": "title",
+              "type": "title",
+              "title": {}
+            },
+            "Priority": {
+              "type": "select",
+              "select": {
+                "options": [
+                  {
+                    "name": "High"
+                  },
+                  {
+                    "name": "Medium"
+                  },
+                  {
+                    "name": "Low"
+                  }
+                ]
+              }
+            },
+            "Status": {
+              "type": "status",
+              "status": {
+                "options": [
+                  {
+                    "name": "Ikke startet"
+                  },
+                  {
+                    "name": "I gang"
+                  },
+                  {
+                    "name": "Færdig"
+                  }
+                ]
+              }
+            },
+            "Description": {
+              "type": "rich_text",
+              "rich_text": {}
+            },
+            "Follow-up": {
+              "type": "date",
+              "date": {}
+            },
+            "People": {
+              "type": "relation",
+              "relation": {}
+            },
+            "Track": {
+              "type": "relation",
+              "relation": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "ok": true,
+          "ts": "500.002"
+        }
+      }
+    }
+  ],
+  "gemini": [
+    {
+      "output_text": "Sure! You should send the article on Friday."
+    }
+  ]
+}

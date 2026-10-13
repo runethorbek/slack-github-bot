@@ -1,0 +1,161 @@
+{
+  "exit": {
+    "code": 0
+  },
+  "gemini_calls": [],
+  "http_calls": [
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN",
+        "Content-Type": "application/json"
+      },
+      "json": {
+        "channel": "C-TASKS",
+        "mrkdwn": true,
+        "text": "/people due"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://slack.com/api/chat.postMessage"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "filter": {
+          "property": "Contact cadence",
+          "select": {
+            "is_not_empty": true
+          }
+        },
+        "page_size": 100
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-people/query"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "filter": {
+          "property": "Contact cadence",
+          "select": {
+            "is_not_empty": true
+          }
+        },
+        "page_size": 100,
+        "start_cursor": "cursor-2"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-people/query"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "filter": {
+          "and": [
+            {
+              "date": {
+                "is_not_empty": true
+              },
+              "property": "Date"
+            },
+            {
+              "date": {
+                "on_or_before": "2026-10-13"
+              },
+              "property": "Date"
+            }
+          ]
+        },
+        "page_size": 100,
+        "sorts": [
+          {
+            "direction": "descending",
+            "property": "Date"
+          }
+        ]
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-interactions/query"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN",
+        "Content-Type": "application/json"
+      },
+      "json": {
+        "blocks": [
+          {
+            "accessory": {
+              "action_id": "people_suggest",
+              "text": {
+                "text": "Suggest message",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "\u00c5se \u00d8rsted"
+            },
+            "text": {
+              "text": "*\u00c5se \u00d8rsted*\nContact cadence: 1 month\nLatest interaction: 2026-09-01\nNext contact due: 2026-10-01",
+              "type": "mrkdwn"
+            },
+            "type": "section"
+          },
+          {
+            "accessory": {
+              "action_id": "people_suggest",
+              "text": {
+                "text": "Suggest message",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "Bj\u00f8rn \u00c5g\u00e5rd"
+            },
+            "text": {
+              "text": "*Bj\u00f8rn \u00c5g\u00e5rd*\nContact cadence: 3 months\nLatest interaction: No previous interaction",
+              "type": "mrkdwn"
+            },
+            "type": "section"
+          },
+          {
+            "text": {
+              "text": "Some People or Interactions could not be scanned; results may be incomplete.",
+              "type": "mrkdwn"
+            },
+            "type": "section"
+          }
+        ],
+        "channel": "C-TASKS",
+        "mrkdwn": true,
+        "text": "*\u00c5se \u00d8rsted*\nContact cadence: 1 month\nLatest interaction: 2026-09-01\nNext contact due: 2026-10-01\n\n*Bj\u00f8rn \u00c5g\u00e5rd*\nContact cadence: 3 months\nLatest interaction: No previous interaction\n\nSome People or Interactions could not be scanned; results may be incomplete.",
+        "thread_ts": "301.001"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://slack.com/api/chat.postMessage"
+    }
+  ],
+  "sleeps": [],
+  "stdout": [
+    "People command handled"
+  ]
+}

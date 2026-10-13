@@ -1,0 +1,51 @@
+{
+  "name": "gemini_conversation_401",
+  "description": "Thread reply where Gemini raises the SDK's 401 error: a secret-free RuntimeError escapes uncaught; no reply posted.",
+  "entrypoint": "main",
+  "today": "2026-10-13",
+  "env": {
+    "SLACK_BOT_TOKEN": "xoxb-CANARY-SLACK-TOKEN",
+    "AUTHORIZED_SLACK_USER_ID": "U-AUTH",
+    "TASKS_SLACK_CHANNEL_ID": "C-TASKS",
+    "GEMINI_API_KEY": "CANARY-GEMINI-KEY",
+    "NOTION_API_KEY": "secret_CANARY_NOTION_KEY",
+    "NOTION_TASKS_DATA_SOURCE_ID": "ds-tasks",
+    "NOTION_PEOPLE_DATA_SOURCE_ID": "ds-people",
+    "NOTION_INTERACTIONS_DATA_SOURCE_ID": "ds-interactions",
+    "NOTION_TRACKS_DATA_SOURCE_ID": "ds-tracks",
+    "SLACK_EVENT_TYPE": "message",
+    "SLACK_CHANNEL_TYPE": "channel",
+    "SLACK_CHANNEL_ID": "C-GENERAL",
+    "SLACK_USER_ID": "U-SOMEONE",
+    "SLACK_TEXT": "Og hvad med Ærø? CANARY-PRIVATE",
+    "SLACK_EVENT_TS": "600.009",
+    "SLACK_THREAD_TS": "600.001"
+  },
+  "http": [
+    {
+      "expect": {
+        "method": "GET",
+        "url": "https://slack.com/api/conversations.replies"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "ok": true,
+          "messages": [
+            {
+              "text": "Spørgsmål om æøå CANARY-PRIVATE",
+              "user": "U-SOMEONE"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "gemini": [
+    {
+      "error": {
+        "status": 401
+      }
+    }
+  ]
+}

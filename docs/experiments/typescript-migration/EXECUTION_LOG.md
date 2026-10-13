@@ -43,3 +43,32 @@ Phase 2 started 2026-10-13 12:20, on branch `experiment/typescript-migration`.
   - 0 human interventions.
   - Final checks: typecheck clean; 140/140 JS/TS; 358 Python OK (3.12); golden check OK; `api/` unchanged.
 - Open: whether CI runs in GitHub, and the Vercel effect (U3). Both are checked after the push.
+- 12:57: branch pushed; draft PR #34 opened. These GitHub writes are within the brief's PR deliverable and the approved preview check.
+- **CI (`ci.yml`) first run on GitHub: pass** (26 s; typecheck, npm test, Python 3.12 unittest, golden `--check`).
+- **Vercel preview (U3): the build and deployment succeeded** with the committed lockfile and root `tsconfig.json`. A runtime probe could not be completed: the preview is protected by Vercel Authentication (HTTP 302 to the login page), and no Vercel CLI or credentials are available. Recorded as "build validated, runtime not validated". No attempt was made to bypass the protection.
+
+### S1 — Golden recorder and scenarios
+
+- Started 12:57.
+- **Implementation attempt 1** (~11 min): DONE. 50 scenarios, 50 goldens, recorder with `--check`, CI step.
+  - Self-reported baseline surprises: google-genai for py 3.12 is **2.30.0** (BASELINE lists 2.20.0, the 3.14 install), and its Interactions errors are `_gaos.lib.compat_errors` classes with `.status_code`; a thread reply under a `/tasks list` root exits 0 silently; Interaction create also retries a ReadTimeout (this widens TD1).
+  - No canary leaked in the Python baseline.
+- The Orchestrator re-ran the checks (`--check` OK, 358 OK, 140/140), and they matched the report.
+- **Review 1** (~5.6 min): PASS, 0 blocking, 3 should-fix, 2 nit, 2 questions.
+  - The Reviewer independently verified the SDK claim in the installed source and hand-checked 10 goldens against the Python source, all correct.
+  - R1 (should-fix): invariant clauses without a scenario: empty authorized user, Task create timeout, Task missing Person, unconfigured Tracks, 401 on best-effort paths.
+  - R2 (should-fix): main.py error branches without a scenario: conversation Gemini 401, Slack HTTP 401, response_url failure, missing env.
+  - R3 (should-fix): the canary check covered the uncaught message but not the full traceback chain.
+  - R4 (nit): kwargs recorded by reference. R5 (nit): Retry-After numeric rule not enforced.
+  - Questions: the private SDK import path, and normalisation rules for the replay.
+- Orchestrator decision: fix everything. Rationale: the goldens become the frozen reference after Python is removed, so any gap left now is permanent. Q1: record the SDK version and warn on mismatch. Q2: document the replay normalisation rules now.
+- **Implementation attempt 2** (~3.3 min): fixed R1–R5, Q1 and Q2; 12 new scenarios (62 total).
+  - New baseline observation: a 401 on Interaction create is caught, gives a generic message and exits 0. Recorded as TECH-DEBT TD7, and BASELINE S11 was corrected. TD8 records the unpinned genai SDK and its private error module.
+- **Review 2** (~1.5 min): PASS. R1–R5 resolved; all 12 new goldens checked against the source.
+  - R6 (should-fix): the README's uncaught-message replay rule was stricter than ACCEPTANCE §1, because it would force TS to reproduce Python's `str(KeyError)`.
+  - R7 (nit): a non-string Retry-After gives a TypeError instead of a RecorderError.
+- R6 resolved by an **Orchestrator spec decision**, edited directly into `tests/equivalence/README.md`: the message is required only when it is application-defined. R7 recorded and not fixed (cosmetic; the recorder still fails).
+- **Outcome: ACCEPTED** at 13:22.
+  - Totals: 2 implementation attempts, 2 review rounds. Findings: 0 blocking, 6 should-fix (R1, R2, R3, R6 + Q1/Q2 handled as requests), 3 nit (R4, R5, R7).
+  - Resolved autonomously: R1–R5 by the Implementer, R6 by the Orchestrator. R7 deferred.
+  - 0 human interventions.
