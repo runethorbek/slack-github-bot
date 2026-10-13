@@ -22,7 +22,7 @@ import {
   type PostOptions,
 } from "../src/http.ts";
 import { makeDate, type PlainDate } from "../src/plain-date.ts";
-import { KeyError, casefold, getPyCause } from "../src/python-compat.ts";
+import { KeyError, OverflowError, ValueError, casefold, getPyCause } from "../src/python-compat.ts";
 import {
   NotionAuthenticationError,
   TaskListCommandError,
@@ -32,6 +32,7 @@ import {
   isRetryableNotionError,
   retryDelay,
   selectTasksNeedingAttention,
+  sleepSeconds,
   type NotionResponse,
 } from "../src/tasks-list.ts";
 
@@ -859,4 +860,57 @@ test("a missing NOTION_API_KEY raises KeyError after the root message, as enviro
   );
   assert.deepEqual(postSlackMessage.calls, [["/tasks list"]]);
   assert.equal(notionPost.calls.length, 0);
+});
+
+test("sleepSeconds raises what Python 3.12's time.sleep raises, at once", async (t) => {
+  // Values and messages observed with py -3.12 (see sleepSeconds).
+  const overflow = (error: unknown): boolean =>
+    error instanceof OverflowError && error.message === "timestamp out of range for platform time_t";
+  for (const seconds of [9223372036.854776, 1e20, Infinity, -Infinity, -9223372036.854778, -1e20]) {
+    await assert.rejects(sleepSeconds(seconds), overflow, String(seconds));
+  }
+  await assert.rejects(
+    sleepSeconds(NaN),
+    (error: unknown) => error instanceof ValueError && error.message === "Invalid value NaN (not a number)",
+  );
+  const negative = (error: unknown): boolean =>
+    error instanceof ValueError && error.message === "sleep length must be non-negative";
+  for (const seconds of [-1, -1e-10, -9223372036.854776]) {
+    await assert.rejects(sleepSeconds(seconds), negative, String(seconds));
+  }
+
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  // -0.0 and 0 return without waiting for a timer.
+  for (const seconds of [-0, 0]) {
+    await sleepSeconds(seconds);
+  }
+  // A sub-nanosecond value is not an error (Python rounds it up to 1 ns).
+  const tiny = sleepSeconds(1e-12);
+  t.mock.timers.tick(1);
+  await tiny;
+  // A short sleep waits for its timer.
+  let shortDone = false;
+  const short = sleepSeconds(0.25).then(() => {
+    shortDone = true;
+  });
+  t.mock.timers.tick(249);
+  await Promise.resolve();
+  assert.equal(shortDone, false);
+  t.mock.timers.tick(1);
+  await short;
+  assert.equal(shortDone, true);
+  // The largest value that CPython accepts sleeps (in setTimeout-sized steps)
+  // instead of raising. The mocked timer never fires, so it stays pending.
+  let settled = false;
+  void sleepSeconds(9223372036.854774).then(
+    () => {
+      settled = true;
+    },
+    () => {
+      settled = true;
+    },
+  );
+  t.mock.timers.tick(2_147_483_647);
+  for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  assert.equal(settled, false);
 });

@@ -101,3 +101,21 @@ Phase 2 started 2026-10-13 12:20, on branch `experiment/typescript-migration`.
   - Totals: 1 implementation attempt, 2 review rounds (the first was interrupted and resumed). Findings: 1 blocking (a planning defect), 0 should-fix, 5 nit.
   - Resolved autonomously: R1, R4, R6 (all by the Orchestrator). R2 and R5 deferred to S3; R3 accepted.
   - 1 human intervention (the post-limit "continue").
+
+### S3 — people-due
+
+- Started 15:22. The brief included two carry-overs from the S2 review: R5 (move the JSON accessors into python-compat) and R2 (the sleep overflow).
+- Orchestrator design decision before implementation: Python lazily imports people_suggest, which isn't ported until S5. S3 ports the branch as a dynamic import, with a typed placeholder `people-suggest.ts` that throws until S5, and defers the 2 suggest-path tests to S5 (recorded in TEST-MAPPING).
+- **Implementation attempt 1** (~16.8 min): DONE.
+  - 54/56 tests ported; the 2 deferred tests are the only ones missing. 8 TS-only tests; 279/279 overall.
+  - 11 deliberate mutations, each caught. The Implementer identified and replaced 2 equivalent mutations.
+  - It determined the CPython 3.12 `time.sleep` thresholds by experiment.
+  - Its own test run hung under mock timers once (a leftover background process); it fixed the test.
+- The Orchestrator re-ran the checks (typecheck 0, 279/279, 358 OK, golden check OK, mapping 54/56 with exactly the 2 deferred tests missing) and grepped for forbidden idioms (none found).
+- **Review 1** (~3.5 min): **PASS**, 0 blocking, 0 should-fix, 1 nit (R1: a documented cast).
+  - The Reviewer compared ~25 tests assertion by assertion and checked the R2 logic against pytime.c. It could not run Python to confirm the boundaries.
+  - **The Orchestrator confirmed all four boundary values with py -3.12**, including that 9223372036.854774 is accepted (still sleeping after a 3 s timeout).
+- **Outcome: ACCEPTED** at 15:42.
+  - Totals: 1 implementation attempt, 1 review round. Findings: 0 blocking, 0 should-fix, 1 nit (accepted as documented).
+  - S2 carry-overs R2 and R5 resolved.
+  - 0 human interventions.

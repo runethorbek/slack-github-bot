@@ -403,3 +403,79 @@ function encodeValue(value: unknown): string {
 export function pyJsonDumps(value: JsonValue): string {
   return encodeValue(value);
 }
+
+// ---------------------------------------------------------------------------
+// Untrusted JSON: Python-semantics accessors
+// ---------------------------------------------------------------------------
+//
+// Notion bodies are untrusted JSON, which the Python code reads with
+// `x["key"]`, `x.get(...)`, `for item in x` and truthiness tests inside a
+// `try`. These accessors throw where the Python expression raises, so a
+// ported parser can catch exactly what its Python counterpart catches:
+//
+// - KeyError for a missing `x["key"]`;
+// - TypeError where Python raises TypeError (`x["key"]` on a list, iterating
+//   a number, an unhashable dict key) *or* AttributeError (`.get` on a list or
+//   a str). JS has no AttributeError, and a JS property access on null also
+//   throws TypeError, so TypeError stands for both.
+//
+// "Dict" means a JSON object: a non-null, non-array object.
+
+export type Dict = Record<string, unknown>;
+
+/** `isinstance(value, dict)` for a JSON value. */
+export function isDict(value: unknown): value is Dict {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Python truthiness of a JSON value: None, False, 0, "", [] and {} are false.
+ * (NaN, which Python treats as true, cannot come from JSON.parse.)
+ */
+export function truthy(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") return Object.keys(value).length > 0;
+  return Boolean(value);
+}
+
+/** `value[key]` for a str key: TypeError on a non-dict, KeyError when the key is missing. */
+export function subscript(value: unknown, key: string): unknown {
+  if (!isDict(value)) throw new TypeError("object is not subscriptable by str");
+  if (!Object.hasOwn(value, key)) throw new KeyError(key);
+  return value[key];
+}
+
+/** `value.get(key, fallback)` (fallback defaults to None); AttributeError (here TypeError) on a non-dict. */
+export function dictGet(value: unknown, key: string, fallback: unknown = null): unknown {
+  if (!isDict(value)) throw new TypeError("object has no attribute 'get'");
+  return Object.hasOwn(value, key) ? value[key] : fallback;
+}
+
+/** `key in value` for a dict and a str key. */
+export function dictContains(value: Dict, key: string): boolean {
+  return Object.hasOwn(value, key);
+}
+
+/** `iter(value)`: a list's items, a str's characters (code points) or a dict's keys; TypeError otherwise. */
+export function iterate(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") return Array.from(value);
+  if (isDict(value)) return Object.keys(value);
+  throw new TypeError("object is not iterable");
+}
+
+/** Python raises TypeError when a list or dict is used as a dict key or set member. */
+export function assertHashable(value: unknown): void {
+  if (typeof value === "object" && value !== null) throw new TypeError("unhashable type");
+}
+
+/** `except (AttributeError, KeyError, TypeError)` for errors from the accessors above. */
+export function isAccessError(error: unknown): boolean {
+  return error instanceof TypeError || error instanceof KeyError;
+}
+
+/** `except (AttributeError, KeyError, TypeError, ValueError)`: isAccessError plus ValueError. */
+export function isParseError(error: unknown): boolean {
+  return isAccessError(error) || error instanceof ValueError;
+}

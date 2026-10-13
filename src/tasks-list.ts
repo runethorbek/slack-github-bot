@@ -1,12 +1,12 @@
 // Port of tasks_list.py: the /tasks list command and the shared Notion helpers
 // (retry policy, headers, Track parsing) that the other modules import.
 //
-// Notion data is untrusted JSON, so the parsers below read it with small
-// Python-semantics accessors (`subscript`, `dictGet`, `iterate`, `truthy`).
-// They throw where the Python expression would raise: KeyError for a missing
-// `x["key"]`, TypeError where Python raises TypeError or AttributeError (for
-// example `.get` on a list). Each parser catches exactly what its Python
-// counterpart catches.
+// Notion data is untrusted JSON, so the parsers below read it with the
+// Python-semantics accessors from python-compat.ts (`subscript`, `dictGet`,
+// `iterate`, `truthy`). They throw where the Python expression would raise:
+// KeyError for a missing `x["key"]`, TypeError where Python raises TypeError
+// or AttributeError (for example `.get` on a list). Each parser catches exactly
+// what its Python counterpart catches.
 
 import { ConnectionError, Timeout, type GetOptions, type HttpHeaders, type PostOptions } from "./http.ts";
 import {
@@ -21,12 +21,22 @@ import {
 } from "./plain-date.ts";
 import {
   KeyError,
+  OverflowError,
   ValueError,
+  assertHashable,
   casefold,
   comparePy,
+  dictContains,
+  dictGet,
+  isDict,
+  isParseError,
+  iterate,
   pyFloat,
   pyStrip,
+  subscript,
+  truthy,
   withPyCause,
+  type Dict,
 } from "./python-compat.ts";
 
 export { copenhagenToday };
@@ -131,8 +141,35 @@ export type Environment = Readonly<Record<string, string | undefined>>;
 // is taken in steps (a large Retry-After makes time.sleep wait that long).
 const MAX_TIMEOUT_MS = 2_147_483_647;
 
-/** The default `sleep`, like `time.sleep`. */
+const TWO_POW_63 = 2 ** 63;
+
+/**
+ * The default `sleep`, like `time.sleep`, including what it raises before
+ * sleeping. CPython 3.12 converts the seconds to a signed 64-bit count of
+ * nanoseconds, `seconds * 1e9` rounded away from zero (pytime.c,
+ * `_PyTime_FromDouble` with `_PyTime_ROUND_TIMEOUT`), then checks the sign.
+ * Verified against `py -3.12`:
+ *
+ * - NaN: ValueError("Invalid value NaN (not a number)").
+ * - Rounded nanoseconds outside [-2**63, 2**63), which includes ±inf:
+ *   OverflowError("timestamp out of range for platform time_t"). The largest
+ *   value that sleeps is 9223372036.854774 (0x1.12e0be826d694p+33); the next
+ *   double, 9223372036.854776, overflows.
+ * - Any other negative value, even -1e-10 (rounded to -1 ns): ValueError("sleep
+ *   length must be non-negative"). -0.0 sleeps for 0 seconds.
+ *
+ * (For an int argument Python's OverflowError message differs, but the same
+ * values overflow.)
+ */
 export async function sleepSeconds(seconds: number): Promise<void> {
+  if (Number.isNaN(seconds)) throw new ValueError("Invalid value NaN (not a number)");
+  const scaled = seconds * 1e9;
+  const nanoseconds = scaled >= 0 ? Math.ceil(scaled) : Math.floor(scaled);
+  if (!(-TWO_POW_63 <= nanoseconds && nanoseconds < TWO_POW_63)) {
+    throw new OverflowError("timestamp out of range for platform time_t");
+  }
+  if (nanoseconds < 0) throw new ValueError("sleep length must be non-negative");
+
   let remaining = seconds * 1000;
   while (remaining > 0) {
     const step = Math.min(remaining, MAX_TIMEOUT_MS);
@@ -149,48 +186,8 @@ export function environmentValue(environment: Environment, name: string): string
 }
 
 // ---------------------------------------------------------------------------
-// Python-semantics accessors for untrusted JSON
+// Parsing helpers
 // ---------------------------------------------------------------------------
-
-type Dict = Record<string, unknown>;
-
-function isDict(value: unknown): value is Dict {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/** Python truthiness of a JSON value. */
-function truthy(value: unknown): boolean {
-  if (value === null || value === undefined) return false;
-  if (Array.isArray(value)) return value.length > 0;
-  if (typeof value === "object") return Object.keys(value).length > 0;
-  return Boolean(value);
-}
-
-/** `value[key]` for a str key. */
-function subscript(value: unknown, key: string): unknown {
-  if (!isDict(value)) throw new TypeError("object is not subscriptable by str");
-  if (!Object.hasOwn(value, key)) throw new KeyError(key);
-  return value[key];
-}
-
-/** `value.get(key, fallback)`; AttributeError (here TypeError) on a non-dict. */
-function dictGet(value: unknown, key: string, fallback: unknown = null): unknown {
-  if (!isDict(value)) throw new TypeError("object has no attribute 'get'");
-  return Object.hasOwn(value, key) ? value[key] : fallback;
-}
-
-/** `key in value` for a dict. */
-function dictContains(value: Dict, key: string): boolean {
-  return Object.hasOwn(value, key);
-}
-
-/** `iter(value)`: a list's items, a str's characters or a dict's keys. */
-function iterate(value: unknown): unknown[] {
-  if (Array.isArray(value)) return value;
-  if (typeof value === "string") return Array.from(value);
-  if (isDict(value)) return Object.keys(value);
-  throw new TypeError("object is not iterable");
-}
 
 /** `"".join(part.get("plain_text", "") for part in parts)`. */
 function joinPlainText(parts: unknown): string {
@@ -201,11 +198,6 @@ function joinPlainText(parts: unknown): string {
     joined += text;
   }
   return joined;
-}
-
-/** Python raises TypeError when a list or dict is used as a dict key. */
-function assertHashable(value: unknown): void {
-  if (typeof value === "object" && value !== null) throw new TypeError("unhashable type");
 }
 
 /** `PRIORITY_ORDER.get(priority, len(PRIORITY_ORDER))`. */
@@ -222,11 +214,6 @@ function sortedByKey<T, K>(items: readonly T[], key: (item: T) => K, compare: (a
   const keyed = items.map((item) => ({ item, sortKey: key(item) }));
   keyed.sort((a, b) => compare(a.sortKey, b.sortKey));
   return keyed.map(({ item }) => item);
-}
-
-function isParseError(error: unknown): boolean {
-  // except (AttributeError, KeyError, TypeError, ValueError)
-  return error instanceof TypeError || error instanceof KeyError || error instanceof ValueError;
 }
 
 // ---------------------------------------------------------------------------

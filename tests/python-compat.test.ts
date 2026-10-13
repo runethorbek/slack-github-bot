@@ -7,9 +7,16 @@ import {
   KeyError,
   OverflowError,
   ValueError,
+  assertHashable,
   casefold,
   comparePy,
+  dictContains,
+  dictGet,
   getPyCause,
+  isAccessError,
+  isDict,
+  isParseError,
+  iterate,
   pyFloat,
   pyInt,
   pyIsSpace,
@@ -20,6 +27,8 @@ import {
   pyStartsWithSpace,
   pyStrip,
   pyTruncate,
+  subscript,
+  truthy,
   withPyCause,
   type JsonValue,
 } from "../src/python-compat.ts";
@@ -215,4 +224,99 @@ test("getPyCause is null (None) when there is no cause", () => {
   assert.equal(getPyCause(null), null);
   assert.equal(getPyCause(undefined), null);
   assert.equal(getPyCause("text"), null);
+});
+
+// ---------------------------------------------------------------------------
+// Untrusted-JSON accessors. The expected outcomes are what the Python
+// expression in each comment gives (AttributeError is represented as TypeError).
+// ---------------------------------------------------------------------------
+
+test("isDict is isinstance(value, dict) for JSON values", () => {
+  assert.equal(isDict({}), true);
+  assert.equal(isDict({ a: 1 }), true);
+  for (const value of [null, undefined, [], [1], "s", "", 0, 1, true, false]) {
+    assert.equal(isDict(value), false, String(value));
+  }
+});
+
+test("truthy matches bool() for JSON values", () => {
+  for (const value of [null, undefined, false, 0, -0, "", [], {}]) {
+    assert.equal(truthy(value), false, JSON.stringify(value));
+  }
+  for (const value of [true, 1, -1, 0.5, "0", " ", "false", [0], [null], { a: null }]) {
+    assert.equal(truthy(value), true, JSON.stringify(value));
+  }
+});
+
+test("subscript matches value[key] for a str key", () => {
+  assert.equal(subscript({ a: 1 }, "a"), 1); // {"a": 1}["a"]
+  assert.equal(subscript({ a: null }, "a"), null); // present with None
+  assert.throws(() => subscript({}, "a"), (error: unknown) => error instanceof KeyError && error.key === "a");
+  // Only own keys: an inherited name is a missing key.
+  assert.throws(() => subscript({}, "constructor"), KeyError);
+  assert.throws(() => subscript({}, "__proto__"), KeyError);
+  assert.equal(subscript(JSON.parse('{"__proto__": 5}'), "__proto__"), 5);
+  // [1]["a"], "s"["a"], None["a"], 5["a"]: TypeError.
+  for (const value of [[1], "s", null, undefined, 5, true]) {
+    assert.throws(() => subscript(value, "a"), TypeError, String(value));
+  }
+});
+
+test("dictGet matches value.get(key, fallback)", () => {
+  assert.equal(dictGet({ a: 1 }, "a"), 1);
+  assert.equal(dictGet({ a: null }, "a", "fallback"), null); // a present None wins
+  assert.equal(dictGet({}, "a"), null); // .get(key) defaults to None
+  assert.deepEqual(dictGet({}, "a", []), []);
+  assert.equal(dictGet({}, "toString"), null);
+  // [].get, "s".get, None.get, 5.get: AttributeError.
+  for (const value of [[], "s", null, undefined, 5, false]) {
+    assert.throws(() => dictGet(value, "a"), TypeError, String(value));
+  }
+});
+
+test("dictContains matches key in dict, own keys only", () => {
+  assert.equal(dictContains({ a: undefined }, "a"), true);
+  assert.equal(dictContains({ a: null }, "a"), true);
+  assert.equal(dictContains({}, "a"), false);
+  assert.equal(dictContains({}, "hasOwnProperty"), false);
+});
+
+test("iterate matches iter(value)", () => {
+  const list = [1, { a: 2 }];
+  assert.equal(iterate(list), list);
+  // A str iterates code points: list("aé😀") has 3 items.
+  assert.deepEqual(iterate("aé😀"), ["a", "é", "😀"]);
+  assert.deepEqual(iterate(""), []);
+  // A dict iterates its keys in insertion order.
+  assert.deepEqual(iterate({ b: 1, a: 2 }), ["b", "a"]);
+  // iter(None), iter(5), iter(True): TypeError.
+  for (const value of [null, undefined, 5, true]) {
+    assert.throws(() => iterate(value), TypeError, String(value));
+  }
+});
+
+test("assertHashable raises TypeError for a list or dict, like a dict key lookup", () => {
+  for (const value of ["s", "", 0, 1.5, true, null]) {
+    assert.doesNotThrow(() => assertHashable(value));
+  }
+  for (const value of [[], [1], {}, { a: 1 }]) {
+    assert.throws(() => assertHashable(value), TypeError);
+  }
+});
+
+test("isAccessError and isParseError match the Python except clauses", () => {
+  // except (AttributeError, KeyError, TypeError)
+  assert.equal(isAccessError(new TypeError()), true);
+  assert.equal(isAccessError(new KeyError("a")), true);
+  assert.equal(isAccessError(new ValueError()), false);
+  assert.equal(isAccessError(new Error()), false);
+  assert.equal(isAccessError(new RangeError()), false);
+  assert.equal(isAccessError(new OverflowError()), false);
+  // ... plus ValueError
+  assert.equal(isParseError(new TypeError()), true);
+  assert.equal(isParseError(new KeyError("a")), true);
+  assert.equal(isParseError(new ValueError()), true);
+  assert.equal(isParseError(new Error()), false);
+  assert.equal(isParseError(new OverflowError()), false);
+  assert.equal(isParseError("TypeError"), false);
 });
