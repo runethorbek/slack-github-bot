@@ -232,6 +232,108 @@ Also added in S3:
 - `tests/tasks-list.test.ts` (review carry-over R2):
   `sleepSeconds raises what Python 3.12's time.sleep raises, at once`.
 
+## tests/test_people_interaction.py → tests/people-interaction.test.ts (S4)
+
+| Python test | TS test title |
+| --- | --- |
+| `AddInteractionButtonTests.test_value_carries_the_stable_page_id_and_name` | `test_value_carries_the_stable_page_id_and_name` |
+| `AddInteractionButtonTests.test_no_tracks_omits_track_fields_entirely` | `test_no_tracks_omits_track_fields_entirely` |
+| `AddInteractionButtonTests.test_tracks_and_default_are_carried_in_the_value` | `test_tracks_and_default_are_carried_in_the_value` |
+| `AddInteractionButtonTests.test_tracks_without_a_default_omit_default_track_id` | `test_tracks_without_a_default_omit_default_track_id` |
+| `AddInteractionButtonTests.test_no_interaction_types_omits_types_field` | `test_no_interaction_types_omits_types_field` |
+| `AddInteractionButtonTests.test_interaction_types_are_carried_in_the_value` | `test_interaction_types_are_carried_in_the_value` |
+| `FetchAvailableInteractionTypesTests.test_resolves_option_names_from_the_live_schema` | `test_resolves_option_names_from_the_live_schema` |
+| `FetchAvailableInteractionTypesTests.test_a_type_added_in_notion_is_available_without_any_code_change` | `test_a_type_added_in_notion_is_available_without_any_code_change` |
+| `FetchAvailableInteractionTypesTests.test_missing_type_property_is_a_failure` | `test_missing_type_property_is_a_failure` |
+| `FetchAvailableInteractionTypesTests.test_type_property_not_a_select_is_a_failure` | `test_type_property_not_a_select_is_a_failure` |
+| `FetchAvailableInteractionTypesTests.test_select_property_without_options_is_a_failure` | `test_select_property_without_options_is_a_failure` |
+| `FetchAvailableInteractionTypesTests.test_malformed_option_entries_are_skipped` | `test_malformed_option_entries_are_skipped` |
+| `IsValidInteractionTypeTests.test_type_present_among_live_options_is_valid` | `test_type_present_among_live_options_is_valid` |
+| `IsValidInteractionTypeTests.test_type_not_among_live_options_is_invalid` | `test_type_not_among_live_options_is_invalid` |
+| `FetchAvailableTracksTests.test_resolves_id_and_name_sorted_alphabetically` | `test_resolves_id_and_name_sorted_alphabetically` |
+| `FetchAvailableTracksTests.test_malformed_track_page_is_skipped` | `test_malformed_track_page_is_skipped` |
+| `FetchAvailableTracksTests.test_no_tracks_returns_empty_list` | `test_no_tracks_returns_empty_list` |
+| `IsValidTrackTests.test_id_present_among_live_tracks_is_valid` | `test_id_present_among_live_tracks_is_valid` |
+| `IsValidTrackTests.test_id_not_among_live_tracks_is_invalid` | `test_id_not_among_live_tracks_is_invalid` |
+| `IsValidTrackTests.test_unconfigured_tracks_data_source_fails_closed` | `test_unconfigured_tracks_data_source_fails_closed (S4)` |
+| `HandleAddInteractionSubmissionTests.test_valid_type_is_accepted_and_written_with_the_correct_person_relation` | `test_valid_type_is_accepted_and_written_with_the_correct_person_relation` |
+| `HandleAddInteractionSubmissionTests.test_notes_are_preserved_exactly` | `test_notes_are_preserved_exactly` |
+| `HandleAddInteractionSubmissionTests.test_write_payload_contains_only_intended_fields` | `test_write_payload_contains_only_intended_fields` |
+| `HandleAddInteractionSubmissionTests.test_date_defaults_to_today_when_missing` | `test_date_defaults_to_today_when_missing` |
+| `HandleAddInteractionSubmissionTests.test_unknown_type_is_rejected_before_any_notion_write` | `test_unknown_type_is_rejected_before_any_notion_write (S4)` |
+| `HandleAddInteractionSubmissionTests.test_empty_type_is_rejected` | `test_empty_type_is_rejected` |
+| `HandleAddInteractionSubmissionTests.test_type_validation_failure_produces_a_safe_message_without_a_write` | `test_type_validation_failure_produces_a_safe_message_without_a_write` |
+| `HandleAddInteractionSubmissionTests.test_malformed_date_is_rejected_before_any_notion_write` | `test_malformed_date_is_rejected_before_any_notion_write` |
+| `HandleAddInteractionSubmissionTests.test_missing_person_identity_is_ignored_rather_than_guessed` | `test_missing_person_identity_is_ignored_rather_than_guessed (S3)` |
+| `HandleAddInteractionSubmissionTests.test_notion_failure_produces_a_safe_message_without_a_partial_write` | `test_notion_failure_produces_a_safe_message_without_a_partial_write` |
+| `HandleAddInteractionSubmissionTests.test_unresolvable_title_property_produces_a_safe_message_without_a_partial_write` | `test_unresolvable_title_property_produces_a_safe_message_without_a_partial_write` |
+| `HandleAddInteractionSubmissionTests.test_notion_authentication_failure_produces_a_safe_message_without_a_partial_write` | `test_notion_authentication_failure_produces_a_safe_message_without_a_partial_write (S11, TD7)` |
+| `HandleAddInteractionSubmissionTests.test_confirmation_and_failure_replies_stay_in_the_suggestion_thread` | `test_confirmation_and_failure_replies_stay_in_the_suggestion_thread` |
+| `HandleAddInteractionSubmissionTests.test_invalid_type_reply_stays_in_the_suggestion_thread` | `test_invalid_type_reply_stays_in_the_suggestion_thread` |
+| `HandleAddInteractionSubmissionTests.test_no_track_selected_writes_an_empty_track_relation` | `test_no_track_selected_writes_an_empty_track_relation` |
+| `HandleAddInteractionSubmissionTests.test_valid_track_is_written_as_the_track_relation` | `test_valid_track_is_written_as_the_track_relation` |
+| `HandleAddInteractionSubmissionTests.test_a_track_id_that_is_not_a_live_track_is_rejected_before_any_write` | `test_a_track_id_that_is_not_a_live_track_is_rejected_before_any_write (S4)` |
+| `HandleAddInteractionSubmissionTests.test_a_track_id_with_no_tracks_data_source_configured_is_rejected` | `test_a_track_id_with_no_tracks_data_source_configured_is_rejected (S4)` |
+| `HandleAddInteractionSubmissionTests.test_track_validation_failure_produces_a_safe_message_without_a_write` | `test_track_validation_failure_produces_a_safe_message_without_a_write` |
+
+Not applicable: none. Deferred: none.
+
+Adapted:
+
+- Mocks, fake responses and keyword arguments follow the S2/S3 conventions
+  above. `Mock().raise_for_status.side_effect = Exception("boom")` is an
+  `HttpResponse` subclass (`RaisingResponse`) whose `raise_for_status()` throws
+  that plain `Error`, which is neither retryable nor a credential failure, as in
+  Python.
+- `test_notion_authentication_failure_produces_a_safe_message_without_a_partial_write`:
+  Python raises `Exception("unauthorized")` with `.response = Mock(status_code=401)`.
+  The TS test uses a real 401 `HttpResponse`, whose `raise_for_status()` throws
+  the real `HTTPError` with `.response.status_code == 401`. The retry core reads
+  the status code the same way from both.
+- `post_slack_message.assert_called_once_with(msg, thread_ts=None)` is `calls`
+  deep-equal to `[[msg, { threadTs: undefined }]]`. Python passes the
+  `thread_ts` keyword on every post, so the TS options object always has the
+  `threadTs` key (`None` → `undefined`, the `PostSlackMessage` type's "absent").
+- A bare `Mock()` for `notion_post`/`notion_get` that the test expects not to be
+  called (whether or not it asserts `assert_not_called`) rejects when called.
+  An unexpected call therefore fails the test, which is stricter than Python's
+  `Mock`.
+- `assertRaises(AddInteractionCommandError)` is
+  `assert.rejects(..., AddInteractionCommandError)`; `assertNotIn(key, value)`
+  is `!Object.hasOwn(value, key)`; `set(properties.keys())` is compared as a
+  `Set`.
+- `schema_response`'s `type_options or TYPE_SELECT_OPTIONS` is
+  `typeOptions && typeOptions.length > 0 ? typeOptions : TYPE_SELECT_OPTIONS`.
+- `HandleAddInteractionSubmissionTests.environment` is the module-level
+  `environment(tracksDataSourceId)`.
+
+TS-only tests (no Python counterpart):
+
+- `TD1 pin: a 5xx on Interaction create is retried with the default policy (can duplicate)`
+- `TD1 pin: a ReadTimeout or ConnectionError on Interaction create is retried` (2 subtests)
+- `TD1 pin: three 5xx on Interaction create give three creates, sleeps 1 and 2, and the generic failure`
+- `TD7 pin: a 401 on Interaction create posts the generic failure and does not throw`
+- `TD7 pin: a 403 on Interaction create is a credential failure too (not retried, caught)`
+- `TD3 pin: the modal date is parsed with date.fromisoformat, so 20260922 and 2026-W39-2 are accepted` (2 subtests)
+- `createInteractionPage: 401 and 403 throw NotionAuthenticationError (default credential codes)` (2 subtests)
+- `write payload: the full create request equals Python's (URL, headers, timeout, properties, en dash)`
+- `write payload: empty notes write an empty rich_text, and the property key order matches Python's dict`
+- `validation order: date, then Type, then Track, then title property, then exactly one create`
+- `S4: an invalid Type is rejected before the Track is validated`
+- `S3: a page id without a name, or a name without a page id, is a silent no-op` (2 subtests)
+- `buildFollowupButtons: called once after a successful write; its buttons are posted in an actions block`
+- `buildFollowupButtons: no buttons means a plain confirmation without blocks`
+- `buildFollowupButtons: not called when the submission is invalid or the write fails` (2 subtests)
+- `buildFollowupButtons: an error it throws propagates (it runs outside the write's except)`
+- `a missing NOTION_API_KEY raises KeyError, as environment[...] does (not caught)`
+- `fetchAvailableInteractionTypes: 401 is a credential failure, 403 is not (credential codes are (401,))`
+- `fetchAvailableInteractionTypes: a malformed schema is an AddInteractionCommandError caused by the parse error` (5 subtests)
+- `fetchInteractionsTitleProperty: resolves the title by type; a malformed schema is an AddInteractionCommandError`
+- `fetchAvailableTracks: one bounded query of page_size 25; at most 25 options; a malformed response is an AddInteractionCommandError`
+- `fetchAvailableTracks: sorts by casefolded name in code-point order; skips non-dict pages and empty ids`
+- `addInteractionButton: values are byte-identical to Python's json.dumps` (expected strings printed by `py -3.12`)
+- `action and callback ids equal the constants in api/slack-request.js`
+
 ## Security-invariant evidence (G6)
 
 Filled in as slices land. Tests named here fail if the invariant breaks.
@@ -240,7 +342,18 @@ Filled in as slices land. Tests named here fail if the invariant breaks.
 | --- | --- |
 | S1 | `test_dm_authorization_uses_exact_user_id`, `test_missing_authorization_configuration_fails_closed`, `test_user_id_match_without_dm_identity_is_rejected` (slack-authorization.test.ts) |
 | S2 | **Deferred to S8**: the authorization-before-calls order lives in `main.ts` (PLAN.md §9 amendment). |
+| S3 (partial: Interaction write) | `test_missing_person_identity_is_ignored_rather_than_guessed`, `S3: a page id without a name, or a name without a page id, is a silent no-op` (people-interaction.test.ts). The Task write is evidenced in S6, `parse_person_payload` in S8. |
+| S4 (partial: Interaction Type and Track) | `test_unknown_type_is_rejected_before_any_notion_write`, `S4: an invalid Type is rejected before the Track is validated`, `test_a_track_id_that_is_not_a_live_track_is_rejected_before_any_write`, `test_a_track_id_with_no_tracks_data_source_configured_is_rejected`, `test_unconfigured_tracks_data_source_fails_closed`, `test_type_property_not_a_select_is_a_failure` (a malformed schema is not an empty allowlist), `validation order: date, then Type, then Track, then title property, then exactly one create` (people-interaction.test.ts). Task Priority and Status are evidenced in S6. |
 | S6 (partial: `/people due`) | `S6: /people due never calls generateText` (people-due.test.ts). The suggest prompt contents are evidenced in S5. |
 | S7 (partial: `raise … from`, generic failure text) | `withPyCause records __cause__ without Node printing it` (python-compat.test.ts); `callNotionWithRetries: the final TaskListCommandError carries the request error as its cause`; `test_exhausted_transient_failure_produces_a_safe_generic_message`, `test_malformed_query_response_produces_a_safe_message_without_raw_payload` (people-due.test.ts) |
-| S10 (partial: 500 scanned, 20 displayed, 3 Tracks shown) | `test_stops_after_five_pages_and_avoids_a_false_empty_claim`, `test_renders_no_more_than_twenty_eligible_tasks`, `test_truncates_after_ordering_and_reports_the_remainder`, `test_only_displayed_tasks_trigger_track_resolution`; People and Interactions (people-due.test.ts): `test_people_scan_reaching_the_bound_marks_the_result_incomplete`, `test_interaction_scan_bound_flags_incomplete_instead_of_mislabeling`, `test_result_count_is_bounded_and_shows_a_remainder_indicator`, `test_build_due_people_blocks_bounds_to_the_display_limit_with_a_remainder_block` |
-| S11 (partial: `/tasks list`, `/people due`) | `test_credential_failure_fails_with_a_safe_notion_specific_message`, `S11: a 401 on a Track lookup fails the run without a cause`, `test_terminal_track_permission_failure_is_isolated` (403 on a Track degrades); `test_notion_auth_failure_is_not_retried_and_propagates_uncaught` (people-due.test.ts) |
+| S10 (partial: 500 scanned, 20 displayed, 3 Tracks shown, 25 Track options) | `test_stops_after_five_pages_and_avoids_a_false_empty_claim`, `test_renders_no_more_than_twenty_eligible_tasks`, `test_truncates_after_ordering_and_reports_the_remainder`, `test_only_displayed_tasks_trigger_track_resolution`; People and Interactions (people-due.test.ts): `test_people_scan_reaching_the_bound_marks_the_result_incomplete`, `test_interaction_scan_bound_flags_incomplete_instead_of_mislabeling`, `test_result_count_is_bounded_and_shows_a_remainder_indicator`, `test_build_due_people_blocks_bounds_to_the_display_limit_with_a_remainder_block`; 25 Track options (people-interaction.test.ts): `fetchAvailableTracks: one bounded query of page_size 25; at most 25 options; a malformed response is an AddInteractionCommandError` |
+| S11 (partial: `/tasks list`, `/people due`, Interaction write) | `test_credential_failure_fails_with_a_safe_notion_specific_message`, `S11: a 401 on a Track lookup fails the run without a cause`, `test_terminal_track_permission_failure_is_isolated` (403 on a Track degrades); `test_notion_auth_failure_is_not_retried_and_propagates_uncaught` (people-due.test.ts); the Interaction write degrades (TD7): `test_notion_authentication_failure_produces_a_safe_message_without_a_partial_write` (401 on the schema read), `TD7 pin: a 401 on Interaction create posts the generic failure and does not throw`, `TD7 pin: a 403 on Interaction create is a credential failure too (not retried, caught)`; `fetchAvailableInteractionTypes: 401 is a credential failure, 403 is not (credential codes are (401,))` (people-interaction.test.ts) |
+
+TECH-DEBT pins (each fails if the preserved defect is fixed or changed):
+
+| TD | TS tests |
+| --- | --- |
+| TD1 (Interaction create retries 5xx, timeouts, connection errors) | `TD1 pin: a 5xx on Interaction create is retried with the default policy (can duplicate)`, `TD1 pin: a ReadTimeout or ConnectionError on Interaction create is retried`, `TD1 pin: three 5xx on Interaction create give three creates, sleeps 1 and 2, and the generic failure` (people-interaction.test.ts) |
+| TD2 | `TD2: a Follow-up with a time is parsed with date.fromisoformat and skipped as malformed` (tasks-list.test.ts) |
+| TD3 (Interaction date) | `TD3 pin: the modal date is parsed with date.fromisoformat, so 20260922 and 2026-W39-2 are accepted` (people-interaction.test.ts). The Task `follow_up` is pinned in S6. |
+| TD7 (credential failure on the Interaction write is caught) | `TD7 pin: a 401 on Interaction create posts the generic failure and does not throw`, `TD7 pin: a 403 on Interaction create is a credential failure too (not retried, caught)`, `test_notion_authentication_failure_produces_a_safe_message_without_a_partial_write` (people-interaction.test.ts) |

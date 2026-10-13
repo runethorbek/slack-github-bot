@@ -119,3 +119,21 @@ Phase 2 started 2026-10-13 12:20, on branch `experiment/typescript-migration`.
   - Totals: 1 implementation attempt, 1 review round. Findings: 0 blocking, 0 should-fix, 1 nit (accepted as documented).
   - S2 carry-overs R2 and R5 resolved.
   - 0 human interventions.
+
+### S4 — people-interaction (first Notion write path)
+
+- Started 15:47.
+- **Implementation attempt 1** (~10.8 min): DONE.
+  - 39/39 tests ported plus 24 TS-only tests (including TD1, TD3 and TD7 pins); 357/357 overall.
+  - All 5 required mutations caught.
+  - Button values compared byte for byte against py -3.12.
+  - **Tooling hazard reported by the Implementer**: its file-writing tool turned `\uXXXX` escapes into literal characters, even inside `String.raw`. It repaired the affected expected strings with a script.
+- The Orchestrator re-ran the checks (typecheck 0, 357/357, 358 OK, golden check OK, mapping 39/39). It also **scanned every src/ and tests/ .ts file for control, format or invisible characters (none)** to rule out silent corruption in earlier slices.
+- **Review 1** (~2.8 min): **PASS**, 0 blocking, 0 should-fix, 1 nit.
+  - The Reviewer did a security walk-through: no path reaches the create without validation; S3, S4, S7 and S11 hold; TD1, TD3 and TD7 are pinned by tests that would fail if the TD were fixed. 14 tests were compared assertion by assertion.
+  - It checked the escape hazard: clean, with literal escape sequences in the expected values and the real U+2013 en dash.
+  - R1 (nit): **the Implementer's report overstated its own test** ("6 cases incl. ß and tab"; the test has 5 cases, neither ß nor tab). The Orchestrator confirmed the literal escapes on disk.
+  - **Recorded as an Implementer reporting inaccuracy.** No behavior risk: `pyJsonDumps` is covered by the S0 golden table.
+- **Outcome: ACCEPTED** at 15:57.
+  - Totals: 1 implementation attempt, 1 review round. Findings: 0 blocking, 0 should-fix, 1 nit (accepted; claim corrected here).
+  - 0 human interventions.
