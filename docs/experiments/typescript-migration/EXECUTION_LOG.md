@@ -72,3 +72,32 @@ Phase 2 started 2026-10-13 12:20, on branch `experiment/typescript-migration`.
   - Totals: 2 implementation attempts, 2 review rounds. Findings: 0 blocking, 6 should-fix (R1, R2, R3, R6 + Q1/Q2 handled as requests), 3 nit (R4, R5, R7).
   - Resolved autonomously: R1–R5 by the Implementer, R6 by the Orchestrator. R7 deferred.
   - 0 human interventions.
+
+### S2 — slack-authorization + tasks-list
+
+- Started 13:23.
+- **Implementation attempt 1** (~11.8 min): DONE.
+  - Added 5 + 23 ported tests and 7 TS-only tests; 186/186 pass.
+  - The mechanical mapping check (Python `def test_` names vs TS title prefixes) finds 23/23 and 5/5 mapped.
+  - The Implementer also extended the S0 file `python-compat.ts` with `KeyError`, `withPyCause` and `getPyCause` (a cause chain hidden from `util.inspect`, for S7).
+  - It ran manual mutation checks: 5 mutations each failed tests.
+- The Orchestrator re-ran the checks (typecheck 0, 186/186, 358 OK, golden check OK, mapping OK) and grepped for forbidden JS idioms (none found). Everything matched the report.
+- **Review 1 interrupted**: the Reviewer stopped after ~2 min / 21 tool calls with "session limit reached" (HTTP 429, the account usage limit) and delivered no report.
+- **Human intervention #2**: the user asked to continue after the limit reset. This is an environment interruption, not a decision about the work.
+- **Review 1 resumed** after the limit reset (~2 min more): verdict BLOCKED.
+  - The Reviewer found no code defect: a line-by-line equivalence check, all 28 tests compared assertion by assertion, and the security invariants all came out clean.
+  - R1 (blocking): the slice criterion required tests for invariant S2 (authorization before calls). That ordering lives in main.py (S8). **This was an Orchestrator planning defect, not an implementation defect.**
+  - R2 (nit): sleepSeconds hangs instead of raising OverflowError on an absurd Retry-After.
+  - R3 (nit): JS String() vs Python str() for schema-violating values.
+  - R4 (nit): a mapping note overstated an assertion.
+  - R5 (nit): the JSON accessors are private, and S3–S6 need them.
+- Orchestrator resolution, with no code change:
+  - R1: amended the PLAN S2/S8 rows, added a §9 amendment and a G6 "deferred to S8" row.
+  - R4: reworded the mapping note.
+  - R2 and R5: scheduled for the S3 brief.
+  - R3: accepted as a documented difference.
+- **Review 2** (~1 min): PASS. R1 and R4 resolved. R6 (nit): the amendment had a placeholder timestamp; the Orchestrator fixed it.
+- **Outcome: ACCEPTED** at 15:20.
+  - Totals: 1 implementation attempt, 2 review rounds (the first was interrupted and resumed). Findings: 1 blocking (a planning defect), 0 should-fix, 5 nit.
+  - Resolved autonomously: R1, R4, R6 (all by the Orchestrator). R2 and R5 deferred to S3; R3 accepted.
+  - 1 human intervention (the post-limit "continue").

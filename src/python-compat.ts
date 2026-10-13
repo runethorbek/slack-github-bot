@@ -25,6 +25,51 @@ export class OverflowError extends Error {
   }
 }
 
+/**
+ * Mirrors Python's KeyError for a missing mapping key, for example a missing
+ * `environment["NOTION_API_KEY"]`. `key` is Python's `error.args[0]`. The
+ * message is the key in single quotes, as `str(KeyError("NAME"))` is for a
+ * plain name.
+ */
+export class KeyError extends Error {
+  readonly key: string;
+
+  constructor(key: string) {
+    super(`'${key}'`);
+    this.name = "KeyError";
+    this.key = key;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Exception chaining: `raise error from cause`
+// ---------------------------------------------------------------------------
+//
+// Python code reads the chained cause later (`error.__cause__`). It is stored
+// as a non-enumerable `pyCause` property, which Node's util.inspect does not
+// print. The standard `cause` option is deliberately not used, because Node
+// prints `[cause]` chains for uncaught errors (security invariant S7).
+// `raise error from None` is simply `throw error`: there is no cause.
+
+/** `raise error from cause`: `throw withPyCause(error, cause)`. Returns `error`. */
+export function withPyCause<E extends Error>(error: E, cause: unknown): E {
+  Object.defineProperty(error, "pyCause", {
+    value: cause,
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  return error;
+}
+
+/** `error.__cause__`: the cause set by withPyCause, or null (None) when there is none. */
+export function getPyCause(error: unknown): unknown {
+  if (typeof error === "object" && error !== null && Object.hasOwn(error, "pyCause")) {
+    return (error as { pyCause: unknown }).pyCause;
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Code points, length, slicing, comparison
 // ---------------------------------------------------------------------------

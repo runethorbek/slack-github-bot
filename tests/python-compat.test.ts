@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { inspect } from "node:util";
 
 import {
+  KeyError,
   OverflowError,
   ValueError,
   casefold,
   comparePy,
+  getPyCause,
   pyFloat,
   pyInt,
   pyIsSpace,
@@ -17,6 +20,7 @@ import {
   pyStartsWithSpace,
   pyStrip,
   pyTruncate,
+  withPyCause,
   type JsonValue,
 } from "../src/python-compat.ts";
 
@@ -189,4 +193,26 @@ test("pyInt matches int(str), including what raises", () => {
 test("error classes carry Python's names", () => {
   assert.equal(new ValueError().name, "ValueError");
   assert.equal(new OverflowError().name, "OverflowError");
+  const keyError = new KeyError("NOTION_API_KEY");
+  assert.equal(keyError.name, "KeyError");
+  assert.equal(keyError.key, "NOTION_API_KEY");
+  assert.equal(keyError.message, "'NOTION_API_KEY'");
+});
+
+test("withPyCause records __cause__ without Node printing it", () => {
+  const cause = new Error("secret-cause https://hooks.slack.test/secret");
+  const error = withPyCause(new Error("outer"), cause);
+  assert.equal(getPyCause(error), cause);
+  assert.equal(error.cause, undefined);
+  assert.equal(Object.keys(error).includes("pyCause"), false);
+  const printed = inspect(error, { depth: 10 });
+  assert.ok(!printed.includes("secret"), printed);
+  assert.ok(!printed.includes("pyCause"), printed);
+});
+
+test("getPyCause is null (None) when there is no cause", () => {
+  assert.equal(getPyCause(new Error("no cause")), null);
+  assert.equal(getPyCause(null), null);
+  assert.equal(getPyCause(undefined), null);
+  assert.equal(getPyCause("text"), null);
 });
