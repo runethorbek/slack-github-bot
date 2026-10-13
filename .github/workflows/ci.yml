@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+# Read-only, no secrets, independent of the Slack workflows.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run JavaScript and TypeScript tests
+        run: npm test
+
+      # The Python steps run only while the Python application still exists.
+      - uses: actions/setup-python@v6
+        if: hashFiles('requirements.txt') != ''
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        if: hashFiles('requirements.txt') != ''
+        run: pip install -r requirements.txt
+
+      - name: Run Python tests
+        if: hashFiles('requirements.txt') != ''
+        run: python -m unittest discover -s tests -p "test_*.py"
+
+      - name: Check the Python-semantics golden table is current
+        if: hashFiles('requirements.txt') != ''
+        run: python tests/equivalence/generate_python_compat_golden.py --check
