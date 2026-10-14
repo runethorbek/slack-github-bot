@@ -271,3 +271,24 @@ Phase 2 started 2026-10-13 12:20, on branch `experiment/typescript-migration`.
 ## Phase 2 summary
 
 All 10 slices (S0–S9) were accepted, and no slice reached the 5-cycle stop condition. The highest was 3 implementation attempts (S0).
+
+## Phase 3 — Independent validation
+
+- Started 13:08 (2026-10-14).
+- Orchestrator mechanical checks at f4449dc:
+  - typecheck 0; `npm test` 1011/1011 (0 skipped or todo; ~35 s);
+  - `git ls-files '*.py'` → 0;
+  - `git diff d3404ed -- api/` → 0 lines; `tests/slack-request.test.js` unchanged (0 lines);
+  - GitHub CI `test` job on f4449dc passed (29 s); the Vercel preview build passed;
+  - both runtime deps are used (`@google/genai` by src/gemini.ts; `@vercel/functions` by api/slack.js).
+  - Size: Python app 3,845 → TS src 7,386 lines (1,822 of them foundations). Tests: 8,874 → 13,082 lines.
+- **Final full-branch review** (fresh Reviewer, ~7 min): **PASS**.
+  - G1–G12 met; G13 is declared in RESULTS.
+  - No cross-slice interface defects. The Gemini adapter covers every Gemini path. Conventions are uniform. S1, S2, S5, S7 and S9 hold end to end.
+  - R1 (should-fix): six small semantic differences are not on ACCEPTANCE §1's permitted list → **listed in RESULTS.md for explicit user acceptance**.
+  - R2 (nit): three same-named `externalErrorStatusCode` variants with different semantics, plus duplicated helpers. **Not refactored** (out of scope); recorded as a maintainability risk.
+  - R3 (nit): CI didn't exercise the production `--omit=dev` import graph → **fixed by the Orchestrator**: a new CI step, tested locally both ways (passes; a planted dev-only import fails with "Cannot find package 'typescript'").
+  - R4 (nit): stale comments → the 2 in `src/` fixed by the Orchestrator; the `api/` and masking-step comments are frozen by G8/S8 and recorded as follow-up.
+  - R5 (nit): test-only exports. Recorded, not changed.
+- **Finding for the user**: `main` has no branch protection, so `ci.yml` runs on PRs but is not an enforced merge gate. This is a repository setting, recommended in RESULTS, and not changed by the agent.
+- Phase 3 ended at 13:19.

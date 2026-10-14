@@ -1,5 +1,6 @@
-// Process concerns shared by the two entry points (PLAN.md §2 design rule 4):
-// `node src/main.ts` and `node src/attention-summary.ts`.
+// Process concerns shared by the entry points (PLAN.md §2 design rule 4):
+// `node src/main.ts`, `node src/attention-summary.ts` and the two dev scripts
+// under scripts/.
 //
 // Each entry point has a `main(environment, deps)` that resolves to the exit
 // code. `runEntryPoint` adds the top-level error handler: an error that escapes

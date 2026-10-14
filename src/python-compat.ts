@@ -3,7 +3,8 @@
 // Each helper reproduces one CPython 3.12 behavior the application relies on,
 // where the obvious JavaScript equivalent differs (BASELINE.md §8). They are
 // checked against tests/equivalence/golden/python-compat.json, which Python
-// 3.12 generates (tests/equivalence/generate_python_compat_golden.py).
+// 3.12 generated before the Python code was removed (migration slice S9); it
+// is now a frozen reference.
 //
 // Strings are treated as sequences of code points, as Python does. A JS string
 // can hold a lone surrogate; it counts as one code point, which is also what
