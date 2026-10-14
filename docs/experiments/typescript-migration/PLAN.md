@@ -1,6 +1,6 @@
 # TypeScript migration — Plan
 
-Status: **Approved 2026-10-13 with modifications (see §9). Phase 2 in progress.**
+Status: **Completed 2026-10-14. All phases done; results in [RESULTS.md](RESULTS.md). PR #34 is a draft, not merged.**
 Companion documents: [BASELINE.md](BASELINE.md) and [ACCEPTANCE.md](ACCEPTANCE.md).
 
 ## 1. Goal and constraints

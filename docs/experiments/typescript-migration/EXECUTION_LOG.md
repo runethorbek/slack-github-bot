@@ -292,3 +292,7 @@ All 10 slices (S0–S9) were accepted, and no slice reached the 5-cycle stop con
   - R5 (nit): test-only exports. Recorded, not changed.
 - **Finding for the user**: `main` has no branch protection, so `ci.yml` runs on PRs but is not an enforced merge gate. This is a repository setting, recommended in RESULTS, and not changed by the agent.
 - Phase 3 ended at 13:19.
+
+## Phase 4 — Evaluation
+
+- 13:21: RESULTS.md written from this log and the Orchestrator's own checks. PR #34 description updated. The PR stays a draft and is not merged or deployed.
