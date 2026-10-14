@@ -1,21 +1,42 @@
 # Equivalence fixtures
 
 Reference data recorded from the Python implementation, which the TypeScript
-port must reproduce (see `docs/experiments/typescript-migration/ACCEPTANCE.md`).
+implementation must reproduce (see `docs/experiments/typescript-migration/ACCEPTANCE.md`).
+
+**These files are the frozen Python reference.** The Python application, the
+recorder (`record_python.py`) and the three generators
+(`generate_python_compat_golden.py`, `generate_people_suggest_prompts.py`,
+`generate_followup_task_fixture.py`) were removed in migration slice S9,
+together with the rest of Python. Their last `--check` runs, just before the
+removal, all reported the files up to date. The files can no longer be
+regenerated and must not be edited: a change to them is a change to the
+specification, not a fix.
 
 - `golden/python-compat.json`: the Python-semantics table, written by
-  `generate_python_compat_golden.py`.
+  `generate_python_compat_golden.py`. Read by `tests/python-compat.test.ts`,
+  `tests/plain-date.test.ts` and `tests/people-suggest.test.ts`.
 - `people-suggest-prompts.json`: `people_suggest`'s prompt constants, built
   Gemini prompts, next-step splits and reply blocks, written by
-  `generate_people_suggest_prompts.py`. It lives outside `golden/`, which
-  holds only the recorder's scenario goldens and the compat table.
+  `generate_people_suggest_prompts.py`. Read by `tests/people-suggest.test.ts`.
+  It lives outside `golden/`, which holds only the recorder's scenario goldens
+  and the compat table.
 - `followup-task-fixture.json`: `followup_task`'s constants (including the
   Gemini system instruction), built follow-up suggestion prompts, Block Kit
   buttons, and parser results for edge-case input, written by
-  `generate_followup_task_fixture.py`. It lives outside `golden/` for the same
-  reason.
+  `generate_followup_task_fixture.py`. Read by `tests/followup-task.test.ts`.
+  It lives outside `golden/` for the same reason.
 - `scenarios/<name>.json` and `golden/<name>.json`: end-to-end scenarios and
   the observables Python produced for them, written by `record_python.py`.
+  `tests/equivalence.test.ts` replays every scenario against the TypeScript
+  entry points with `replay.ts` (one child process per scenario, with scripted
+  HTTP and Gemini fakes) and compares the result with the golden under the
+  rules below.
+
+`npm test` runs all of these checks.
+
+The sections below describe the formats as the recorder wrote them; Python
+names in them (`__main__`, `sys.exit`, `print`, `requests`) refer to the
+removed implementation that produced the files.
 
 ## Scenario format (`scenarios/<name>.json`)
 
@@ -109,19 +130,15 @@ golden:
   R6.) The Python `type` name is informational: it does not have to match a TS
   class name.
 
-## Regenerating
+## How the files were produced (historical)
 
-Use Python 3.12, the CI reference version; the recorder refuses any other:
+Until S9, the files were written and checked under Python 3.12 (the recorder
+refused any other version) with `py -3.12 tests/equivalence/record_python.py`
+and each generator, each with a `--check` mode that CI ran. The recorder ran
+the real Python entry points in-process with `requests`,
+`google.genai.Client`, `time.sleep` and `copenhagen_today` replaced. Those
+scripts no longer exist in the working tree; they remain in the Git history
+before S9.
 
-```sh
-py -3.12 tests/equivalence/record_python.py          # write the goldens
-py -3.12 tests/equivalence/record_python.py --check  # verify; CI runs this
-```
-
-The recorder runs the real Python entry points in-process with `requests`,
-`google.genai.Client`, `time.sleep` and `copenhagen_today` replaced. Its
-docstring has the details.
-
-**The goldens are the frozen Python reference.** Once the Python application
-is removed (migration slice S9), they must not be regenerated or edited. A
-change to them after that point is a change to the specification, not a fix.
+**The goldens are the frozen Python reference.** They must not be regenerated
+or edited. A change to them is a change to the specification, not a fix.

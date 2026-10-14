@@ -139,7 +139,7 @@ in the `/people suggest` recap (issue #15).
 
 ### Why this person
 
-**Removed from the live schema.** `people_suggest.py`'s
+**Removed from the live schema.** `src/people-suggest.ts`'s
 `PERSON_CONTEXT_PROPERTIES` and its tests still reference this property
 name; since it no longer exists, that field is now always silently
 omitted from the Gemini context (a missing property is treated as simply

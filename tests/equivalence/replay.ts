@@ -277,8 +277,9 @@ export function createScriptedHttp(
  * The error `@google/genai`'s `interactions.create` throws for an HTTP error
  * `status`: the real SDK, with retries off, against a local JSON error
  * response. Must run before the network is blocked; nothing leaves the process.
+ * `apiKey` is the key the SDK is configured with (a test may pass a canary).
  */
-export async function sdkStatusError(status: number): Promise<Error> {
+export async function sdkStatusError(status: number, apiKey = "replay-unused-key"): Promise<Error> {
   const realFetch = globalThis.fetch;
   globalThis.fetch = async () =>
     new Response(JSON.stringify({ error: { code: status, message: "Scripted Gemini error.", status: "SCRIPTED" } }), {
@@ -286,7 +287,7 @@ export async function sdkStatusError(status: number): Promise<Error> {
       headers: { "content-type": "application/json" },
     });
   try {
-    await new GoogleGenAI({ apiKey: "replay-unused-key" }).interactions.create(
+    await new GoogleGenAI({ apiKey }).interactions.create(
       { model: "replay", input: "" },
       { retries: { strategy: "none" } },
     );

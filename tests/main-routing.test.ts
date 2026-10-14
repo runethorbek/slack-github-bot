@@ -24,8 +24,15 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { inspect } from "node:util";
 
-import { RuntimeError, type GeminiClient, type GeminiRequest, type GeminiResponse } from "../src/gemini.ts";
+import {
+  RuntimeError,
+  geminiClientFromSdk,
+  type GeminiClient,
+  type GeminiRequest,
+  type GeminiResponse,
+} from "../src/gemini.ts";
 import { HttpResponse, type GetOptions, type PostOptions } from "../src/http.ts";
 import {
   Exception,
@@ -38,6 +45,7 @@ import {
 } from "../src/main.ts";
 import { KeyError, RecursionError, getPyCause } from "../src/python-compat.ts";
 import { NotionAuthenticationError } from "../src/tasks-list.ts";
+import { sdkStatusError } from "./equivalence/replay.ts";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ENTRY_POINT = path.join(REPO_ROOT, "src", "main.ts");
@@ -1413,6 +1421,48 @@ test("S7: runEntryPoint reports an uncaught error from main as one secret-free s
 
   assert.equal(exitCode, 1);
   assert.equal(stderr, "Error\n");
+});
+
+test("S7: runEntryPoint reports a real @google/genai error made with a canary API key as its class name only", async () => {
+  // The SDK is configured with the canary key and sends it with the request
+  // (as the x-goog-api-key header) to a local error response.
+  const sdkError = (await sdkStatusError(400, "CANARY-GEMINI-KEY")) as Error & Record<string, unknown>;
+  assert.equal(sdkError.name, "BadRequestError");
+  // What the error holds, recorded as fact: its own `headers` are the
+  // response's; its `cause` is the SDK's CreateInteractionClientError, with
+  // no cause of its own, whose recorded request headers do not include the
+  // key. Nothing reachable from the error holds the canary.
+  assert.deepEqual([...(sdkError["headers"] as Headers).keys()], ["content-type"]);
+  const cause = sdkError.cause as Error & Record<string, unknown>;
+  assert.equal(cause.name, "CreateInteractionClientError");
+  assert.equal(cause.cause, undefined);
+  const request = (cause["data$"] as { httpMeta: { request: Request } }).httpMeta.request;
+  assert.deepEqual([...request.headers.keys()].sort(), ["accept", "content-type", "cookie", "user-agent"]);
+  assert.ok(!inspect(sdkError, { depth: Infinity, showHidden: true }).includes("CANARY"));
+
+  const modules = fakeModules();
+  modules.requests.post.returnValue = jsonResponse({ ok: true, ts: "123.456" });
+  modules.requests.get.returnValue = jsonResponse({ ok: true, messages: [{ text: "hello" }] });
+  modules.genai.Client.impl = () =>
+    geminiClientFromSdk({
+      interactions: {
+        create: async () => {
+          throw sdkError;
+        },
+      },
+    });
+  const stdout: string[] = [];
+  let stderr = "";
+
+  const exitCode = await runEntryPoint(
+    { ...TESTBOT_ENVIRONMENT, GEMINI_API_KEY: "CANARY-GEMINI-KEY" },
+    { ...deps(modules, stdout), writeStderr: (text) => (stderr += text) },
+  );
+
+  assert.equal(exitCode, 1);
+  assert.equal(stderr, "BadRequestError\n");
+  assert.ok(!stdout.join("\n").includes("CANARY"));
+  assert.ok(!stderr.includes("CANARY"));
 });
 
 function runEntryPointProcess(env: Record<string, string>, preload: string | null = null) {

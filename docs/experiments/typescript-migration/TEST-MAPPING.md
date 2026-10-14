@@ -983,3 +983,38 @@ Harness self-tests (the replay is not lenient):
 | --- | --- | --- |
 | `.github/workflows/attention-summary.yml` | S7: `actions/setup-python` + `pip install` → `actions/setup-node@v7` (Node 24, npm cache) + `npm ci --omit=dev`; `python attention_summary.py` → `node src/attention-summary.ts`. Triggers, cron, job, step names and the whole `env:` mapping unchanged. | workflow diff; `G7: attention-summary.yml runs node src/attention-summary.ts on Node 24 with the unchanged triggers and env mapping` (triggers, setup-node@v7 with Node 24, `npm ci --omit=dev`, the entry command, exactly the six `env:` mappings to the same-named secrets, no Python); `entry point: node src/attention-summary.ts with an empty environment prints Python's config error on stdout and exits 1`, `entry point: node src/attention-summary.ts runs main with process.env and exits 0 when nothing needs attention` (attention-summary.test.ts); local dry run of `npm ci --omit=dev` + `node src/attention-summary.ts` (S7 report) |
 | `.github/workflows/slack-message.yml` | S8: `actions/setup-python` + `pip install` → `actions/setup-node@v7` (Node 24, npm cache) + `npm ci --omit=dev`, still before the masking step (which runs `node -e`); the step "Run Python bot" is renamed "Run bot" and runs `node src/main.ts` instead of `python main.py`. Trigger, job, the masking step (byte for byte, including its comment that names the old step) and the whole `env:` mapping unchanged. | workflow diff; `G7: slack-message.yml runs node src/main.ts on Node 24 with the masking step and env mapping unchanged` (trigger, step order, setup-node@v7 with Node 24 and npm cache, `npm ci --omit=dev`, the masking step equal to the base commit's line for line, exactly the 24 base `env:` mappings in order, the entry command, no Python) and `test_workflow_maps_dm_identity_and_authorization_configuration (S8)`; the cross-layer tests build main's environment from the workflow's own `env:` block (cross-layer-contract.test.ts); `entry point: node src/main.ts without SLACK_TEXT exits 1 with only the KeyError name on stderr`, `entry point: node src/main.ts with an unauthorized DM prints Python's line, makes no call and exits 0` (main-routing.test.ts); local dry run of `npm ci --omit=dev` + `node src/main.ts` (S8 report) |
+
+## Closing note: Python removed (S9)
+
+The Python application and its test files (`tests/test_*.py`) were removed in
+S9, together with the Python-only equivalence tooling (`record_python.py` and
+the three generators). The goldens and fixtures they wrote stay in
+`tests/equivalence/` as the frozen reference. This mapping is the permanent
+traceability record from each of the 358 baseline Python tests to its
+TypeScript test; the Python sources it names remain in the Git history before
+S9.
+
+The final checks, run just before the removal (Python 3.12):
+
+- `python -m unittest discover -s tests -p "test_*.py"`: `Ran 358 tests`, `OK`.
+- The four `--check` runs: `Golden table is up to date.`,
+  `All 62 scenario goldens are up to date.`,
+  `people_suggest fixture is up to date.`,
+  `followup_task fixture is up to date.`
+- The mechanical mapping check (every `def test_` appears as a TS title prefix
+  in its mapped file): `TOTAL: 358 of 358 Python tests mapped`, with
+  `missing=[]`, no unknown `test_` titles and no count mismatches for each of
+  the nine Python test files.
+
+S9 also adds TS-only tests:
+
+- `tests/scripts.test.ts` (10): the dev scripts `scripts/fetch-notion-schema.ts`
+  and `scripts/preview-people-suggest-prompts.ts`, ported from `scripts/*.py`,
+  which had no Python tests. Their exit codes and no-network output were
+  compared with the Python scripts before removal; the only intended
+  difference is the usage line, which names the TS command.
+- `S7: runEntryPoint reports a real @google/genai error made with a canary API key as its class name only`
+  (main-routing.test.ts): S7 evidence with a real SDK error built with the
+  canary `CANARY-GEMINI-KEY` as the configured key. It also records what the
+  error holds: its `cause` is the SDK's `CreateInteractionClientError` (with no
+  cause of its own), whose recorded request headers do not include the key.

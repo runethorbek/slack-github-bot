@@ -243,3 +243,31 @@ Phase 2 started 2026-10-13 12:20, on branch `experiment/typescript-migration`.
   - Totals: 1 implementation attempt (interrupted and resumed), 1 review round. Findings: 0 blocking, 0 should-fix, 3 nit.
   - 1 human intervention (the post-limit "continue").
   - **After S8, no workflow runs Python.**
+
+### S9 — retire Python, port the dev scripts, update the docs
+
+- Started 12:40 (2026-10-14).
+- **Implementation attempt 1** (~21 min): DONE.
+  - **Last full Python check before removal**: 358 OK; all 4 generators \`--check\` OK; mapping 358/358.
+  - Both dev scripts ported and compared with Python on the no-network paths. 24 Python files and requirements.txt deleted, with the goldens and fixtures kept.
+  - CI is Node-only. README, AGENTS.md (3 lines), the gemini-context doc (TD9) and 3 other docs updated.
+  - 1011/1011 tests.
+  - **S8 carry-over R3 resolved, and it corrected an earlier claim**: a real SDK error's \`.cause\` does **not** contain the API key. **The S8 Implementer's statement that it did was wrong. This is the second Implementer reporting inaccuracy** (after S4), and it was caught only because the Reviewer asked for a test.
+- The Orchestrator staged the deletions and re-ran everything: \`git ls-files '*.py'\` → 0; typecheck 0; 1011/1011; \`api/\`, \`src/\` and the frozen fixtures untouched; ci.yml Node-only.
+- **Review 1** (~3.5 min): **BLOCKED**, 1 blocking, 1 should-fix (noting only), 2 nit.
+  - The Reviewer spot-checked 22 TEST-MAPPING entries (all exist), checked the TD9 (a)–(f) corrections against \`src/\`, checked AGENTS.md, and checked that the scripts are read-only and follow S7.
+  - **R1 (blocking): the new README security section claimed "exactly one page" per submission, contradicting TD1** (Interaction create can duplicate). **The Implementer's doc rewrite overstated a security property.**
+  - R2 (nit): a stale script comment.
+  - R3 (nit): the Add-interaction button was described without its condition.
+  - R4 (noting only): CI can no longer re-verify the goldens against Python. Expected under D3; goes into RESULTS.
+- Orchestrator decision: fix R1–R3. Also soften the unverified Notion "insert content" capability claim to a statement that can be checked against the code.
+- **Implementation attempt 2** (~1.4 min): R1–R3 and the capability wording fixed. **The Implementer also found and fixed 2 more "exactly one" or "never twice" overstatements that the Reviewer had not listed.** 1011/1011.
+- The Orchestrator grepped README and docs for the overstatement phrases (none left) and re-ran the tests (1011/1011).
+- **Review 2** (~1 min): **PASS**, no findings. The pre-existing spec contradiction it flagged is recorded as TECH-DEBT TD12.
+- **Outcome: ACCEPTED** at 13:08.
+  - Totals: 2 implementation attempts, 2 review rounds. Findings: 1 blocking (a doc overstatement of a security property), 1 should-fix (noting only, accepted under D3), 2 nit. All fixed autonomously except R4 (accepted).
+  - 0 human interventions.
+
+## Phase 2 summary
+
+All 10 slices (S0–S9) were accepted, and no slice reached the 5-cycle stop condition. The highest was 3 implementation attempts (S0).
