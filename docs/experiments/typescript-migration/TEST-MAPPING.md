@@ -697,6 +697,88 @@ Also added in S6 (tests/python-compat.test.ts):
 - `` PY_RE_SPACE_CLASS is exactly the code points of Python's re \s ``
 - `truthy matches bool() for JSON values` gains NaN and Infinity (true, as in Python).
 
+## tests/test_attention_summary.py → tests/attention-summary.test.ts (S7)
+
+| Python test | TS test title |
+| --- | --- |
+| `AttentionSummaryTests.test_tasks_only` | `test_tasks_only` |
+| `AttentionSummaryTests.test_people_only` | `test_people_only` |
+| `AttentionSummaryTests.test_both_sections` | `test_both_sections` |
+| `AttentionSummaryTests.test_nothing_needs_attention_posts_nothing` | `test_nothing_needs_attention_posts_nothing` |
+| `AttentionSummaryTests.test_dated_tasks_are_capped_at_five_with_more_hint` | `test_dated_tasks_are_capped_at_five_with_more_hint` |
+| `AttentionSummaryTests.test_exactly_five_dated_tasks_has_no_more_hint` | `test_exactly_five_dated_tasks_has_no_more_hint` |
+| `AttentionSummaryTests.test_undated_tasks_are_shown_as_a_count_only` | `test_undated_tasks_are_shown_as_a_count_only` |
+| `AttentionSummaryTests.test_single_undated_task_uses_singular_noun` | `test_single_undated_task_uses_singular_noun` |
+| `AttentionSummaryTests.test_counts_are_not_limited_by_the_tasks_list_display_cap` | `test_counts_are_not_limited_by_the_tasks_list_display_cap` |
+| `AttentionSummaryTests.test_due_people_are_capped_at_five_with_more_hint` | `test_due_people_are_capped_at_five_with_more_hint` |
+| `AttentionSummaryTests.test_people_are_plain_text_without_suggest_buttons` | `test_people_are_plain_text_without_suggest_buttons` |
+| `AttentionSummaryTests.test_task_selection_and_order_match_tasks_list` | `test_task_selection_and_order_match_tasks_list` |
+| `AttentionSummaryTests.test_people_selection_and_order_match_people_due` | `test_people_selection_and_order_match_people_due` |
+| `AttentionSummaryTests.test_incomplete_task_scan_without_items_is_reported` | `test_incomplete_task_scan_without_items_is_reported` |
+| `AttentionSummaryTests.test_incomplete_people_scan_without_items_is_reported` | `test_incomplete_people_scan_without_items_is_reported` |
+| `AttentionSummaryTests.test_complete_scans_without_items_send_nothing` | `test_complete_scans_without_items_send_nothing` |
+| `AttentionSummaryTests.test_skipped_malformed_task_is_reported_in_shown_section` | `test_skipped_malformed_task_is_reported_in_shown_section` |
+| `AttentionSummaryTests.test_skipped_malformed_tasks_use_plural` | `test_skipped_malformed_tasks_use_plural` |
+| `AttentionSummaryTests.test_skipped_malformed_people_are_reported_in_shown_section` | `test_skipped_malformed_people_are_reported_in_shown_section` |
+| `AttentionSummaryTests.test_skipped_malformed_person_uses_singular` | `test_skipped_malformed_person_uses_singular` |
+| `AttentionSummaryTests.test_skipped_rows_alone_send_nothing` | `test_skipped_rows_alone_send_nothing` |
+| `AttentionSummaryTests.test_skipped_count_is_not_shown_for_a_hidden_section` | `test_skipped_count_is_not_shown_for_a_hidden_section` |
+| `AttentionSummaryTests.test_tasks_failure_sends_people_then_fails` | `test_tasks_failure_sends_people_then_fails (S11: degrades to a partial summary, still fails the run)` |
+| `AttentionSummaryTests.test_people_failure_sends_tasks_then_fails` | `test_people_failure_sends_tasks_then_fails (S11: a Notion 401 fails the run)` |
+| `AttentionSummaryTests.test_one_source_failing_and_other_empty_sends_nothing_and_fails` | `test_one_source_failing_and_other_empty_sends_nothing_and_fails` |
+| `AttentionSummaryTests.test_both_sources_failing_sends_nothing_and_fails` | `test_both_sources_failing_sends_nothing_and_fails` |
+| `AttentionSummaryTests.test_failure_without_http_status_logs_type_name_only` | `test_failure_without_http_status_logs_type_name_only (S7)` |
+| `AttentionSummaryTests.test_missing_configuration_is_reported_by_name` | `test_missing_configuration_is_reported_by_name` |
+| `AttentionSummaryTests.test_unknown_key_error_is_described_by_type_name_only` | `test_unknown_key_error_is_described_by_type_name_only (S7)` |
+| `AttentionSummaryTests.test_logs_contain_no_private_content_or_secrets` | `test_logs_contain_no_private_content_or_secrets (S7)` |
+| `SlackDmPosterTests.test_posts_to_the_authorized_user_id` | `test_posts_to_the_authorized_user_id` |
+| `SlackDmPosterTests.test_slack_api_error_raises_a_safe_message` | `test_slack_api_error_raises_a_safe_message (S7)` |
+| `SlackDmPosterTests.test_http_error_raises_a_safe_message` | `test_http_error_raises_a_safe_message` |
+| `MainTests.test_successful_send_exits_zero` | `test_successful_send_exits_zero` |
+| `MainTests.test_slack_delivery_failure_is_annotated_and_exits_non_zero` | `test_slack_delivery_failure_is_annotated_and_exits_non_zero (S7)` |
+| `MainTests.test_source_failure_is_annotated_and_exits_non_zero` | `test_source_failure_is_annotated_and_exits_non_zero` |
+
+Not applicable: none.
+
+Adapted (same assertions, different mechanism):
+
+- Conventions as in S3–S6: `Mock()` collaborators are recording functions;
+  `response(...)` is a 200 `HttpResponse`; `failing_response(status)` is an
+  `HttpResponse` with that status and no headers, whose `raise_for_status()`
+  throws the real http.ts `HTTPError`. `routing_notion_post` keeps its routing
+  (and throws an AssertionError for an unexpected URL, as Python does).
+- `send_attention_summary(..., today=, sleep=, log=)` takes an options object
+  (`{ today, sleep, log }`). `run_failing_summary`'s `assertRaises` catches
+  the rejection and checks it is an `AttentionSummaryError`.
+- `test_failure_without_http_status_logs_type_name_only`: http.ts's `Timeout`
+  has a fixed message, so the test sets the secret-bearing message
+  (`https://api.notion.com secret-token`) on the instance, keeping the
+  assertion that it never reaches the log.
+- `test_people_are_plain_text_without_suggest_buttons`: "no `blocks` kwarg" is
+  "`postDirectMessage` was called with exactly one argument".
+- `test_slack_api_error_raises_a_safe_message`: `assertRaisesRegex(RuntimeError,
+  ...)` checks `SlackDmDeliveryError` (a RuntimeError subclass in Python).
+- `MainTests.run_main`: `patch.dict("os.environ")` and
+  `patch("attention_summary.requests.post")` are `main(env, { http, log })`;
+  `redirect_stdout` is a `log` that collects each line plus `"\n"`. As in
+  Python, `today` and `sleep` are not injected (the real clock; the 400 is not
+  retried).
+
+TS-only tests (no Python counterpart):
+
+- `describeSourceError: a NotionAuthenticationError is its message; a command error adds only its cause's HTTP status`
+- `buildSlackDmPoster: a transport error is its Python type name; a non-dict or ok-less body is 'unknown'; nothing is chained`
+- `buildSlackDmPoster: the exact request (headers, json, timeout) and the result is Slack's body`
+- `main: a missing or empty SLACK_BOT_TOKEN or AUTHORIZED_SLACK_USER_ID prints the config error and makes no call`
+- `S7: uncaughtErrorLine is the name, plus the message only for application error classes`
+- `S7: runEntryPoint reports an error escaping main as one secret-free stderr line and exit code 1`
+- `entry point: node src/attention-summary.ts with an empty environment prints Python's config error on stdout and exits 1`
+- `entry point: node src/attention-summary.ts runs main with process.env and exits 0 when nothing needs attention`
+- `S7: the real process reports an uncaught error as one secret-free stderr line and exits 1`
+- `S7: the real process reports an error outside main's chain as one line and keeps exit code 1`
+- `entryPointMode: run when import.meta.main is true; on a Node without it (undefined), fail loudly only when the module is the started script`
+- `G7: attention-summary.yml runs node src/attention-summary.ts on Node 24 with the unchanged triggers and env mapping`
+
 ## Security-invariant evidence (G6)
 
 Filled in as slices land. Tests named here fail if the invariant breaks.
@@ -709,10 +791,10 @@ Filled in as slices land. Tests named here fail if the invariant breaks.
 | S4 | `test_unknown_type_is_rejected_before_any_notion_write`, `S4: an invalid Type is rejected before the Track is validated`, `test_a_track_id_that_is_not_a_live_track_is_rejected_before_any_write`, `test_a_track_id_with_no_tracks_data_source_configured_is_rejected`, `test_unconfigured_tracks_data_source_fails_closed`, `test_type_property_not_a_select_is_a_failure` (a malformed schema is not an empty allowlist), `validation order: date, then Type, then Track, then title property, then exactly one create` (people-interaction.test.ts). Task Priority, Track and Status: `test_unknown_priority_is_rejected_without_a_write (S4: Priority)`, `test_tampered_track_is_rejected_without_a_write (S4: Track)`, `test_missing_ikke_started_status_writes_nothing_and_reports (S4: Status)`, `test_malformed_schema_is_a_failure_without_a_write`, `S4: validation order is schema, Priority, Track, Status; nothing is written on any rejection`, `S4: a full valid submission writes one page with Python's exact payload, headers and property order; Created is today`, `fetchTasksSchema: a malformed schema is a FollowupTaskCommandError; a missing Priority or Description is not` (followup-task.test.ts). |
 | S5 | `test_unknown_or_inexact_kind_is_dropped (S5: kinds validated)`, `test_more_than_two_suggestions_are_truncated (S5: at most 2)`, `test_valid_next_steps_are_shown_alongside_recap_message_and_button (S5)`, `test_type_options_unavailable_means_no_next_step_requested_or_shown` (no live Types: no next step at all), `next-step fixture: splitRecapAndNextSteps equals Python on line boundaries, Unicode, bullets and markers (S5)`, `S5: Gemini output triggers no side effect: Notion is only read, and the only post after Gemini is the reply` (people-suggest.test.ts). Suggested Task: `test_missing_blank_non_text_or_over_long_name_yields_none (S5, S10: 150 chars)`, `test_unrequested_fields_are_ignored (S5)`, `fixture: parseSuggestedTask equals Python on fences, json.loads edge cases (NaN, BOM, duplicates, depth) and bounds (S5)`, `S5: Gemini output only prefills a button: Notion is only read, generateText is called once with the exact prompt`, `S5: NaN, Infinity and BOM-prefixed Gemini output are handled as json.loads does, not as JSON.parse does`, `S5: an absurdly deep Gemini response raises RecursionError out of buildFollowupTaskButtons, as in Python` (followup-task.test.ts); `pyJsonLoads matches json.loads, including what raises` (python-compat.test.ts). |
 | S6 (partial: `/people due`, `/people suggest` and follow-up suggestion prompts) | `S6: /people due never calls generateText` (people-due.test.ts); `prompt fixture: every prompt constant, message and bound equals Python's, byte for byte (S6, S10)`, `prompt fixture: built recap and draft prompts equal Python's, byte for byte (S6)`, `test_person_with_no_tracks_gets_the_unchanged_prompts (S6: exact prompts)`, `test_gemini_receives_only_intended_person_and_interaction_context (S6)` (people-suggest.test.ts). Follow-up suggestion: `fixture: every constant, message, id and bound equals Python's, byte for byte (S6, S10)`, `fixture: built follow-up suggestion prompts equal Python's, byte for byte (S6)`, `test_prompt_contains_only_the_saved_interaction_and_today (S6)`, `test_empty_notes_make_no_gemini_call` (followup-task.test.ts). `/tasks` is evidenced at the entry point in S8. |
-| S7 (partial: `raise … from`, generic failure text) | `withPyCause records __cause__ without Node printing it` (python-compat.test.ts); `callNotionWithRetries: the final TaskListCommandError carries the request error as its cause`; `test_exhausted_transient_failure_produces_a_safe_generic_message`, `test_malformed_query_response_produces_a_safe_message_without_raw_payload` (people-due.test.ts) |
+| S7 (partial: `raise … from`, generic failure text; attention-summary entry point and its uncaught errors) | `withPyCause records __cause__ without Node printing it` (python-compat.test.ts); `callNotionWithRetries: the final TaskListCommandError carries the request error as its cause`; `test_exhausted_transient_failure_produces_a_safe_generic_message`, `test_malformed_query_response_produces_a_safe_message_without_raw_payload` (people-due.test.ts). Attention summary (attention-summary.test.ts): `test_failure_without_http_status_logs_type_name_only (S7)`, `test_unknown_key_error_is_described_by_type_name_only (S7)`, `test_logs_contain_no_private_content_or_secrets (S7)`, `test_slack_api_error_raises_a_safe_message (S7)`, `test_slack_delivery_failure_is_annotated_and_exits_non_zero (S7)`, `describeSourceError: a NotionAuthenticationError is its message; a command error adds only its cause's HTTP status`, `buildSlackDmPoster: a transport error is its Python type name; a non-dict or ok-less body is 'unknown'; nothing is chained`; the top-level handler: `S7: uncaughtErrorLine is the name, plus the message only for application error classes`, `S7: runEntryPoint reports an error escaping main as one secret-free stderr line and exit code 1`, `S7: the real process reports an uncaught error as one secret-free stderr line and exits 1`, `S7: the real process reports an error outside main's chain as one line and keeps exit code 1`. The golden replay checks every canary against all stdout and stderr of each replayed scenario (equivalence.test.ts, `golden: attention_*`). |
 | S9 | `test_ambiguous_write_failures_are_not_retried (S9)`, `test_rate_limited_write_is_retried (S9)`, `S9: a 503, ReadTimeout or ConnectionError on Task create gives one create, no sleep and the uncertain message`, `S9: 429 then success gives two creates with one sleep and the confirmation`, `S9: a 400 gives the generic failure (one create, no sleep), and three 429s give three creates and the generic failure`, `S9: createTaskPage retries only a 429; the final error carries the request error as its cause`, `S9/S11: a 401 or 403 on Task create is a credential failure: one create, caught, the generic failure` (followup-task.test.ts) |
 | S10 (all bounds in BASELINE.md §6 S10 so far) | `test_stops_after_five_pages_and_avoids_a_false_empty_claim`, `test_renders_no_more_than_twenty_eligible_tasks`, `test_truncates_after_ordering_and_reports_the_remainder`, `test_only_displayed_tasks_trigger_track_resolution`; People and Interactions (people-due.test.ts): `test_people_scan_reaching_the_bound_marks_the_result_incomplete`, `test_interaction_scan_bound_flags_incomplete_instead_of_mislabeling`, `test_result_count_is_bounded_and_shows_a_remainder_indicator`, `test_build_due_people_blocks_bounds_to_the_display_limit_with_a_remainder_block`; 25 Track options (people-interaction.test.ts): `fetchAvailableTracks: one bounded query of page_size 25; at most 25 options; a malformed response is an AddInteractionCommandError`; people-suggest.test.ts: 5 Interactions `test_bounded_to_five_and_sorted_query`, `test_more_than_five_results_are_still_bounded_defensively`, `S10: the Interactions query asks for 5 and at most 5 summaries are used, even from a longer response`; 5 Tracks `test_person_tracks_take_precedence_within_the_track_cap (S10: 5 Tracks)`, `S10: the people-suggest bounds are Python's values`; 500-char Purpose `test_long_purpose_is_truncated_to_the_limit (S10: 500-char Purpose)`, `test_purpose_exactly_at_the_limit_is_kept_whole`, `S10: extractTrackPurpose truncates by code points to 499 + … and keeps exactly 500`; 3000-char section `test_an_oversized_gemini_draft_is_truncated_to_slacks_block_text_limit (S10: 3000-char section)`, `test_oversized_next_step_block_is_truncated (S10: 3000-char section)`, `S10: truncateForSlackSection keeps 3000 code points and cuts longer text to 2999 + … (astral characters count once)`; follow-up Task (followup-task.test.ts): 2000-char button value `test_build_returns_no_buttons_when_the_button_value_is_too_long_for_slack (S10: 2000-char value)`, `test_suggested_button_too_long_for_slack_is_omitted_alone (S10: 2000-char value)`, `S10: the 2000-character value limit is measured in Python json.dumps units, not JSON.stringify's`; 75-char button text `test_long_name_label_is_truncated_to_slack_button_text_limit (S10: 75-char text)`, `test_label_at_exactly_the_limit_is_not_truncated`; 150/500 chars and 365 days `test_missing_blank_non_text_or_over_long_name_yields_none (S5, S10: 150 chars)`, `test_name_at_the_limit_is_accepted`, `test_over_long_or_non_text_description_is_dropped (S10: 500 chars)`, `test_description_at_the_limit_is_kept`, `test_invalid_past_or_too_distant_follow_up_is_dropped (S10: 365 days)`, `test_follow_up_today_and_365_days_ahead_are_kept`, `S10: names and descriptions are bounded in code points (an emoji counts once)` |
-| S11 (partial: `/tasks list`, `/people due`, Interaction write, `/people suggest`, Task write, follow-up buttons) | `test_credential_failure_fails_with_a_safe_notion_specific_message`, `S11: a 401 on a Track lookup fails the run without a cause`, `test_terminal_track_permission_failure_is_isolated` (403 on a Track degrades); `test_notion_auth_failure_is_not_retried_and_propagates_uncaught` (people-due.test.ts); the Interaction write degrades (TD7): `test_notion_authentication_failure_produces_a_safe_message_without_a_partial_write` (401 on the schema read), `TD7 pin: a 401 on Interaction create posts the generic failure and does not throw`, `TD7 pin: a 403 on Interaction create is a credential failure too (not retried, caught)`; `fetchAvailableInteractionTypes: 401 is a credential failure, 403 is not (credential codes are (401,))` (people-interaction.test.ts); `/people suggest` fails on a Track page 401 and degrades on the best-effort reads: `S11: a 401 on a Track page fails the command before Gemini; a 403 only omits that Track`, `test_a_track_listing_credential_failure_does_not_break_the_rest_of_the_reply (S11: degrades)`, `S11: a 401 on the Type schema degrades: no button, no next step, and the unavailable note` (people-suggest.test.ts); the follow-up buttons degrade and the Task write posts the generic failure (followup-task.test.ts): `test_build_returns_no_buttons_on_notion_credential_failure (S11: degrades)`, `S11: a 401 on the Tracks listing degrades to no buttons; a 401 on the schema at submission posts the generic failure`, `S9/S11: a 401 or 403 on Task create is a credential failure: one create, caught, the generic failure`, `fetchTasksSchema: 401 is a credential failure, 403 is not (credential codes are (401,))` |
+| S11 (partial: `/tasks list`, `/people due`, Interaction write, `/people suggest`, Task write, follow-up buttons, attention summary) | `test_credential_failure_fails_with_a_safe_notion_specific_message`, `S11: a 401 on a Track lookup fails the run without a cause`, `test_terminal_track_permission_failure_is_isolated` (403 on a Track degrades); `test_notion_auth_failure_is_not_retried_and_propagates_uncaught` (people-due.test.ts); the Interaction write degrades (TD7): `test_notion_authentication_failure_produces_a_safe_message_without_a_partial_write` (401 on the schema read), `TD7 pin: a 401 on Interaction create posts the generic failure and does not throw`, `TD7 pin: a 403 on Interaction create is a credential failure too (not retried, caught)`; `fetchAvailableInteractionTypes: 401 is a credential failure, 403 is not (credential codes are (401,))` (people-interaction.test.ts); `/people suggest` fails on a Track page 401 and degrades on the best-effort reads: `S11: a 401 on a Track page fails the command before Gemini; a 403 only omits that Track`, `test_a_track_listing_credential_failure_does_not_break_the_rest_of_the_reply (S11: degrades)`, `S11: a 401 on the Type schema degrades: no button, no next step, and the unavailable note` (people-suggest.test.ts); the follow-up buttons degrade and the Task write posts the generic failure (followup-task.test.ts): `test_build_returns_no_buttons_on_notion_credential_failure (S11: degrades)`, `S11: a 401 on the Tracks listing degrades to no buttons; a 401 on the schema at submission posts the generic failure`, `S9/S11: a 401 or 403 on Task create is a credential failure: one create, caught, the generic failure`, `fetchTasksSchema: 401 is a credential failure, 403 is not (credential codes are (401,))`; the attention summary fails the run on a Notion 401 after posting what the other source gave (attention-summary.test.ts): `test_people_failure_sends_tasks_then_fails (S11: a Notion 401 fails the run)`, `test_tasks_failure_sends_people_then_fails (S11: degrades to a partial summary, still fails the run)`, and the goldens `attention_both_fail` (401 on Tasks: exit 1) and `attention_tasks_fail_people_ok` (equivalence.test.ts) |
 
 TECH-DEBT pins (each fails if the preserved defect is fixed or changed):
 
@@ -722,3 +804,27 @@ TECH-DEBT pins (each fails if the preserved defect is fixed or changed):
 | TD2 | `TD2: a Follow-up with a time is parsed with date.fromisoformat and skipped as malformed` (tasks-list.test.ts) |
 | TD3 (Interaction date, Task follow_up) | `TD3 pin: the modal date is parsed with date.fromisoformat, so 20260922 and 2026-W39-2 are accepted` (people-interaction.test.ts). `TD3 pin: the modal follow_up is parsed with date.fromisoformat, so 20261001 and 2026-W40-4 are accepted` (followup-task.test.ts). |
 | TD7 (credential failure on the Interaction write is caught) | `TD7 pin: a 401 on Interaction create posts the generic failure and does not throw`, `TD7 pin: a 403 on Interaction create is a credential failure too (not retried, caught)`, `test_notion_authentication_failure_produces_a_safe_message_without_a_partial_write` (people-interaction.test.ts) |
+
+## Golden equivalence evidence (G5)
+
+`tests/equivalence.test.ts` replays each scenario with `tests/equivalence/replay.ts`
+(one child process per scenario; see the file's header for the fakes and the
+README's normalisation rules it applies). Scenarios replayed so far:
+
+| Entry point | Scenarios | Slice |
+| --- | --- | --- |
+| `attention_summary` | `golden: attention_both_fail`, `golden: attention_both_sections_over_5`, `golden: attention_missing_slack_token`, `golden: attention_nothing`, `golden: attention_slack_dm_not_ok`, `golden: attention_tasks_fail_people_ok` (all 6, matched without differences) | S7 |
+| `main` | (56 scenarios, S8) | S8 |
+
+Harness self-tests (the replay is not lenient): `golden scenarios: every attention_summary scenario is replayed`,
+`harness self-test: a golden that differs in any compared observable fails the comparison` (18 subtests),
+`harness self-test: observed output the golden does not allow fails the comparison` (7 subtests),
+`harness self-test: the fake http fails on an unscripted, mismatching or unused call` (3 subtests),
+`harness self-test: the fake http allows only the options http.ts sends, and no json: null` (5 subtests: params on a POST, json on a GET, `json: null`, an unknown option, and the allowed options).
+
+## Workflow evidence (G7)
+
+| Workflow | Cutover | Evidence |
+| --- | --- | --- |
+| `.github/workflows/attention-summary.yml` | S7: `actions/setup-python` + `pip install` → `actions/setup-node@v7` (Node 24, npm cache) + `npm ci --omit=dev`; `python attention_summary.py` → `node src/attention-summary.ts`. Triggers, cron, job, step names and the whole `env:` mapping unchanged. | workflow diff; `G7: attention-summary.yml runs node src/attention-summary.ts on Node 24 with the unchanged triggers and env mapping` (triggers, setup-node@v7 with Node 24, `npm ci --omit=dev`, the entry command, exactly the six `env:` mappings to the same-named secrets, no Python); `entry point: node src/attention-summary.ts with an empty environment prints Python's config error on stdout and exits 1`, `entry point: node src/attention-summary.ts runs main with process.env and exits 0 when nothing needs attention` (attention-summary.test.ts); local dry run of `npm ci --omit=dev` + `node src/attention-summary.ts` (S7 report) |
+| `.github/workflows/slack-message.yml` | S8 | — |

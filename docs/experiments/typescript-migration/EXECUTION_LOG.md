@@ -183,3 +183,36 @@ Phase 2 started 2026-10-13 12:20, on branch `experiment/typescript-migration`.
 - **Outcome: ACCEPTED** at 09:11 (2026-10-14).
   - Totals: 1 implementation attempt (interrupted and resumed), 1 review round. Findings: 0 blocking, 0 should-fix, 1 nit (accepted).
   - 1 human intervention (the post-limit "continue").
+
+### S7 — attention-summary entry point, golden replay harness, first workflow cutover
+
+- Started 09:21 (2026-10-14).
+- **Implementation attempt 1** (~18.7 min): DONE.
+  - 36/36 tests ported plus 10 TS-only tests (4 run the real process).
+  - New generic replay harness: one child process per scenario, network blocked, strict script; 28 permanent self-tests showing it is not lenient.
+  - All 6 attention goldens match. `attention-summary.yml` cut over to Node.
+  - The local dry run matches Python exactly. 802/802 overall. Module mutations M1–M4 and harness mutations H1–H5 were all caught.
+- **Side effect outside the repo, reported by the Implementer**: an `env -i py -3.12` call during the dry run made the Python install manager download Python into the scratchpad (since deleted) and print "Python install manager was successfully updated to 26.4".
+  - The Orchestrator checked: `py list` still shows 3.14.2 (default) and 3.12.10, and both work.
+  - Whether the install manager itself was updated could not be determined. **This is surfaced to the user.**
+- The Orchestrator re-ran everything: typecheck 0, 802/802, 358 OK, generator checks OK, mapping OK, goldens untouched, dry run exit 1 with Python's exact line, and the workflow diff limited to the runtime steps.
+- **Review 1** (~4.3 min): **PASS**, 0 blocking, 3 should-fix, 1 nit.
+  - The Reviewer confirmed line-by-line equivalence, harness strictness, the safety of the S7 allowlist across all error classes, and an import graph with no dev dependencies.
+  - R1 (should-fix): the fake http accepts `params` on POST, `json` on GET, and `json: null`, which is more permissive than the real adapter.
+  - R2 (should-fix): no test pins the content of `attention-summary.yml` (G7 evidence).
+  - R3 (should-fix): on Node < 24.2, `import.meta.main` is undefined, so the scheduled run would silently do nothing and exit 0.
+  - R4 (nit): `String()` vs Python `str()` for non-string Slack error codes. Accepted as a documented assumption.
+- Orchestrator decision: fix R1–R3. R1 matters because S8 relies on the harness; R3 removes a silent-failure mode in production.
+- **Implementation attempt 2** (~4 min): R1–R3 fixed.
+  - The fake http is now per-method strict, rejects `json: null`, and has 5 new self-tests.
+  - A G7 workflow content test was added; 5 workflow mutations were each caught.
+  - New `entryPointMode` makes the entry point fail loudly on Node < 24.2.
+  - 810/810.
+- The Orchestrator re-ran everything: typecheck 0, 810/810, 358 OK, golden check OK, goldens untouched.
+- **Review 2** (~1 min): **PASS**, R1–R3 resolved, no new findings.
+  - The Reviewer reasoned that `entryPointMode` cannot misfire on the runner: on Node >= 24.2, `import.meta.main` short-circuits before any path comparison.
+- **Outcome: ACCEPTED** at 09:42.
+  - Totals: 2 implementation attempts, 2 review rounds. Findings: 0 blocking, 3 should-fix (all fixed autonomously), 1 nit (accepted assumption).
+  - 0 human interventions.
+  - Also recorded: 1 unintended side effect outside the repo (the py install manager), surfaced to the user.
+  - Still open: U2, the real ubuntu-latest execution of the cutover workflow (post-merge smoke test).
