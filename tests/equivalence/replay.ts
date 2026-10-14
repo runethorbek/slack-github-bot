@@ -19,13 +19,18 @@
 // - Time: `sleep` records its durations and returns at once; `today` is the
 //   scenario's frozen date.
 // - Gemini: `gemini.create({model, input})` serves the Gemini script in order.
-//   Scripted Gemini errors need src/gemini.ts's error class (S8).
+//   It stands where the Python recorder's fake `genai.Client().interactions`
+//   stands: the `main` runner passes it to src/gemini.ts's real SDK adapter
+//   (`geminiClientFromSdk`) in place of the @google/genai client. A scripted
+//   error is a genuine @google/genai HTTP error for the scripted status, made
+//   by the real SDK against a one-off local response before the network is
+//   blocked (sdkStatusError), as the recorder uses the Python SDK's own
+//   `APIError.generate`.
 //
 // The parent (replayScenario) sends the scenario to the child over IPC and
 // receives the recorded calls back; compareWithGolden then applies the rules.
 //
-// S8 extends this by adding a `main` runner to ENTRY_POINTS (and the Gemini
-// error construction), then listing "main" in tests/equivalence.test.ts.
+// Entry points: attention_summary (S7) and main (S8).
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -43,6 +48,9 @@ import {
   type Http,
   type PostOptions,
 } from "../../src/http.ts";
+import { GoogleGenAI } from "@google/genai";
+
+import { geminiClientFromSdk } from "../../src/gemini.ts";
 import { dateFromIsoformat, type PlainDate } from "../../src/plain-date.ts";
 
 export const EQUIVALENCE_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -145,6 +153,18 @@ const ENTRY_POINTS: Readonly<Record<string, EntryPointRunner>> = {
   async attention_summary(environment, deps) {
     const { runProcess } = await import("../../src/attention-summary.ts");
     await runProcess(environment, { http: deps.http, sleep: deps.sleep, today: deps.today });
+  },
+  // `runProcess` is what `node src/main.ts` runs. `genai.Client()` is the
+  // production adapter over the scripted Gemini instead of the SDK client.
+  async main(environment, deps) {
+    const { runProcess } = await import("../../src/main.ts");
+    await runProcess(environment, {
+      http: deps.http,
+      sleep: deps.sleep,
+      today: deps.today,
+      createGeminiClient: () =>
+        geminiClientFromSdk({ interactions: { create: (request) => deps.gemini.create(request) } }),
+    });
   },
 };
 
@@ -253,6 +273,32 @@ export function createScriptedHttp(
   };
 }
 
+/**
+ * The error `@google/genai`'s `interactions.create` throws for an HTTP error
+ * `status`: the real SDK, with retries off, against a local JSON error
+ * response. Must run before the network is blocked; nothing leaves the process.
+ */
+export async function sdkStatusError(status: number): Promise<Error> {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ error: { code: status, message: "Scripted Gemini error.", status: "SCRIPTED" } }), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+  try {
+    await new GoogleGenAI({ apiKey: "replay-unused-key" }).interactions.create(
+      { model: "replay", input: "" },
+      { retries: { strategy: "none" } },
+    );
+  } catch (error) {
+    if (error instanceof Error) return error;
+    throw new Error("@google/genai threw a non-Error");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  throw new Error(`@google/genai did not throw for HTTP ${status}`);
+}
+
 async function runChild(scenario: Scenario): Promise<ChildReport> {
   const httpScript = [...scenario.http];
   const geminiScript = [...scenario.gemini];
@@ -269,6 +315,12 @@ async function runChild(scenario: Scenario): Promise<ChildReport> {
     throw new ScriptViolation(message);
   };
 
+  // The SDK errors for the scripted Gemini errors, made before fetch is blocked.
+  const geminiErrors = new Map<GeminiScriptEntry, Error>();
+  for (const entry of geminiScript) {
+    if ("error" in entry) geminiErrors.set(entry, await sdkStatusError(entry.error.status));
+  }
+
   // Nothing may reach the network outside the scripted http.
   globalThis.fetch = async () => violate("Network access outside the scripted http (fetch)");
   net.Socket.prototype.connect = function blockedConnect(): never {
@@ -283,12 +335,17 @@ async function runChild(scenario: Scenario): Promise<ChildReport> {
     },
     today: dateFromIsoformat(scenario.today),
     gemini: {
-      async create({ model, input }) {
+      async create(request) {
+        const { model, input } = request;
         const callNumber = report.gemini_calls.length + 1;
         report.gemini_calls.push({ model, input });
+        // As the recorder: interactions.create(model=..., input=...) and nothing else.
+        if (Object.keys(request).sort().join(",") !== "input,model") {
+          violate(`Gemini call ${callNumber} with unexpected arguments ${Object.keys(request).sort().join(", ")}`);
+        }
         const entry = geminiScript.shift();
         if (entry === undefined) return violate(`Gemini call ${callNumber} is not in the script`);
-        if ("error" in entry) return violate("Scripted Gemini errors need src/gemini.ts (S8)");
+        if ("error" in entry) throw geminiErrors.get(entry);
         return { output_text: entry.output_text };
       },
     },

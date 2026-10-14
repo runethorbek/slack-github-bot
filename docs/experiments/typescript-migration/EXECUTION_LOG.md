@@ -216,3 +216,30 @@ Phase 2 started 2026-10-13 12:20, on branch `experiment/typescript-migration`.
   - 0 human interventions.
   - Also recorded: 1 unintended side effect outside the repo (the py install manager), surfaced to the user.
   - Still open: U2, the real ubuntu-latest execution of the cutover workflow (post-merge smoke test).
+
+### S8 — main entry point, Gemini client, Slack workflow cutover
+
+- Started 09:56 (2026-10-14).
+- **Implementation attempt 1 interrupted**: account usage limit (HTTP 429). Its last message was "The heredoc got mangled; I'll write the script as a file instead." That points to the escaping hazard in bash heredocs again.
+- **Human intervention #4**: the user asked to continue after the limit reset. This is an environment interruption.
+- **Implementation attempt 1, resumed** (~2.4 min after the resume; the bulk of the work happened before the interruption): DONE.
+  - 32 + 4 tests ported, plus TS-only tests for S1, S2, S3, S7 and the SDK. 1000/1000 overall.
+  - **All 62 goldens replay** (6 attention + 56 main) with no differences. **All 358 Python tests mapped.** 8 security mutations caught.
+  - slack-message.yml cut over; the masking step and the env block are byte-identical.
+  - Shared `src/entry-point.ts`; attention-summary behavior unchanged.
+  - **Two important findings by the Implementer:**
+    - (a) Python google-genai makes 4 attempts (3 retries), not the 2 stated in BASELINE and the brief. **The Orchestrator's baseline was wrong.**
+    - (b) Real `@google/genai` errors carry `.status`, not `.status_code`. Without the new adapter, a real SDK 429 on `/people suggest` (S5) would have crashed instead of posting the transient reply. **This latent S5 defect was invisible to S5's tests and review, because they used Python-shaped fakes.** It was caught only because S8 tested against the real SDK.
+- The Orchestrator re-ran everything: typecheck 0, 1000/1000, 358 OK, all generator checks OK, 358/358 mapped, `api/` and the goldens untouched, and the workflow diff limited to the runtime steps plus the step rename.
+- **Review 1** (~5 min): **PASS**, 0 blocking, 0 should-fix, 3 nit.
+  - The Reviewer traced every path for S2 (authorization before any call) and confirmed that the S2 tests prove zero calls, with a counterpart test showing authorized requests do reach Notion.
+  - It confirmed S1, S7 (allowlist construction sites; SDK errors print only their name), S8/G7 and the byte-exact prompt, and compared 20 + 4 tests assertion by assertion.
+  - **It independently confirmed the retry finding in the Python SDK source.**
+  - R1 (nit): the step rename to "Run bot". Accepted: the old name would be misleading, and its stale mention inside the byte-identical masking step is recorded.
+  - R2 (nit): the error name for a malformed `messages`. Accepted as a documented difference.
+  - R3 (nit): no test passes a canary API key through a real SDK error. Scheduled for S9.
+- The Orchestrator corrected BASELINE.md §3 (the retry count).
+- **Outcome: ACCEPTED** at 12:39.
+  - Totals: 1 implementation attempt (interrupted and resumed), 1 review round. Findings: 0 blocking, 0 should-fix, 3 nit.
+  - 1 human intervention (the post-limit "continue").
+  - **After S8, no workflow runs Python.**

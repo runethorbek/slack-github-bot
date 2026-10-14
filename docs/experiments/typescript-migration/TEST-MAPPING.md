@@ -779,19 +779,171 @@ TS-only tests (no Python counterpart):
 - `entryPointMode: run when import.meta.main is true; on a Node without it (undefined), fail loudly only when the module is the started script`
 - `G7: attention-summary.yml runs node src/attention-summary.ts on Node 24 with the unchanged triggers and env mapping`
 
+## tests/test_main_routing.py → tests/main-routing.test.ts (S8)
+
+| Python test | TS test title |
+| --- | --- |
+| `MainRoutingTests.test_authorized_root_dm_replies_under_event_timestamp_without_private_processing` | `test_authorized_root_dm_replies_under_event_timestamp_without_private_processing` |
+| `MainRoutingTests.test_authorized_dm_follow_up_preserves_existing_thread_timestamp` | `test_authorized_dm_follow_up_preserves_existing_thread_timestamp` |
+| `MainRoutingTests.test_unauthorized_dm_uses_exact_user_id_comparison_and_stops_before_private_processing` | `test_unauthorized_dm_uses_exact_user_id_comparison_and_stops_before_private_processing (S1, S2)` |
+| `MainRoutingTests.test_unauthorized_dm_commands_stop_before_private_processing` | `test_unauthorized_dm_commands_stop_before_private_processing (S2)` |
+| `MainRoutingTests.test_unauthorized_add_interaction_submission_stops_before_notion` | `test_unauthorized_add_interaction_submission_stops_before_notion (S2)` |
+| `MainRoutingTests.test_authorized_add_interaction_submission_writes_the_interaction_without_gemini` | `test_authorized_add_interaction_submission_writes_the_interaction_without_gemini` |
+| `MainRoutingTests.test_unauthorized_followup_task_submission_stops_before_notion` | `test_unauthorized_followup_task_submission_stops_before_notion (S2)` |
+| `MainRoutingTests.test_authorized_followup_task_submission_writes_one_task_without_gemini` | `test_authorized_followup_task_submission_writes_one_task_without_gemini` |
+| `MainRoutingTests.test_interaction_confirmation_offers_the_followup_task_button` | `test_interaction_confirmation_offers_the_followup_task_button` |
+| `MainRoutingTests.test_interaction_notes_with_a_commitment_offer_a_suggested_task_button` | `test_interaction_notes_with_a_commitment_offer_a_suggested_task_button` |
+| `MainRoutingTests.test_interaction_notes_without_a_tasks_data_source_make_no_gemini_call` | `test_interaction_notes_without_a_tasks_data_source_make_no_gemini_call` |
+| `MainRoutingTests.test_authorized_add_interaction_submission_writes_a_selected_track` | `test_authorized_add_interaction_submission_writes_a_selected_track` |
+| `MainRoutingTests.test_authorized_add_interaction_submission_rejects_a_track_not_among_live_tracks` | `test_authorized_add_interaction_submission_rejects_a_track_not_among_live_tracks` |
+| `MainRoutingTests.test_add_interaction_invalid_type_is_rejected_before_notion` | `test_add_interaction_invalid_type_is_rejected_before_notion` |
+| `MainRoutingTests.test_people_from_another_channel_is_rejected_before_notion` | `test_people_from_another_channel_is_rejected_before_notion (S2)` |
+| `MainRoutingTests.test_people_due_exits_before_gemini_and_only_queries_notion` | `test_people_due_exits_before_gemini_and_only_queries_notion (S6)` |
+| `MainRoutingTests.test_people_due_reply_includes_a_suggest_button_per_person` | `test_people_due_reply_includes_a_suggest_button_per_person` |
+| `MainRoutingTests.test_people_suggest_reaches_gemini_with_bounded_context_only` | `test_people_suggest_reaches_gemini_with_bounded_context_only (S6)` |
+| `MainRoutingTests.test_people_suggest_transient_gemini_failure_replies_safely_in_thread` | `test_people_suggest_transient_gemini_failure_replies_safely_in_thread` |
+| `MainRoutingTests.test_people_suggest_unrelated_gemini_failure_still_crashes` | `test_people_suggest_unrelated_gemini_failure_still_crashes` |
+| `MainRoutingTests.test_authorized_normalized_tasks_list_exits_before_gemini` | `test_authorized_normalized_tasks_list_exits_before_gemini (S6)` |
+| `MainRoutingTests.test_authorized_dm_tasks_list_reaches_existing_task_path` | `test_authorized_dm_tasks_list_reaches_existing_task_path` |
+| `MainRoutingTests.test_tasks_outcomes_exit_before_gemini` | `test_tasks_outcomes_exit_before_gemini (S2)` |
+| `MainRoutingTests.test_task_list_thread_reply_exits_before_gemini` | `test_task_list_thread_reply_exits_before_gemini` |
+| `MainRoutingTests.test_testbot_still_reaches_gemini` | `test_testbot_still_reaches_gemini` |
+| `MainRoutingTests.test_testbot_transient_gemini_failure_replies_safely_in_thread` | `test_testbot_transient_gemini_failure_replies_safely_in_thread` |
+| `MainRoutingTests.test_testbot_unrelated_gemini_failure_still_crashes` | `test_testbot_unrelated_gemini_failure_still_crashes` |
+| `MainRoutingTests.test_task_data_and_credentials_are_not_logged` | `test_task_data_and_credentials_are_not_logged (S7)` |
+| `MainRoutingTests.test_slack_authentication_error_is_safe_and_provider_specific` | `test_slack_authentication_error_is_safe_and_provider_specific (S7)` |
+| `MainRoutingTests.test_ephemeral_slack_authentication_error_is_safe_and_provider_specific` | `test_ephemeral_slack_authentication_error_is_safe_and_provider_specific (S7)` |
+| `MainRoutingTests.test_ephemeral_slack_failure_does_not_expose_signed_response_url` | `test_ephemeral_slack_failure_does_not_expose_signed_response_url (S7)` |
+| `MainRoutingTests.test_gemini_authentication_error_is_safe_and_provider_specific` | `test_gemini_authentication_error_is_safe_and_provider_specific (S7)` |
+
+Subtests: `test_unauthorized_dm_commands_stop_before_private_processing` (2: `/tasks`, `/people`),
+`test_tasks_outcomes_exit_before_gemini` (2: `invalid`, `unauthorized`),
+`test_ephemeral_slack_authentication_error_is_safe_and_provider_specific` (2: HTTP 401, 403).
+
+Not applicable: none.
+
+Adapted (same assertions, different mechanism):
+
+- `runpy.run_module("main", run_name="__main__")` with fake `requests` and
+  `google.genai` modules in `sys.modules` is `main(environment, { http,
+  createGeminiClient, log })`: `requests` is `http` ({post, get}),
+  `genai.Client` is `createGeminiClient` (called with no arguments, as
+  `genai.Client()`), and `patch("builtins.print")` is `log`.
+  `patch.dict(os.environ, ..., clear=True)` is the `environment` argument. As
+  in Python, `today` and `sleep` are not injected. `assertRaises(SystemExit)`
+  with code 0 is main resolving to 0 (also at the end of the script, in
+  `test_testbot_still_reaches_gemini`); `assertRaises(RuntimeError)` /
+  `assertRaisesRegex(Exception, ...)` is main rejecting with that error.
+- `Mock` collaborators keep their semantics: `return_value`, a `side_effect`
+  list consumed in order, `call_args_list` as `calls`, and
+  `assert_called_once_with` as deep equality of the whole `calls` list. The
+  default `genai.Client` Mock (`side_effect=AssertionError("Gemini must not be
+  initialized")`) throws the same AssertionError. Mock responses are real
+  `HttpResponse` objects; a bare `Mock()` response is a 200 with `{}`.
+- `test_ephemeral_slack_authentication_error_is_safe_and_provider_specific`,
+  `test_ephemeral_slack_failure_does_not_expose_signed_response_url`: the
+  `raise_for_status` side effect (an Exception whose message holds the response
+  URL, with `.response.status_code`) is a real `HttpResponse` with that status,
+  whose `raise_for_status()` throws http.ts's `HTTPError` (its message never
+  holds the URL). The assertions are unchanged: the safe message, no
+  `__cause__` (`getPyCause` is null and the standard `cause` is unset), and no
+  URL in the message or the log.
+- The Gemini errors (`Exception(...)` with `.response = Mock(status_code=N)` or
+  `.code = 403`) are Errors with the same attributes. The real `@google/genai`
+  error shape is covered in tests/gemini.test.ts and by the goldens.
+
+TS-only tests (no Python counterpart):
+
+- `S2: an unauthorized DM makes no outbound call at all, for /tasks, /people and view_submission`
+- `S2: an unauthorized channel gets only the ephemeral refusal for /tasks and /people, and nothing for view_submission`
+- `S2: an authorized request does reach Notion: the configured channel, or the authorized user's own DM`
+- `S1: isAuthorizedSlackUser is an exact, case-sensitive match, and an empty configured value never matches`
+- `S3: parsePersonPayload takes identity only from the structured JSON; anything malformed is absent identity`
+- `S3: a view_submission without a complete Person identity writes nothing`
+- `main: a missing SLACK_TEXT, SLACK_CHANNEL_ID or SLACK_BOT_TOKEN is a KeyError before any call`
+- `S7: uncaughtErrorLine prints main's application messages, and only the name of anything else`
+- `S7: runEntryPoint reports an uncaught error from main as one secret-free stderr line and exit code 1`
+- `entry point: node src/main.ts without SLACK_TEXT exits 1 with only the KeyError name on stderr`
+- `entry point: node src/main.ts with an unauthorized DM prints Python's line, makes no call and exits 0`
+- `S7: the real process reports an uncaught error with canaries as one secret-free stderr line and exits 1`
+- `S7: the real process reports an error thrown with secrets from inside main as its name only`
+- `S7: the real process reports an error outside main's chain as one line and keeps exit code 1`
+
+## tests/test_cross_layer_contract.py → tests/cross-layer-contract.test.ts (S8)
+
+| Python test | TS test title |
+| --- | --- |
+| `SlackToPythonContractTests.test_signed_root_dm_reaches_authorized_python_route_with_transport_identity` | `test_signed_root_dm_reaches_authorized_python_route_with_transport_identity` |
+| `SlackToPythonContractTests.test_workflow_maps_dm_identity_and_authorization_configuration` | `test_workflow_maps_dm_identity_and_authorization_configuration (S8)` |
+| `SlackToPythonContractTests.test_authenticated_tasks_dispatch_reaches_notion_and_slack_without_gemini` | `test_authenticated_tasks_dispatch_reaches_notion_and_slack_without_gemini (S6)` |
+| `SlackToPythonContractTests.test_authenticated_people_suggest_button_click_reaches_the_existing_suggest_route` | `test_authenticated_people_suggest_button_click_reaches_the_existing_suggest_route` |
+
+Not applicable: none.
+
+Adapted (same assertions, different mechanism):
+
+- The Node snippets the Python tests ran as `node --input-type=module --eval`
+  subprocesses now run in-process: `handleSlackRequest` is imported from
+  `api/slack-request.js` (unchanged) and called with the same signed request
+  (same secret, timestamp, headers and body) and the same `triggerGitHub` /
+  `defer` capture. The payload goes through `JSON.parse(JSON.stringify(...))`,
+  as the Python tests read it from the subprocess's stdout.
+- The Python tests built main.py's environment by hand from chosen payload
+  fields. The TS tests build it the way `slack-message.yml` does: every `env:`
+  entry of the bot step, read from the workflow file, with a missing payload
+  field or secret as `""`, plus `SLACK_RESPONSE_URL` from `response_url` (the
+  masking step's `$GITHUB_ENV` export). The secrets are the values the Python
+  tests set. `test_authenticated_tasks_dispatch_reaches_notion_and_slack_without_gemini`
+  also checks that `SLACK_COMMAND`, `SLACK_TEXT` and `SLACK_EVENT_TYPE` equal
+  the payload fields the Python test copied.
+- `test_workflow_maps_dm_identity_and_authorization_configuration` reads the
+  cut-over workflow and keeps every assertion: the six mappings and the masked
+  field list `"notes", "task"]`.
+
+TS-only tests (no Python counterpart):
+
+- `G7: slack-message.yml runs node src/main.ts on Node 24 with the masking step and env mapping unchanged`
+
+## src/gemini.ts → tests/gemini.test.ts (S8, TS-only)
+
+`generate_gemini_text` and its helpers have no Python unit tests of their own
+(test_main_routing.py covers them through main.py). These TS-only tests pin the
+`@google/genai` adapter, mostly with the real SDK behind a stubbed `fetch`:
+
+- `constants: main.py's model and transient message`
+- `generateGeminiText: a new client per call, interactions.create(model, input) only, output_text stripped as str.strip()`
+- `generateGeminiText: a non-str output_text fails like None.strip()`
+- `generateGeminiText: 401 or 403 from create or from the client constructor is a RuntimeError with no cause`
+- `generateGeminiText: any other error is re-thrown as the same object`
+- `externalErrorStatusCode: response.status_code, then status_code, then code; the first int (a bool counts, as in Python)`
+- `isTransientGeminiStatus: 429 and 5xx only`
+- `geminiClientFromSdk: passes {model, input} with google-genai 2.30's retry policy (3 retries) and no timeout`
+- `geminiClientFromSdk: an Interaction without trailing text has output_text '', as Python's Interaction model`
+- `geminiClientFromSdk: the real @google/genai HTTP error is re-thrown as the same object, with Python's status_code added`
+- `withPythonStatusCode: only an SDK-shaped error gains status_code; an existing one is kept`
+- `geminiApiKey: GOOGLE_API_KEY, else GEMINI_API_KEY, stripped; ValueError when neither is set`
+- `createGeminiClient: no API key is a ValueError before any request, which generateGeminiText re-throws`
+- `SDK: one POST to the Interactions API with the model, the prompt and the stripped key; output_text is stripped`
+- `SDK: a completed Interaction without text gives '' (Python's output_text), not a crash`
+- `SDK: a 503 is attempted 4 times (3 retries, as google-genai 2.30) and surfaces as a transient error`
+- `SDK: a 429 that then succeeds is retried inside the SDK and returns the text`
+- `SDK: a 401 or 403 is not retried and becomes the secret-free RuntimeError`
+- `SDK: a 400 is not retried and is re-thrown, not transient`
+
 ## Security-invariant evidence (G6)
 
 Filled in as slices land. Tests named here fail if the invariant breaks.
 
 | Invariant | TS tests so far |
 | --- | --- |
-| S1 | `test_dm_authorization_uses_exact_user_id`, `test_missing_authorization_configuration_fails_closed`, `test_user_id_match_without_dm_identity_is_rejected` (slack-authorization.test.ts) |
-| S2 | **Deferred to S8**: the authorization-before-calls order lives in `main.ts` (PLAN.md §9 amendment). |
-| S3 (partial: Interaction and Task writes) | `test_missing_person_identity_is_ignored_rather_than_guessed`, `S3: a page id without a name, or a name without a page id, is a silent no-op` (people-interaction.test.ts). Task write: `test_missing_person_writes_nothing_and_says_nothing (S3)`, `S3: a page id without a name, or a name without a page id, is a silent no-op` (followup-task.test.ts). `parse_person_payload` is evidenced in S8. |
+| S1 | `test_dm_authorization_uses_exact_user_id`, `test_missing_authorization_configuration_fails_closed`, `test_user_id_match_without_dm_identity_is_rejected` (slack-authorization.test.ts). The DM tracer (main-routing.test.ts): `test_unauthorized_dm_uses_exact_user_id_comparison_and_stops_before_private_processing (S1, S2)`, `S1: isAuthorizedSlackUser is an exact, case-sensitive match, and an empty configured value never matches`, and the S1 subtests of `S2: an unauthorized DM makes no outbound call at all, for /tasks, /people and view_submission` (the user ID in another case, an empty configured user ID); goldens `dm_unauthorized_wrong_case`, `dm_empty_authorized_user_empty_user`, `dm_empty_authorized_user_some_user` (equivalence.test.ts) |
+| S2 | At the entry point (main-routing.test.ts): `S2: an unauthorized DM makes no outbound call at all, for /tasks, /people and view_submission` (`/tasks list`, `/tasks` usage, `/people due`, `/people suggest`, `/people` usage and both modal submissions: zero HTTP calls and no Gemini client), `S2: an unauthorized channel gets only the ephemeral refusal for /tasks and /people, and nothing for view_submission` (exactly one POST, to the response URL), and their counterpart `S2: an authorized request does reach Notion: the configured channel, or the authorized user's own DM`; the ported `test_unauthorized_dm_commands_stop_before_private_processing (S2)`, `test_unauthorized_add_interaction_submission_stops_before_notion (S2)`, `test_unauthorized_followup_task_submission_stops_before_notion (S2)`, `test_people_from_another_channel_is_rejected_before_notion (S2)`, `test_tasks_outcomes_exit_before_gemini (S2)`, `test_unauthorized_dm_uses_exact_user_id_comparison_and_stops_before_private_processing (S1, S2)`; goldens `people_unauthorized_dm`, `people_unauthorized_channel`, `tasks_unauthorized_dm`, `tasks_unauthorized_channel`, `interaction_unauthorized_channel` (equivalence.test.ts). |
+| S3 (Interaction and Task writes, and the payload parsing in main) | `test_missing_person_identity_is_ignored_rather_than_guessed`, `S3: a page id without a name, or a name without a page id, is a silent no-op` (people-interaction.test.ts). Task write: `test_missing_person_writes_nothing_and_says_nothing (S3)`, `S3: a page id without a name, or a name without a page id, is a silent no-op` (followup-task.test.ts). `parse_person_payload` (main-routing.test.ts): `S3: parsePersonPayload takes identity only from the structured JSON; anything malformed is absent identity`, `S3: a view_submission without a complete Person identity writes nothing`; goldens `interaction_missing_person`, `task_missing_person`. |
 | S4 | `test_unknown_type_is_rejected_before_any_notion_write`, `S4: an invalid Type is rejected before the Track is validated`, `test_a_track_id_that_is_not_a_live_track_is_rejected_before_any_write`, `test_a_track_id_with_no_tracks_data_source_configured_is_rejected`, `test_unconfigured_tracks_data_source_fails_closed`, `test_type_property_not_a_select_is_a_failure` (a malformed schema is not an empty allowlist), `validation order: date, then Type, then Track, then title property, then exactly one create` (people-interaction.test.ts). Task Priority, Track and Status: `test_unknown_priority_is_rejected_without_a_write (S4: Priority)`, `test_tampered_track_is_rejected_without_a_write (S4: Track)`, `test_missing_ikke_started_status_writes_nothing_and_reports (S4: Status)`, `test_malformed_schema_is_a_failure_without_a_write`, `S4: validation order is schema, Priority, Track, Status; nothing is written on any rejection`, `S4: a full valid submission writes one page with Python's exact payload, headers and property order; Created is today`, `fetchTasksSchema: a malformed schema is a FollowupTaskCommandError; a missing Priority or Description is not` (followup-task.test.ts). |
 | S5 | `test_unknown_or_inexact_kind_is_dropped (S5: kinds validated)`, `test_more_than_two_suggestions_are_truncated (S5: at most 2)`, `test_valid_next_steps_are_shown_alongside_recap_message_and_button (S5)`, `test_type_options_unavailable_means_no_next_step_requested_or_shown` (no live Types: no next step at all), `next-step fixture: splitRecapAndNextSteps equals Python on line boundaries, Unicode, bullets and markers (S5)`, `S5: Gemini output triggers no side effect: Notion is only read, and the only post after Gemini is the reply` (people-suggest.test.ts). Suggested Task: `test_missing_blank_non_text_or_over_long_name_yields_none (S5, S10: 150 chars)`, `test_unrequested_fields_are_ignored (S5)`, `fixture: parseSuggestedTask equals Python on fences, json.loads edge cases (NaN, BOM, duplicates, depth) and bounds (S5)`, `S5: Gemini output only prefills a button: Notion is only read, generateText is called once with the exact prompt`, `S5: NaN, Infinity and BOM-prefixed Gemini output are handled as json.loads does, not as JSON.parse does`, `S5: an absurdly deep Gemini response raises RecursionError out of buildFollowupTaskButtons, as in Python` (followup-task.test.ts); `pyJsonLoads matches json.loads, including what raises` (python-compat.test.ts). |
-| S6 (partial: `/people due`, `/people suggest` and follow-up suggestion prompts) | `S6: /people due never calls generateText` (people-due.test.ts); `prompt fixture: every prompt constant, message and bound equals Python's, byte for byte (S6, S10)`, `prompt fixture: built recap and draft prompts equal Python's, byte for byte (S6)`, `test_person_with_no_tracks_gets_the_unchanged_prompts (S6: exact prompts)`, `test_gemini_receives_only_intended_person_and_interaction_context (S6)` (people-suggest.test.ts). Follow-up suggestion: `fixture: every constant, message, id and bound equals Python's, byte for byte (S6, S10)`, `fixture: built follow-up suggestion prompts equal Python's, byte for byte (S6)`, `test_prompt_contains_only_the_saved_interaction_and_today (S6)`, `test_empty_notes_make_no_gemini_call` (followup-task.test.ts). `/tasks` is evidenced at the entry point in S8. |
-| S7 (partial: `raise … from`, generic failure text; attention-summary entry point and its uncaught errors) | `withPyCause records __cause__ without Node printing it` (python-compat.test.ts); `callNotionWithRetries: the final TaskListCommandError carries the request error as its cause`; `test_exhausted_transient_failure_produces_a_safe_generic_message`, `test_malformed_query_response_produces_a_safe_message_without_raw_payload` (people-due.test.ts). Attention summary (attention-summary.test.ts): `test_failure_without_http_status_logs_type_name_only (S7)`, `test_unknown_key_error_is_described_by_type_name_only (S7)`, `test_logs_contain_no_private_content_or_secrets (S7)`, `test_slack_api_error_raises_a_safe_message (S7)`, `test_slack_delivery_failure_is_annotated_and_exits_non_zero (S7)`, `describeSourceError: a NotionAuthenticationError is its message; a command error adds only its cause's HTTP status`, `buildSlackDmPoster: a transport error is its Python type name; a non-dict or ok-less body is 'unknown'; nothing is chained`; the top-level handler: `S7: uncaughtErrorLine is the name, plus the message only for application error classes`, `S7: runEntryPoint reports an error escaping main as one secret-free stderr line and exit code 1`, `S7: the real process reports an uncaught error as one secret-free stderr line and exits 1`, `S7: the real process reports an error outside main's chain as one line and keeps exit code 1`. The golden replay checks every canary against all stdout and stderr of each replayed scenario (equivalence.test.ts, `golden: attention_*`). |
+| S6 (`/tasks`, `/people due`, `/people suggest` and follow-up suggestion prompts) | `S6: /people due never calls generateText` (people-due.test.ts); `prompt fixture: every prompt constant, message and bound equals Python's, byte for byte (S6, S10)`, `prompt fixture: built recap and draft prompts equal Python's, byte for byte (S6)`, `test_person_with_no_tracks_gets_the_unchanged_prompts (S6: exact prompts)`, `test_gemini_receives_only_intended_person_and_interaction_context (S6)` (people-suggest.test.ts). Follow-up suggestion: `fixture: every constant, message, id and bound equals Python's, byte for byte (S6, S10)`, `fixture: built follow-up suggestion prompts equal Python's, byte for byte (S6)`, `test_prompt_contains_only_the_saved_interaction_and_today (S6)`, `test_empty_notes_make_no_gemini_call` (followup-task.test.ts). At the entry point: `test_authorized_normalized_tasks_list_exits_before_gemini (S6)`, `test_people_due_exits_before_gemini_and_only_queries_notion (S6)`, `test_people_suggest_reaches_gemini_with_bounded_context_only (S6)` (main-routing.test.ts), `test_authenticated_tasks_dispatch_reaches_notion_and_slack_without_gemini (S6)` (cross-layer-contract.test.ts); every main golden's `gemini_calls` (the `tasks_list_*` and `people_due_*` goldens have none; the suggest and follow-up prompts compare exactly). |
+| S7 (`raise … from`, generic failure text; both entry points and their uncaught errors) | `withPyCause records __cause__ without Node printing it` (python-compat.test.ts); `callNotionWithRetries: the final TaskListCommandError carries the request error as its cause`; `test_exhausted_transient_failure_produces_a_safe_generic_message`, `test_malformed_query_response_produces_a_safe_message_without_raw_payload` (people-due.test.ts). Attention summary (attention-summary.test.ts): `test_failure_without_http_status_logs_type_name_only (S7)`, `test_unknown_key_error_is_described_by_type_name_only (S7)`, `test_logs_contain_no_private_content_or_secrets (S7)`, `test_slack_api_error_raises_a_safe_message (S7)`, `test_slack_delivery_failure_is_annotated_and_exits_non_zero (S7)`, `describeSourceError: a NotionAuthenticationError is its message; a command error adds only its cause's HTTP status`, `buildSlackDmPoster: a transport error is its Python type name; a non-dict or ok-less body is 'unknown'; nothing is chained`; the top-level handler: `S7: uncaughtErrorLine is the name, plus the message only for application error classes`, `S7: runEntryPoint reports an error escaping main as one secret-free stderr line and exit code 1`, `S7: the real process reports an uncaught error as one secret-free stderr line and exits 1`, `S7: the real process reports an error outside main's chain as one line and keeps exit code 1`. The main entry point (main-routing.test.ts): `test_task_data_and_credentials_are_not_logged (S7)`, `test_slack_authentication_error_is_safe_and_provider_specific (S7)`, `test_ephemeral_slack_authentication_error_is_safe_and_provider_specific (S7)`, `test_ephemeral_slack_failure_does_not_expose_signed_response_url (S7)`, `test_gemini_authentication_error_is_safe_and_provider_specific (S7)`, `S7: uncaughtErrorLine prints main's application messages, and only the name of anything else`, `S7: runEntryPoint reports an uncaught error from main as one secret-free stderr line and exit code 1`, and the real `node src/main.ts` process: `S7: the real process reports an uncaught error with canaries as one secret-free stderr line and exits 1`, `S7: the real process reports an error thrown with secrets from inside main as its name only`, `S7: the real process reports an error outside main's chain as one line and keeps exit code 1`, `entry point: node src/main.ts without SLACK_TEXT exits 1 with only the KeyError name on stderr`; Gemini credential errors (gemini.test.ts): `generateGeminiText: 401 or 403 from create or from the client constructor is a RuntimeError with no cause`, `SDK: a 401 or 403 is not retried and becomes the secret-free RuntimeError`. The golden replay checks every canary against all stdout and stderr of each of the 62 replayed scenarios (equivalence.test.ts, `golden: *`), including the uncaught `main_missing_slack_text`, `slack_post_http_401`, `gemini_slack_invalid_auth`, `gemini_conversation_401`, `people_suggest_gemini_401`, `ephemeral_refusal_response_url_500`, `tasks_list_notion_401`, `dm_missing_root_ts` and `gemini_thread_reply_without_thread_ts`. |
+| S8 | `G7: slack-message.yml runs node src/main.ts on Node 24 with the masking step and env mapping unchanged` (the masking step equal line for line to the base commit's, with its `$GITHUB_ENV` export of the response URL; no `SLACK_RESPONSE_URL` `env:` mapping), `test_workflow_maps_dm_identity_and_authorization_configuration (S8)` (the masked field list `"notes", "task"]`) (cross-layer-contract.test.ts) |
 | S9 | `test_ambiguous_write_failures_are_not_retried (S9)`, `test_rate_limited_write_is_retried (S9)`, `S9: a 503, ReadTimeout or ConnectionError on Task create gives one create, no sleep and the uncertain message`, `S9: 429 then success gives two creates with one sleep and the confirmation`, `S9: a 400 gives the generic failure (one create, no sleep), and three 429s give three creates and the generic failure`, `S9: createTaskPage retries only a 429; the final error carries the request error as its cause`, `S9/S11: a 401 or 403 on Task create is a credential failure: one create, caught, the generic failure` (followup-task.test.ts) |
 | S10 (all bounds in BASELINE.md §6 S10 so far) | `test_stops_after_five_pages_and_avoids_a_false_empty_claim`, `test_renders_no_more_than_twenty_eligible_tasks`, `test_truncates_after_ordering_and_reports_the_remainder`, `test_only_displayed_tasks_trigger_track_resolution`; People and Interactions (people-due.test.ts): `test_people_scan_reaching_the_bound_marks_the_result_incomplete`, `test_interaction_scan_bound_flags_incomplete_instead_of_mislabeling`, `test_result_count_is_bounded_and_shows_a_remainder_indicator`, `test_build_due_people_blocks_bounds_to_the_display_limit_with_a_remainder_block`; 25 Track options (people-interaction.test.ts): `fetchAvailableTracks: one bounded query of page_size 25; at most 25 options; a malformed response is an AddInteractionCommandError`; people-suggest.test.ts: 5 Interactions `test_bounded_to_five_and_sorted_query`, `test_more_than_five_results_are_still_bounded_defensively`, `S10: the Interactions query asks for 5 and at most 5 summaries are used, even from a longer response`; 5 Tracks `test_person_tracks_take_precedence_within_the_track_cap (S10: 5 Tracks)`, `S10: the people-suggest bounds are Python's values`; 500-char Purpose `test_long_purpose_is_truncated_to_the_limit (S10: 500-char Purpose)`, `test_purpose_exactly_at_the_limit_is_kept_whole`, `S10: extractTrackPurpose truncates by code points to 499 + … and keeps exactly 500`; 3000-char section `test_an_oversized_gemini_draft_is_truncated_to_slacks_block_text_limit (S10: 3000-char section)`, `test_oversized_next_step_block_is_truncated (S10: 3000-char section)`, `S10: truncateForSlackSection keeps 3000 code points and cuts longer text to 2999 + … (astral characters count once)`; follow-up Task (followup-task.test.ts): 2000-char button value `test_build_returns_no_buttons_when_the_button_value_is_too_long_for_slack (S10: 2000-char value)`, `test_suggested_button_too_long_for_slack_is_omitted_alone (S10: 2000-char value)`, `S10: the 2000-character value limit is measured in Python json.dumps units, not JSON.stringify's`; 75-char button text `test_long_name_label_is_truncated_to_slack_button_text_limit (S10: 75-char text)`, `test_label_at_exactly_the_limit_is_not_truncated`; 150/500 chars and 365 days `test_missing_blank_non_text_or_over_long_name_yields_none (S5, S10: 150 chars)`, `test_name_at_the_limit_is_accepted`, `test_over_long_or_non_text_description_is_dropped (S10: 500 chars)`, `test_description_at_the_limit_is_kept`, `test_invalid_past_or_too_distant_follow_up_is_dropped (S10: 365 days)`, `test_follow_up_today_and_365_days_ahead_are_kept`, `S10: names and descriptions are bounded in code points (an emoji counts once)` |
 | S11 (partial: `/tasks list`, `/people due`, Interaction write, `/people suggest`, Task write, follow-up buttons, attention summary) | `test_credential_failure_fails_with_a_safe_notion_specific_message`, `S11: a 401 on a Track lookup fails the run without a cause`, `test_terminal_track_permission_failure_is_isolated` (403 on a Track degrades); `test_notion_auth_failure_is_not_retried_and_propagates_uncaught` (people-due.test.ts); the Interaction write degrades (TD7): `test_notion_authentication_failure_produces_a_safe_message_without_a_partial_write` (401 on the schema read), `TD7 pin: a 401 on Interaction create posts the generic failure and does not throw`, `TD7 pin: a 403 on Interaction create is a credential failure too (not retried, caught)`; `fetchAvailableInteractionTypes: 401 is a credential failure, 403 is not (credential codes are (401,))` (people-interaction.test.ts); `/people suggest` fails on a Track page 401 and degrades on the best-effort reads: `S11: a 401 on a Track page fails the command before Gemini; a 403 only omits that Track`, `test_a_track_listing_credential_failure_does_not_break_the_rest_of_the_reply (S11: degrades)`, `S11: a 401 on the Type schema degrades: no button, no next step, and the unavailable note` (people-suggest.test.ts); the follow-up buttons degrade and the Task write posts the generic failure (followup-task.test.ts): `test_build_returns_no_buttons_on_notion_credential_failure (S11: degrades)`, `S11: a 401 on the Tracks listing degrades to no buttons; a 401 on the schema at submission posts the generic failure`, `S9/S11: a 401 or 403 on Task create is a credential failure: one create, caught, the generic failure`, `fetchTasksSchema: 401 is a credential failure, 403 is not (credential codes are (401,))`; the attention summary fails the run on a Notion 401 after posting what the other source gave (attention-summary.test.ts): `test_people_failure_sends_tasks_then_fails (S11: a Notion 401 fails the run)`, `test_tasks_failure_sends_people_then_fails (S11: degrades to a partial summary, still fails the run)`, and the goldens `attention_both_fail` (401 on Tasks: exit 1) and `attention_tasks_fail_people_ok` (equivalence.test.ts) |
@@ -814,17 +966,20 @@ README's normalisation rules it applies). Scenarios replayed so far:
 | Entry point | Scenarios | Slice |
 | --- | --- | --- |
 | `attention_summary` | `golden: attention_both_fail`, `golden: attention_both_sections_over_5`, `golden: attention_missing_slack_token`, `golden: attention_nothing`, `golden: attention_slack_dm_not_ok`, `golden: attention_tasks_fail_people_ok` (all 6, matched without differences) | S7 |
-| `main` | (56 scenarios, S8) | S8 |
+| `main` | All 56: `golden: dm_*` (6), `golden: ephemeral_refusal_response_url_500`, `golden: gemini_*` (8), `golden: interaction_*` (10), `golden: main_missing_slack_text`, `golden: people_*` (14), `golden: slack_post_http_401`, `golden: task_*` (7), `golden: tasks_*` (8); matched without differences. Scripted Gemini errors are genuine `@google/genai` errors (`sdkStatusError`) passed through src/gemini.ts's adapter. | S8 |
 
-Harness self-tests (the replay is not lenient): `golden scenarios: every attention_summary scenario is replayed`,
+All 62 scenarios are replayed: `golden scenarios: every scenario is replayed: all 62, 6 attention_summary and 56 main`.
+
+Harness self-tests (the replay is not lenient):
 `harness self-test: a golden that differs in any compared observable fails the comparison` (18 subtests),
 `harness self-test: observed output the golden does not allow fails the comparison` (7 subtests),
 `harness self-test: the fake http fails on an unscripted, mismatching or unused call` (3 subtests),
-`harness self-test: the fake http allows only the options http.ts sends, and no json: null` (5 subtests: params on a POST, json on a GET, `json: null`, an unknown option, and the allowed options).
+`harness self-test: the fake http allows only the options http.ts sends, and no json: null` (5 subtests: params on a POST, json on a GET, `json: null`, an unknown option, and the allowed options),
+`harness self-test: the scripted Gemini fails on an unscripted or unused call; a scripted error is the real @google/genai error` (4 subtests: the SDK's own error classes, a call beyond the script, an unused entry, a different prompt).
 
 ## Workflow evidence (G7)
 
 | Workflow | Cutover | Evidence |
 | --- | --- | --- |
 | `.github/workflows/attention-summary.yml` | S7: `actions/setup-python` + `pip install` → `actions/setup-node@v7` (Node 24, npm cache) + `npm ci --omit=dev`; `python attention_summary.py` → `node src/attention-summary.ts`. Triggers, cron, job, step names and the whole `env:` mapping unchanged. | workflow diff; `G7: attention-summary.yml runs node src/attention-summary.ts on Node 24 with the unchanged triggers and env mapping` (triggers, setup-node@v7 with Node 24, `npm ci --omit=dev`, the entry command, exactly the six `env:` mappings to the same-named secrets, no Python); `entry point: node src/attention-summary.ts with an empty environment prints Python's config error on stdout and exits 1`, `entry point: node src/attention-summary.ts runs main with process.env and exits 0 when nothing needs attention` (attention-summary.test.ts); local dry run of `npm ci --omit=dev` + `node src/attention-summary.ts` (S7 report) |
-| `.github/workflows/slack-message.yml` | S8 | — |
+| `.github/workflows/slack-message.yml` | S8: `actions/setup-python` + `pip install` → `actions/setup-node@v7` (Node 24, npm cache) + `npm ci --omit=dev`, still before the masking step (which runs `node -e`); the step "Run Python bot" is renamed "Run bot" and runs `node src/main.ts` instead of `python main.py`. Trigger, job, the masking step (byte for byte, including its comment that names the old step) and the whole `env:` mapping unchanged. | workflow diff; `G7: slack-message.yml runs node src/main.ts on Node 24 with the masking step and env mapping unchanged` (trigger, step order, setup-node@v7 with Node 24 and npm cache, `npm ci --omit=dev`, the masking step equal to the base commit's line for line, exactly the 24 base `env:` mappings in order, the entry command, no Python) and `test_workflow_maps_dm_identity_and_authorization_configuration (S8)`; the cross-layer tests build main's environment from the workflow's own `env:` block (cross-layer-contract.test.ts); `entry point: node src/main.ts without SLACK_TEXT exits 1 with only the KeyError name on stderr`, `entry point: node src/main.ts with an unauthorized DM prints Python's line, makes no call and exits 0` (main-routing.test.ts); local dry run of `npm ci --omit=dev` + `node src/main.ts` (S8 report) |

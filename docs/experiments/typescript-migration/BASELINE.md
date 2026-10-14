@@ -101,7 +101,7 @@ Python test count per file (`def test_` count, which matches the 358 run):
 Every Notion call sends `Notion-Version: 2025-09-03`. Every `requests` call uses `timeout=10`.
 
 Gemini SDK facts that affect equivalence (read from the installed google-genai 2.20.0 source):
-the Interactions resource is a generated client with `_DEFAULT_MAX_RETRIES = 2`, and
+the Interactions resource is a generated client with `_DEFAULT_MAX_RETRIES = 2`. **Correction (S8):** the retry config passes `_DEFAULT_MAX_RETRIES + 1`, so a failing call makes **4 attempts (3 retries)**, with backoff 0.5 s doubling to an 8 s cap. This was measured by the S8 Implementer and confirmed in the source by the S8 Reviewer. The original "2" here was an Orchestrator misreading. Also,
 `output_text` concatenates the trailing run of text parts in the final `model_output` steps.
 The API key comes implicitly from the `GEMINI_API_KEY` environment variable.
 

@@ -12,10 +12,19 @@
 // `main` is reported as exactly one secret-free line on stderr (security
 // invariant S7) and gives exit code 1, as an uncaught Python exception does.
 // The `import.meta.main` guard at the bottom runs it for the real process.
+// The handler and the guard are shared with src/main.ts (src/entry-point.ts).
 
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
+import {
+  UNSUPPORTED_NODE_MESSAGE,
+  entryPointMode,
+  printLine,
+  runEntryPoint as sharedRunEntryPoint,
+  runIfEntryPoint,
+  runProcess as sharedRunProcess,
+  uncaughtErrorLine as sharedUncaughtErrorLine,
+  type SecretFreeMessageError,
+  type WriteStderr,
+} from "./entry-point.ts";
 import { RequestException, createHttp, type Http, type PostOptions } from "./http.ts";
 import {
   INCOMPLETE_SCAN_MESSAGE,
@@ -91,10 +100,6 @@ export type PostDirectMessage = (message: string) => Promise<unknown>;
 
 /** `requests.post`'s call shape for the Slack DM, as `Http.post` in http.ts. */
 export type SlackPost = Http["post"];
-
-function printLine(line: string): void {
-  process.stdout.write(`${line}\n`);
-}
 
 // ---------------------------------------------------------------------------
 // Sources
@@ -427,7 +432,7 @@ export async function main(environment: Environment, deps: MainDeps = {}): Promi
 // codes and config names only, so the top-level handler may print them. Any
 // other error (a JS built-in, KeyError, whose message can quote a Notion key)
 // is reported by its name alone.
-const SECRET_FREE_MESSAGE_ERRORS: ReadonlyArray<abstract new (...args: never[]) => Error> = [
+const SECRET_FREE_MESSAGE_ERRORS: readonly SecretFreeMessageError[] = [
   AttentionSummaryError,
   SlackDmDeliveryError,
   NotionAuthenticationError,
@@ -442,43 +447,20 @@ const SECRET_FREE_MESSAGE_ERRORS: ReadonlyArray<abstract new (...args: never[]) 
  * stack, a cause chain, a URL or a body (security invariant S7).
  */
 export function uncaughtErrorLine(error: unknown): string {
-  let name = "Error";
-  let message: string | null = null;
-  try {
-    if (error instanceof Error) {
-      if (typeof error.name === "string" && /^[A-Za-z_$][\w$]*$/.test(error.name)) {
-        name = error.name;
-      }
-      if (SECRET_FREE_MESSAGE_ERRORS.some((errorClass) => error instanceof errorClass)) {
-        message = String(error.message).replace(/[\r\n\u2028\u2029]+/g, " ");
-      }
-    }
-  } catch {
-    // A hostile getter must not stop the report.
-  }
-  return message ? `${name}: ${message}` : name;
+  return sharedUncaughtErrorLine(error, SECRET_FREE_MESSAGE_ERRORS);
 }
 
 export type EntryPointDeps = MainDeps & {
   /** Where the top-level handler writes. Default: process.stderr. */
-  writeStderr?: ((text: string) => void) | undefined;
+  writeStderr?: WriteStderr | undefined;
 };
-
-function writeToStderr(text: string): void {
-  process.stderr.write(text);
-}
 
 /**
  * `sys.exit(main())` with the top-level error handler: an error escaping main
  * is reported as one secret-free line on stderr and resolves to exit code 1.
  */
 export async function runEntryPoint(environment: Environment, deps: EntryPointDeps = {}): Promise<number> {
-  try {
-    return await main(environment, deps);
-  } catch (error) {
-    (deps.writeStderr ?? writeToStderr)(`${uncaughtErrorLine(error)}\n`);
-    return 1;
-  }
+  return sharedRunEntryPoint(() => main(environment, deps), SECRET_FREE_MESSAGE_ERRORS, deps.writeStderr);
 }
 
 /**
@@ -489,41 +471,9 @@ export async function runEntryPoint(environment: Environment, deps: EntryPointDe
  * code stays 1, whatever main resolves to.
  */
 export async function runProcess(environment: Environment, deps: EntryPointDeps = {}): Promise<void> {
-  const writeStderr = deps.writeStderr ?? writeToStderr;
-  let uncaught = false;
-  process.on("uncaughtException", (error) => {
-    uncaught = true;
-    writeStderr(`${uncaughtErrorLine(error)}\n`);
-    process.exitCode = 1;
-  });
-  const exitCode = await runEntryPoint(environment, deps);
-  process.exitCode = uncaught ? 1 : exitCode;
+  await sharedRunProcess(() => main(environment, deps), SECRET_FREE_MESSAGE_ERRORS, deps.writeStderr);
 }
 
-/** The one stderr line when Node cannot tell whether this module is the entry point. */
-export const UNSUPPORTED_NODE_MESSAGE = "This entry point requires Node.js >= 24.2 (import.meta.main).";
+export { UNSUPPORTED_NODE_MESSAGE, entryPointMode };
 
-/**
- * Whether a module is being run as the program ("run"), imported ("imported"),
- * or run on a Node without `import.meta.main` (before 24.2, "unsupported").
- * There `import.meta.main` is undefined, so a plain guard would silently do
- * nothing and exit 0; when the module is the script Node was started with
- * (`argvScript`, process.argv[1]), that must fail loudly instead.
- */
-export function entryPointMode(
-  importMetaMain: unknown,
-  argvScript: string | undefined,
-  moduleUrl: string,
-): "run" | "imported" | "unsupported" {
-  if (importMetaMain === true) return "run";
-  if (importMetaMain !== undefined || argvScript === undefined) return "imported";
-  return path.resolve(argvScript) === fileURLToPath(moduleUrl) ? "unsupported" : "imported";
-}
-
-const mode = entryPointMode(import.meta.main, process.argv[1], import.meta.url);
-if (mode === "run") {
-  await runProcess(process.env);
-} else if (mode === "unsupported") {
-  writeToStderr(`${UNSUPPORTED_NODE_MESSAGE}\n`);
-  process.exitCode = 1;
-}
+await runIfEntryPoint(import.meta, () => runProcess(process.env));

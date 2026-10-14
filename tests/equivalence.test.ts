@@ -3,29 +3,36 @@
 // recorded. tests/equivalence/replay.ts runs each scenario in a child process
 // and applies the README's normalisation rules.
 //
-// Entry points ported so far: attention_summary (S7). S8 adds "main".
+// Entry points: attention_summary (S7) and main (S8): every scenario is replayed.
 
 import assert from "node:assert/strict";
+import { readdirSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 
 import {
+  EQUIVALENCE_DIR,
   compareWithGolden,
   createScriptedHttp,
   loadGolden,
   loadScenarios,
   replayScenario,
+  sdkStatusError,
   type Golden,
   type Observed,
   type Scenario,
 } from "./equivalence/replay.ts";
 
-const REPLAYED_ENTRY_POINTS = ["attention_summary"];
+const REPLAYED_ENTRY_POINTS = ["attention_summary", "main"];
 
 const scenarios = loadScenarios(REPLAYED_ENTRY_POINTS);
 
-test("golden scenarios: every attention_summary scenario is replayed", () => {
+test("golden scenarios: every scenario is replayed: all 62, 6 attention_summary and 56 main", () => {
+  const scenarioFiles = readdirSync(path.join(EQUIVALENCE_DIR, "scenarios")).filter((file) => file.endsWith(".json"));
+  assert.equal(scenarioFiles.length, 62);
+  assert.equal(scenarios.length, scenarioFiles.length, "a scenario's entry point is not replayed");
   assert.deepEqual(
-    scenarios.map((scenario) => scenario.name),
+    scenarios.filter((scenario) => scenario.entrypoint === "attention_summary").map((scenario) => scenario.name),
     [
       "attention_both_fail",
       "attention_both_sections_over_5",
@@ -35,6 +42,7 @@ test("golden scenarios: every attention_summary scenario is replayed", () => {
       "attention_tasks_fail_people_ok",
     ],
   );
+  assert.equal(scenarios.filter((scenario) => scenario.entrypoint === "main").length, 56);
 });
 
 for (const scenario of scenarios) {
@@ -261,4 +269,49 @@ test("harness self-test: the fake http allows only the options http.ts sends, an
       assert.match(report.violations[0] as string, pattern);
     });
   }
+});
+
+test("harness self-test: the scripted Gemini fails on an unscripted or unused call; a scripted error is the real @google/genai error", async (t) => {
+  await t.test("a scripted error is the SDK's own HTTP error class for the status", async () => {
+    for (const [status, name] of [[401, "AuthenticationError"], [429, "RateLimitError"], [503, "InternalServerError"]] as const) {
+      const error = await sdkStatusError(status) as Error & Record<string, unknown>;
+      assert.equal(error.name, name);
+      assert.equal(error["status"], status);
+      assert.equal(error["statusCode"], status);
+      // Python's attribute is added by src/gemini.ts's adapter, not by the SDK.
+      assert.equal(error["status_code"], undefined);
+    }
+  });
+
+  const base = scenarioNamed("gemini_new_thread");
+  const golden = loadGolden(base.name);
+
+  await t.test("a Gemini call beyond the script", async () => {
+    const scenario = mutated(base, (copy) => {
+      copy.gemini.pop();
+    });
+    const observed = await replayScenario(scenario);
+    assert.deepEqual(observed.violations, ["Gemini call 1 is not in the script"]);
+    assert.throws(() => compareWithGolden(scenario, golden, observed), assert.AssertionError);
+  });
+
+  await t.test("an unused Gemini entry", async () => {
+    const scenario = mutated(base, (copy) => {
+      copy.gemini.push({ output_text: "unused" });
+    });
+    const observed = await replayScenario(scenario);
+    assert.deepEqual(observed.violations, []);
+    assert.equal(observed.unusedGemini, 1);
+    assert.throws(() => compareWithGolden(scenario, golden, observed), assert.AssertionError);
+  });
+
+  await t.test("a different prompt", async () => {
+    const observed = await replayScenario(base);
+    compareWithGolden(base, golden, observed);
+    const edited = mutated(golden, (copy) => {
+      const call = copy.gemini_calls[0] as { input: string };
+      call.input = call.input.replace("SLACK THREAD HISTORY", "SLACK THREAD  HISTORY");
+    });
+    assert.throws(() => compareWithGolden(base, edited, observed), assert.AssertionError);
+  });
 });
