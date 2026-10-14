@@ -296,3 +296,4 @@ All 10 slices (S0–S9) were accepted, and no slice reached the 5-cycle stop con
 ## Phase 4 — Evaluation
 
 - 13:21: RESULTS.md written from this log and the Orchestrator's own checks. PR #34 description updated. The PR stays a draft and is not merged or deployed.
+- 14:48 (2026-10-14): **Human intervention #5 (decision)**: the user accepted the six differences in RESULTS.md §5.2. Recorded in RESULTS.md.

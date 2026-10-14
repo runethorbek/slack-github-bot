@@ -18,7 +18,7 @@ could not observe are reported as unavailable, not estimated.
 | Question | Answer | Basis |
 | --- | --- | --- |
 | Technical migration success | **Yes**, subject to the post-merge smoke test (§8). | All application logic runs as TypeScript on Node 24. 1011/1011 tests pass, typecheck is clean, CI passes, no Python remains, and the Vercel layer is unchanged. |
-| Functional equivalence | **Yes for everything observable in the frozen Python reference.** Six small edge-case differences are **pending your explicit acceptance** (§5.2). | All 62 Python-recorded end-to-end scenarios replay identically. All 358 Python tests have a TS counterpart. |
+| Functional equivalence | **Yes for everything observable in the frozen Python reference.** Six small edge-case differences were **explicitly accepted by the user** (§5.2). | All 62 Python-recorded end-to-end scenarios replay identically. All 358 Python tests have a TS counterpart. |
 | Autonomous completion | **Largely autonomous.** 1 decision intervention (plan approval) and 3 environmental resumes. No human fixed, decided or debugged anything during Phases 2–3. | §3 |
 | Quality of the agentic process | **Good but not self-sufficient.** Review caught every blocking problem before commit, but several defects were found only by later slices, by Orchestrator spot checks, or by asking for tests of claims. | §6 |
 
@@ -80,7 +80,7 @@ autonomous engineering. §6 and §7 assess the process separately from the resul
 | --- | ---: | --- |
 | Resolved autonomously | 11 | 9 by Implementers, 2 by the Orchestrator (S1 R6 spec decision, S5 R1 CI step) |
 | Accepted as expected under decision D3 | 1 | S9 R4: CI can no longer re-verify the goldens against Python |
-| **Awaiting your acceptance** | 1 | Final R1, the six semantic differences in §5.2 |
+| Accepted by the user (2026-10-14) | 1 | Final R1, the six semantic differences in §5.2 |
 
 **Nits (24):** most were fixed. The rest are recorded as accepted assumptions or follow-ups.
 
@@ -96,7 +96,7 @@ autonomous engineering. §6 and §7 assess the process separately from the resul
 
 ### Human interventions
 
-There were **4** in total:
+There were **5** in total:
 
 | # | When | What | Kind |
 | ---: | --- | --- | --- |
@@ -104,6 +104,7 @@ There were **4** in total:
 | 2 | During the S2 review | "can you continue" after an account usage limit. | Environmental resume |
 | 3 | During S6 | "can you continue" after an account usage limit. | Environmental resume |
 | 4 | During S8 | "can you continue" after an account usage limit. | Environmental resume |
+| 5 | After Phase 4 | Accepted the six differences in §5.2. | Decision (requested by ACCEPTANCE §1) |
 
 No human made a technical decision, fixed code, or unblocked a design question
 during Phases 2–3.
@@ -144,7 +145,7 @@ Equivalence evidence has three independent layers (PLAN §3):
 - **Dev scripts.** The usage line names `node scripts/….ts` instead of `python scripts/….py`.
 - **Slack workflow.** The step "Run Python bot" is renamed "Run bot". The masking step and the `env:` block are byte-identical.
 
-### 5.2 Not on the permitted list: **your explicit acceptance is requested**
+### 5.2 Not on the permitted list: **accepted by the user on 2026-10-14**
 
 ACCEPTANCE §1 says any other difference is a defect unless you accept it. The
 final review found these six. None can realistically be triggered by Slack or
@@ -238,7 +239,7 @@ Notion as they behave today, and each is documented in code or tests.
 | # | Criterion | Status |
 | ---: | --- | --- |
 | 1 | The application is implemented in TypeScript. | **Met** |
-| 2 | Existing functionality is preserved. | **Met for all recorded behavior.** Six edge-case differences await your acceptance (§5.2). |
+| 2 | Existing functionality is preserved. | **Met for all recorded behavior.** Six edge-case differences were accepted by the user (§5.2). |
 | 3 | Automated tests pass. | **Met**: 1011/1011, and CI is green. |
 | 4 | Security requirements are preserved. | **Met** (S1–S11 tested; reviewed per slice and end to end). |
 | 5 | GitHub Actions can execute the TypeScript application. | **Met statically and in CI**: CI runs the same Node and install path. Production workflow runs are **not validated** until after merge. |
