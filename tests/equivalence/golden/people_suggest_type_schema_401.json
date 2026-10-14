@@ -1,0 +1,136 @@
+{
+  "exit": {
+    "code": 0
+  },
+  "gemini_calls": [
+    {
+      "input": "\nYou are preparing a short private recap for the user about a Person, so\nthey can quickly recall relevant context before reaching out. This recap\nis for the user only; it is never sent to the Person.\n\nRules:\n- Use only the context supplied below.\n- Do not invent facts, relationship history, interests, commitments,\n  meetings, or Track membership that are not present in the supplied\n  context.\n- Summarize the most relevant recent Interactions in roughly 2 to 4 short\n  bullet points. Do not mechanically restate every Interaction line by\n  line; synthesize what matters.\n- If Relevant Tracks are supplied below, add one final bullet naming them\n  exactly as given, for example \"Relevant Track: <name>\". Never rename,\n  invent, or omit a supplied Track name.\n- If no Relevant Tracks are supplied, do not mention Track at all.\n- If there are no previous Interactions, write one honest bullet saying\n  so rather than inventing history.\n- Respond with only the bullet list (each line starting with \"- \"), with\n  no heading, preamble, or explanation.\n\n\nPERSON CONTEXT:\nName: Bj\u00f8rn \u00c5g\u00e5rd\n\nRECENT INTERACTIONS:\nNo previous Interactions are recorded.\n",
+      "model": "gemini-3.5-flash-lite"
+    },
+    {
+      "input": "\nYou are drafting a short reconnect message on behalf of the user. The user\nwill review the draft before deciding whether to send anything themselves.\n\nRules:\n- Use only the context supplied below.\n- Do not invent facts, relationship history, interests, commitments, or\n  meetings that are not present in the supplied context.\n- Do not decide who to contact; a person to contact has already been chosen.\n- Draft a short, natural reconnect message.\n- Keep it concise.\n- Avoid sounding sales-oriented.\n- Do not mention Notion, CRM fields, cadence, or internal metadata.\n- If there is not enough context for a specific message, produce a generic\n  but honest draft rather than inventing details.\n- Respond with only the drafted message text, with no preamble or\n  explanation.\n\n\nPERSON CONTEXT:\nName: Bj\u00f8rn \u00c5g\u00e5rd\n\nRECENT INTERACTIONS:\nNo previous Interactions are recorded.\n",
+      "model": "gemini-3.5-flash-lite"
+    }
+  ],
+  "http_calls": [
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN",
+        "Content-Type": "application/json"
+      },
+      "json": {
+        "channel": "C-TASKS",
+        "mrkdwn": true,
+        "text": "/people suggest Bj\u00f8rn \u00c5g\u00e5rd"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://slack.com/api/chat.postMessage"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "page_size": 100
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-people/query"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "filter": {
+          "and": [
+            {
+              "property": "People",
+              "relation": {
+                "contains": "p-bjorn"
+              }
+            },
+            {
+              "date": {
+                "is_not_empty": true
+              },
+              "property": "Date"
+            },
+            {
+              "date": {
+                "on_or_before": "2026-10-13"
+              },
+              "property": "Date"
+            }
+          ]
+        },
+        "page_size": 5,
+        "sorts": [
+          {
+            "direction": "descending",
+            "property": "Date"
+          }
+        ]
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-interactions/query"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": null,
+      "method": "GET",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-interactions"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN",
+        "Content-Type": "application/json"
+      },
+      "json": {
+        "blocks": [
+          {
+            "text": {
+              "text": "Context:\n- Ingen tidligere interaktioner er registreret.",
+              "type": "mrkdwn"
+            },
+            "type": "section"
+          },
+          {
+            "text": {
+              "text": "Suggested message for Bj\u00f8rn \u00c5g\u00e5rd:\n\nHej Bj\u00f8rn!",
+              "type": "mrkdwn"
+            },
+            "type": "section"
+          }
+        ],
+        "channel": "C-TASKS",
+        "mrkdwn": true,
+        "text": "Context:\n- Ingen tidligere interaktioner er registreret.\n\nSuggested message for Bj\u00f8rn \u00c5g\u00e5rd:\n\nHej Bj\u00f8rn!\n\nAdd interaction is unavailable right now (couldn't load Notion Type options).",
+        "thread_ts": "407.001"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://slack.com/api/chat.postMessage"
+    }
+  ],
+  "sleeps": [],
+  "stdout": [
+    "People command handled"
+  ]
+}

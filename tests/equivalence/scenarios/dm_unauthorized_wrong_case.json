@@ -1,0 +1,26 @@
+{
+  "name": "dm_unauthorized_wrong_case",
+  "description": "DM tracer (S1): a user ID differing only in case is not authorized; no outbound call at all.",
+  "entrypoint": "main",
+  "today": "2026-10-13",
+  "env": {
+    "SLACK_BOT_TOKEN": "xoxb-CANARY-SLACK-TOKEN",
+    "AUTHORIZED_SLACK_USER_ID": "U-AUTH",
+    "TASKS_SLACK_CHANNEL_ID": "C-TASKS",
+    "GEMINI_API_KEY": "CANARY-GEMINI-KEY",
+    "NOTION_API_KEY": "secret_CANARY_NOTION_KEY",
+    "NOTION_TASKS_DATA_SOURCE_ID": "ds-tasks",
+    "NOTION_PEOPLE_DATA_SOURCE_ID": "ds-people",
+    "NOTION_INTERACTIONS_DATA_SOURCE_ID": "ds-interactions",
+    "NOTION_TRACKS_DATA_SOURCE_ID": "ds-tracks",
+    "SLACK_EVENT_TYPE": "message",
+    "SLACK_CHANNEL_TYPE": "im",
+    "SLACK_CHANNEL_ID": "D-PRIVATE",
+    "SLACK_USER_ID": "u-auth",
+    "SLACK_TEXT": "Hej, her er noget privat: CANARY-PRIVATE æøå",
+    "SLACK_EVENT_TS": "100.001",
+    "SLACK_THREAD_TS": ""
+  },
+  "http": [],
+  "gemini": []
+}

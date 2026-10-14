@@ -1,0 +1,110 @@
+{
+  "exit": {
+    "code": 0
+  },
+  "gemini_calls": [],
+  "http_calls": [
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": null,
+      "method": "GET",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-interactions"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": null,
+      "method": "GET",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-interactions"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "parent": {
+          "data_source_id": "ds-interactions"
+        },
+        "properties": {
+          "Date": {
+            "date": {
+              "start": "2026-10-12"
+            }
+          },
+          "Navn": {
+            "title": [
+              {
+                "text": {
+                  "content": "\u00c5se \u00d8rsted \u2013 Kaffe"
+                },
+                "type": "text"
+              }
+            ]
+          },
+          "Notes": {
+            "rich_text": [
+              {
+                "text": {
+                  "content": "Aftalte at sende AI-artiklen fredag. CANARY-PRIVATE"
+                },
+                "type": "text"
+              }
+            ]
+          },
+          "People": {
+            "relation": [
+              {
+                "id": "p-aase"
+              }
+            ]
+          },
+          "Track": {
+            "relation": []
+          },
+          "Type": {
+            "select": {
+              "name": "Kaffe"
+            }
+          }
+        }
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/pages"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN",
+        "Content-Type": "application/json"
+      },
+      "json": {
+        "channel": "C-TASKS",
+        "mrkdwn": true,
+        "text": "Unable to add the interaction right now. Please try again later.",
+        "thread_ts": "500.001"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://slack.com/api/chat.postMessage"
+    }
+  ],
+  "sleeps": [],
+  "stdout": [
+    "Add Interaction submission handled"
+  ]
+}

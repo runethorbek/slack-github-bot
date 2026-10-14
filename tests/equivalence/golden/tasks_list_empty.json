@@ -1,0 +1,63 @@
+{
+  "exit": {
+    "code": 0
+  },
+  "gemini_calls": [],
+  "http_calls": [
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN",
+        "Content-Type": "application/json"
+      },
+      "json": {
+        "channel": "C-TASKS",
+        "mrkdwn": true,
+        "text": "/tasks list"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://slack.com/api/chat.postMessage"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "filter": {
+          "property": "Status",
+          "status": {
+            "does_not_equal": "F\u00e6rdig"
+          }
+        },
+        "page_size": 100
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-tasks/query"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN",
+        "Content-Type": "application/json"
+      },
+      "json": {
+        "channel": "C-TASKS",
+        "mrkdwn": true,
+        "text": "No tasks need attention right now.",
+        "thread_ts": "203.001"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://slack.com/api/chat.postMessage"
+    }
+  ],
+  "sleeps": [],
+  "stdout": [
+    "Task command handled"
+  ]
+}

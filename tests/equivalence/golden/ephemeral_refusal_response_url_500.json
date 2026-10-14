@@ -1,0 +1,25 @@
+{
+  "exit": {
+    "code": 1,
+    "uncaught": {
+      "message": "Slack response delivery failed.",
+      "type": "RuntimeError"
+    }
+  },
+  "gemini_calls": [],
+  "http_calls": [
+    {
+      "headers": null,
+      "json": {
+        "response_type": "ephemeral",
+        "text": "The /tasks command is not available in this channel."
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://hooks.slack.com/commands/CANARY-RESPONSE-URL"
+    }
+  ],
+  "sleeps": [],
+  "stdout": []
+}

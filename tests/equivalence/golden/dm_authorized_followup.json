@@ -1,0 +1,28 @@
+{
+  "exit": {
+    "code": 0
+  },
+  "gemini_calls": [],
+  "http_calls": [
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN",
+        "Content-Type": "application/json"
+      },
+      "json": {
+        "channel": "D-PRIVATE",
+        "mrkdwn": true,
+        "text": "DM conversation received.",
+        "thread_ts": "100.001"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://slack.com/api/chat.postMessage"
+    }
+  ],
+  "sleeps": [],
+  "stdout": [
+    "Authorized Slack DM response posted"
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "name": "gemini_thread_reply_history",
+  "description": "Thread reply: history with bot and user messages (an empty message skipped) becomes the prompt; answer posted.",
+  "entrypoint": "main",
+  "today": "2026-10-13",
+  "env": {
+    "SLACK_BOT_TOKEN": "xoxb-CANARY-SLACK-TOKEN",
+    "AUTHORIZED_SLACK_USER_ID": "U-AUTH",
+    "TASKS_SLACK_CHANNEL_ID": "C-TASKS",
+    "GEMINI_API_KEY": "CANARY-GEMINI-KEY",
+    "NOTION_API_KEY": "secret_CANARY_NOTION_KEY",
+    "NOTION_TASKS_DATA_SOURCE_ID": "ds-tasks",
+    "NOTION_PEOPLE_DATA_SOURCE_ID": "ds-people",
+    "NOTION_INTERACTIONS_DATA_SOURCE_ID": "ds-interactions",
+    "NOTION_TRACKS_DATA_SOURCE_ID": "ds-tracks",
+    "SLACK_EVENT_TYPE": "message",
+    "SLACK_CHANNEL_TYPE": "channel",
+    "SLACK_CHANNEL_ID": "C-GENERAL",
+    "SLACK_USER_ID": "U-SOMEONE",
+    "SLACK_TEXT": "Og hvad med Ærø? CANARY-PRIVATE",
+    "SLACK_EVENT_TS": "600.009",
+    "SLACK_THREAD_TS": "600.001"
+  },
+  "http": [
+    {
+      "expect": {
+        "method": "GET",
+        "url": "https://slack.com/api/conversations.replies"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "ok": true,
+          "messages": [
+            {
+              "text": "💬 Hvad betyder æøå? CANARY-PRIVATE",
+              "bot_id": "B-BOT",
+              "ts": "600.001"
+            },
+            {
+              "text": "Æ, Ø og Å er danske bogstaver.",
+              "bot_id": "B-BOT",
+              "ts": "600.002"
+            },
+            {
+              "text": "   ",
+              "user": "U-SOMEONE",
+              "ts": "600.003"
+            },
+            {
+              "text": "  Og hvad med Ærø? CANARY-PRIVATE  ",
+              "user": "U-SOMEONE",
+              "ts": "600.009"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "ok": true,
+          "ts": "600.010"
+        }
+      }
+    }
+  ],
+  "gemini": [
+    {
+      "output_text": "Ærø er en ø i Det Sydfynske Øhav."
+    }
+  ]
+}

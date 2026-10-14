@@ -1,0 +1,63 @@
+{
+  "exit": {
+    "code": 0
+  },
+  "gemini_calls": [],
+  "http_calls": [
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN",
+        "Content-Type": "application/json"
+      },
+      "json": {
+        "channel": "D-PRIVATE",
+        "mrkdwn": true,
+        "text": "/tasks list"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://slack.com/api/chat.postMessage"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "filter": {
+          "property": "Status",
+          "status": {
+            "does_not_equal": "F\u00e6rdig"
+          }
+        },
+        "page_size": 100
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-tasks/query"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN",
+        "Content-Type": "application/json"
+      },
+      "json": {
+        "channel": "D-PRIVATE",
+        "mrkdwn": true,
+        "text": "\u2022 <https://www.notion.so/task-bulk-00|Opgave nr. 00 \u00e6\u00f8\u00e5> \u2014 Priority: High \u2014 Track: No track \u2014 Overdue: 2026-10-01\n\u2022 <https://www.notion.so/task-bulk-19|Opgave nr. 19 \u00e6\u00f8\u00e5> \u2014 Priority: No priority \u2014 Track: No track \u2014 Overdue: 2026-10-01\n\u2022 <https://www.notion.so/task-bulk-20|Opgave nr. 20 \u00e6\u00f8\u00e5> \u2014 Priority: High \u2014 Track: No track \u2014 Overdue: 2026-10-02\n\u2022 <https://www.notion.so/task-bulk-01|Opgave nr. 01 \u00e6\u00f8\u00e5> \u2014 Priority: Medium \u2014 Track: No track \u2014 Overdue: 2026-10-02\n\u2022 <https://www.notion.so/task-bulk-21|Opgave nr. 21 \u00e6\u00f8\u00e5> \u2014 Priority: Medium \u2014 Track: No track \u2014 Overdue: 2026-10-03\n\u2022 <https://www.notion.so/task-bulk-02|Opgave nr. 02 \u00e6\u00f8\u00e5> \u2014 Priority: Low \u2014 Track: No track \u2014 Overdue: 2026-10-03\n\u2022 <https://www.notion.so/task-bulk-22|Opgave nr. 22 \u00e6\u00f8\u00e5> \u2014 Priority: Low \u2014 Track: No track \u2014 Overdue: 2026-10-04\n\u2022 <https://www.notion.so/task-bulk-03|Opgave nr. 03 \u00e6\u00f8\u00e5> \u2014 Priority: No priority \u2014 Track: No track \u2014 Overdue: 2026-10-04\n\u2022 <https://www.notion.so/task-bulk-04|Opgave nr. 04 \u00e6\u00f8\u00e5> \u2014 Priority: High \u2014 Track: No track \u2014 Overdue: 2026-10-05\n\u2022 <https://www.notion.so/task-bulk-05|Opgave nr. 05 \u00e6\u00f8\u00e5> \u2014 Priority: Medium \u2014 Track: No track \u2014 Overdue: 2026-10-06\n\u2022 <https://www.notion.so/task-bulk-06|Opgave nr. 06 \u00e6\u00f8\u00e5> \u2014 Priority: Low \u2014 Track: No track \u2014 Overdue: 2026-10-07\n\u2022 <https://www.notion.so/task-bulk-07|Opgave nr. 07 \u00e6\u00f8\u00e5> \u2014 Priority: No priority \u2014 Track: No track \u2014 Overdue: 2026-10-08\n\u2022 <https://www.notion.so/task-bulk-08|Opgave nr. 08 \u00e6\u00f8\u00e5> \u2014 Priority: High \u2014 Track: No track \u2014 Overdue: 2026-10-09\n\u2022 <https://www.notion.so/task-bulk-09|Opgave nr. 09 \u00e6\u00f8\u00e5> \u2014 Priority: Medium \u2014 Track: No track \u2014 Overdue: 2026-10-10\n\u2022 <https://www.notion.so/task-bulk-10|Opgave nr. 10 \u00e6\u00f8\u00e5> \u2014 Priority: Low \u2014 Track: No track \u2014 Overdue: 2026-10-11\n\u2022 <https://www.notion.so/task-bulk-11|Opgave nr. 11 \u00e6\u00f8\u00e5> \u2014 Priority: No priority \u2014 Track: No track \u2014 Overdue: 2026-10-12\n\u2022 <https://www.notion.so/task-bulk-12|Opgave nr. 12 \u00e6\u00f8\u00e5> \u2014 Priority: High \u2014 Track: No track \u2014 Follow-up: today\n\u2022 <https://www.notion.so/task-bulk-13|Opgave nr. 13 \u00e6\u00f8\u00e5> \u2014 Priority: Medium \u2014 Track: No track \u2014 Follow-up: 2026-10-14\n\u2022 <https://www.notion.so/task-bulk-14|Opgave nr. 14 \u00e6\u00f8\u00e5> \u2014 Priority: Low \u2014 Track: No track \u2014 Follow-up: 2026-10-15\n\u2022 <https://www.notion.so/task-bulk-15|Opgave nr. 15 \u00e6\u00f8\u00e5> \u2014 Priority: No priority \u2014 Track: No track \u2014 Follow-up: 2026-10-16",
+        "thread_ts": "201.001"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://slack.com/api/chat.postMessage"
+    }
+  ],
+  "sleeps": [],
+  "stdout": [
+    "Task command handled"
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "exit": {
+    "code": 0
+  },
+  "gemini_calls": [],
+  "http_calls": [
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN",
+        "Content-Type": "application/json"
+      },
+      "json": {
+        "channel": "D-PRIVATE",
+        "mrkdwn": true,
+        "text": "/people suggest JENS HANSEN"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://slack.com/api/chat.postMessage"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "page_size": 100
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-people/query"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN",
+        "Content-Type": "application/json"
+      },
+      "json": {
+        "channel": "D-PRIVATE",
+        "mrkdwn": true,
+        "text": "Multiple People match \"JENS HANSEN\" exactly; cannot determine which one was meant.",
+        "thread_ts": "402.001"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://slack.com/api/chat.postMessage"
+    }
+  ],
+  "sleeps": [],
+  "stdout": [
+    "People command handled"
+  ]
+}

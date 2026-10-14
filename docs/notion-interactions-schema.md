@@ -39,7 +39,7 @@ Type: `relation`, relates to People
 
 Looked up by the exact key `People`. Used both to find an Interaction's
 owning Person and, on write, to link a newly created Interaction back to
-a Person (`people_interaction.py`).
+a Person (`src/people-interaction.ts`).
 
 ### Notes
 

@@ -14,12 +14,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-node@v7
         with:
-          python-version: "3.12"
+          node-version: "24"
+          cache: npm
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: npm ci --omit=dev
 
       - name: Send attention summary DM
         env:
@@ -29,4 +30,4 @@ jobs:
           NOTION_TASKS_DATA_SOURCE_ID: ${{ secrets.NOTION_TASKS_DATA_SOURCE_ID }}
           NOTION_PEOPLE_DATA_SOURCE_ID: ${{ secrets.NOTION_PEOPLE_DATA_SOURCE_ID }}
           NOTION_INTERACTIONS_DATA_SOURCE_ID: ${{ secrets.NOTION_INTERACTIONS_DATA_SOURCE_ID }}
-        run: python attention_summary.py
+        run: node src/attention-summary.ts

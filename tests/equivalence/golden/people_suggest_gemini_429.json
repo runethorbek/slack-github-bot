@@ -1,0 +1,154 @@
+{
+  "exit": {
+    "code": 0
+  },
+  "gemini_calls": [
+    {
+      "input": "\nYou are preparing a short private recap for the user about a Person, so\nthey can quickly recall relevant context before reaching out. This recap\nis for the user only; it is never sent to the Person.\n\nRules:\n- Use only the context supplied below.\n- Do not invent facts, relationship history, interests, commitments,\n  meetings, or Track membership that are not present in the supplied\n  context.\n- Summarize the most relevant recent Interactions in roughly 2 to 4 short\n  bullet points. Do not mechanically restate every Interaction line by\n  line; synthesize what matters.\n- If Relevant Tracks are supplied below, add one final bullet naming them\n  exactly as given, for example \"Relevant Track: <name>\". Never rename,\n  invent, or omit a supplied Track name.\n- If no Relevant Tracks are supplied, do not mention Track at all.\n- If there are no previous Interactions, write one honest bullet saying\n  so rather than inventing history.\n- Respond with only the bullet list (each line starting with \"- \"),\n  followed by the next-step part described below, with no other heading,\n  preamble, or explanation.\n\nAfter the recap bullet list, also suggest the user's next relationship\naction with this Person. This part is also private to the user.\n\nRules for the next step:\n- Use only the context supplied below. Do not invent history, meetings,\n  commitments, interests, or Track membership.\n- Each suggestion's kind must be exactly one of the ALLOWED NEXT STEP\n  KINDS listed below, spelled exactly as given.\n- \"Wait\" means reaching out now seems premature given the\n  context.\n- Give 1 suggestion when there is little context. Give at most\n  2, and a second only when the context supports a\n  distinct alternative.\n- Keep each reason or idea to one short sentence.\n- Format: after the recap bullets, write one line containing exactly\n  \"NEXT STEP:\", then one line per suggestion in the form\n  \"- <Kind>: <short reason or idea>\". Use no bold or other formatting.\n\nRules for Track context:\n- The Person's Tracks (primary focus) and their Purposes say what this\n  relationship is for. Treat those Purposes as the main focus when\n  choosing what to emphasize and, if requested, the next step.\n- Other Tracks from recent Interactions are secondary context only.\n- Do not invent a Purpose that is not supplied.\n\n\nPERSON CONTEXT:\nName: \u00c5se \u00d8rsted\nWhy this person: Kender alt til AI i \u00d8resundsregionen. CANARY-PRIVATE\nRelationship intent: L\u00e6re\nInterests: AI, Sejlads\nNotes: Har to b\u00f8rn; n\u00e6vnte en tur til \u00c6r\u00f8.\n\nRECENT INTERACTIONS:\n- Date: 2026-09-13; Type: Kaffe; Title: Kaffe p\u00e5 N\u00f8rrebro; Notes: Talte om AI-agenter. CANARY-PRIVATE\n- Date: 2026-08-01; Type: M\u00f8de\n\nRELEVANT TRACKS:\nPerson's Tracks (primary focus):\n- L\u00e6ring om AI\n  Purpose: L\u00e6re om AI-agenter og sprogmodeller i praksis.\nOther Tracks from recent Interactions (secondary):\n- Netv\u00e6rk\n\nALLOWED NEXT STEP KINDS:\n- Kaffe\n- M\u00f8de\n- Opkald\n- Wait\n",
+      "model": "gemini-3.5-flash-lite"
+    }
+  ],
+  "http_calls": [
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN",
+        "Content-Type": "application/json"
+      },
+      "json": {
+        "channel": "C-TASKS",
+        "mrkdwn": true,
+        "text": "/people suggest \u00c5se \u00d8rsted"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://slack.com/api/chat.postMessage"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "page_size": 100
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-people/query"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "filter": {
+          "and": [
+            {
+              "property": "People",
+              "relation": {
+                "contains": "p-aase"
+              }
+            },
+            {
+              "date": {
+                "is_not_empty": true
+              },
+              "property": "Date"
+            },
+            {
+              "date": {
+                "on_or_before": "2026-10-13"
+              },
+              "property": "Date"
+            }
+          ]
+        },
+        "page_size": 5,
+        "sorts": [
+          {
+            "direction": "descending",
+            "property": "Date"
+          }
+        ]
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-interactions/query"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": null,
+      "method": "GET",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/pages/track-ai"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": null,
+      "method": "GET",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/pages/track-net"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "page_size": 25
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-tracks/query"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": null,
+      "method": "GET",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-interactions"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN",
+        "Content-Type": "application/json"
+      },
+      "json": {
+        "channel": "C-TASKS",
+        "mrkdwn": true,
+        "text": "Gemini is currently experiencing high demand. Please try again shortly.",
+        "thread_ts": "404.001"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://slack.com/api/chat.postMessage"
+    }
+  ],
+  "sleeps": [],
+  "stdout": [
+    "People command handled"
+  ]
+}

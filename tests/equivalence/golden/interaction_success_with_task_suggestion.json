@@ -1,0 +1,191 @@
+{
+  "exit": {
+    "code": 0
+  },
+  "gemini_calls": [
+    {
+      "input": "\nYou are reading the notes the user just saved about an Interaction with a\nPerson, to decide whether they contain a concrete commitment the user\nshould track as a follow-up Task. The user reviews and edits any\nsuggestion before anything is saved.\n\nRules:\n- Use only the Interaction supplied below.\n- Suggest a Task only when the notes contain a concrete commitment or\n  agreed next action (for example \"agreed to send the AI article\").\n  Otherwise, suggest nothing. Do not invent commitments.\n- Suggest at most one Task.\n- \"name\" is a short imperative Task name, at most 150 characters.\n- \"description\" is optional: at most 500 characters of useful detail from\n  the notes. Omit it when there is nothing to add beyond the name.\n- \"follow_up\" is optional: an absolute date in the form YYYY-MM-DD, only\n  when the notes state or clearly imply when to follow up. Resolve\n  relative dates (\"next week\", \"Friday\") using TODAY below. Omit it\n  otherwise.\n- Respond with only a JSON object and no other text or formatting:\n  {\"task\": null} when there is no follow-up, or\n  {\"task\": {\"name\": \"...\", \"description\": \"...\", \"follow_up\": \"YYYY-MM-DD\"}}.\n\nTODAY: 2026-10-13\n\nINTERACTION:\nPerson: \u00c5se \u00d8rsted\nDate: 2026-10-12\nType: Kaffe\nNotes: Aftalte at sende AI-artiklen fredag. CANARY-PRIVATE\n",
+      "model": "gemini-3.5-flash-lite"
+    }
+  ],
+  "http_calls": [
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": null,
+      "method": "GET",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-interactions"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "page_size": 25
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-tracks/query"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": null,
+      "method": "GET",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-interactions"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "parent": {
+          "data_source_id": "ds-interactions"
+        },
+        "properties": {
+          "Date": {
+            "date": {
+              "start": "2026-10-12"
+            }
+          },
+          "Navn": {
+            "title": [
+              {
+                "text": {
+                  "content": "\u00c5se \u00d8rsted \u2013 Kaffe"
+                },
+                "type": "text"
+              }
+            ]
+          },
+          "Notes": {
+            "rich_text": [
+              {
+                "text": {
+                  "content": "Aftalte at sende AI-artiklen fredag. CANARY-PRIVATE"
+                },
+                "type": "text"
+              }
+            ]
+          },
+          "People": {
+            "relation": [
+              {
+                "id": "p-aase"
+              }
+            ]
+          },
+          "Track": {
+            "relation": [
+              {
+                "id": "track-ai"
+              }
+            ]
+          },
+          "Type": {
+            "select": {
+              "name": "Kaffe"
+            }
+          }
+        }
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/pages"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": null,
+      "method": "GET",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-tasks"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "page_size": 25
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-tracks/query"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN",
+        "Content-Type": "application/json"
+      },
+      "json": {
+        "blocks": [
+          {
+            "text": {
+              "text": "Interaction added for \u00c5se \u00d8rsted.",
+              "type": "mrkdwn"
+            },
+            "type": "section"
+          },
+          {
+            "elements": [
+              {
+                "action_id": "add_followup_task",
+                "text": {
+                  "text": "Add follow-up task",
+                  "type": "plain_text"
+                },
+                "type": "button",
+                "value": "{\"page_id\": \"p-aase\", \"name\": \"\\u00c5se \\u00d8rsted\", \"priorities\": [\"High\", \"Medium\", \"Low\"], \"tracks\": [{\"id\": \"track-ai\", \"name\": \"L\\u00e6ring om AI\"}, {\"id\": \"track-net\", \"name\": \"Netv\\u00e6rk\"}, {\"id\": \"track-oresund\", \"name\": \"\\u00d8resund-projekt\"}], \"default_track_id\": \"track-ai\"}"
+              },
+              {
+                "action_id": "add_suggested_followup_task",
+                "text": {
+                  "text": "Add task: Send AI-artiklen til \u00c5se",
+                  "type": "plain_text"
+                },
+                "type": "button",
+                "value": "{\"page_id\": \"p-aase\", \"name\": \"\\u00c5se \\u00d8rsted\", \"priorities\": [\"High\", \"Medium\", \"Low\"], \"tracks\": [{\"id\": \"track-ai\", \"name\": \"L\\u00e6ring om AI\"}, {\"id\": \"track-net\", \"name\": \"Netv\\u00e6rk\"}, {\"id\": \"track-oresund\", \"name\": \"\\u00d8resund-projekt\"}], \"default_track_id\": \"track-ai\", \"task_name\": \"Send AI-artiklen til \\u00c5se\", \"task_description\": \"Artiklen om AI-agenter, som vi talte om.\", \"task_follow_up\": \"2026-10-16\"}"
+              }
+            ],
+            "type": "actions"
+          }
+        ],
+        "channel": "C-TASKS",
+        "mrkdwn": true,
+        "text": "Interaction added for \u00c5se \u00d8rsted.",
+        "thread_ts": "500.001"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://slack.com/api/chat.postMessage"
+    }
+  ],
+  "sleeps": [],
+  "stdout": [
+    "Add Interaction submission handled"
+  ]
+}

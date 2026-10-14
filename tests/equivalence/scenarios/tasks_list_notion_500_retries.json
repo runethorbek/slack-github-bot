@@ -1,0 +1,98 @@
+{
+  "name": "tasks_list_notion_500_retries",
+  "description": "/tasks list where Notion returns 500 three times: numeric Retry-After honored, then the default 1+n delay, then the generic failure message in the thread.",
+  "entrypoint": "main",
+  "today": "2026-10-13",
+  "env": {
+    "SLACK_BOT_TOKEN": "xoxb-CANARY-SLACK-TOKEN",
+    "AUTHORIZED_SLACK_USER_ID": "U-AUTH",
+    "TASKS_SLACK_CHANNEL_ID": "C-TASKS",
+    "GEMINI_API_KEY": "CANARY-GEMINI-KEY",
+    "NOTION_API_KEY": "secret_CANARY_NOTION_KEY",
+    "NOTION_TASKS_DATA_SOURCE_ID": "ds-tasks",
+    "NOTION_PEOPLE_DATA_SOURCE_ID": "ds-people",
+    "NOTION_INTERACTIONS_DATA_SOURCE_ID": "ds-interactions",
+    "NOTION_TRACKS_DATA_SOURCE_ID": "ds-tracks",
+    "SLACK_EVENT_TYPE": "slash_command",
+    "SLACK_COMMAND": "/tasks",
+    "SLACK_TEXT": "list",
+    "SLACK_CHANNEL_ID": "C-TASKS",
+    "SLACK_CHANNEL_TYPE": "channel",
+    "SLACK_USER_ID": "U-AUTH",
+    "SLACK_RESPONSE_URL": "https://hooks.slack.com/commands/CANARY-RESPONSE-URL"
+  },
+  "http": [
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "ok": true,
+          "ts": "204.001"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/data_sources/ds-tasks/query"
+      },
+      "response": {
+        "status": 500,
+        "json": {
+          "object": "error",
+          "status": 500
+        },
+        "headers": {
+          "Retry-After": "3"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/data_sources/ds-tasks/query"
+      },
+      "response": {
+        "status": 500,
+        "json": {
+          "object": "error",
+          "status": 500
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/data_sources/ds-tasks/query"
+      },
+      "response": {
+        "status": 500,
+        "json": {
+          "object": "error",
+          "status": 500
+        },
+        "headers": {
+          "Retry-After": "7"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "ok": true,
+          "ts": "204.002"
+        }
+      }
+    }
+  ],
+  "gemini": []
+}

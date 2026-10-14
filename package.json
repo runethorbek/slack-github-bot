@@ -1,9 +1,15 @@
 {
   "type": "module",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "typecheck": "tsc"
   },
   "dependencies": {
+    "@google/genai": "2.29.0",
     "@vercel/functions": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "7.0.2"
   }
 }

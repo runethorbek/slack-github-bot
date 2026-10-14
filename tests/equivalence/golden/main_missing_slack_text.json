@@ -1,0 +1,13 @@
+{
+  "exit": {
+    "code": 1,
+    "uncaught": {
+      "message": "'SLACK_TEXT'",
+      "type": "KeyError"
+    }
+  },
+  "gemini_calls": [],
+  "http_calls": [],
+  "sleeps": [],
+  "stdout": []
+}

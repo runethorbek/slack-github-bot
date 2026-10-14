@@ -1,0 +1,13 @@
+{
+  "exit": {
+    "code": 1,
+    "uncaught": {
+      "message": "Received Slack message event without SLACK_THREAD_TS",
+      "type": "Exception"
+    }
+  },
+  "gemini_calls": [],
+  "http_calls": [],
+  "sleeps": [],
+  "stdout": []
+}

@@ -1,0 +1,155 @@
+{
+  "name": "people_suggest_type_fetch_failure",
+  "description": "/people suggest where the Interactions Type schema read fails (503 with Retry-After, three times): no next step is requested, no Add interaction button, and the unavailable note is appended. No Tracks data source configured.",
+  "entrypoint": "main",
+  "today": "2026-10-13",
+  "env": {
+    "SLACK_BOT_TOKEN": "xoxb-CANARY-SLACK-TOKEN",
+    "AUTHORIZED_SLACK_USER_ID": "U-AUTH",
+    "TASKS_SLACK_CHANNEL_ID": "C-TASKS",
+    "GEMINI_API_KEY": "CANARY-GEMINI-KEY",
+    "NOTION_API_KEY": "secret_CANARY_NOTION_KEY",
+    "NOTION_TASKS_DATA_SOURCE_ID": "ds-tasks",
+    "NOTION_PEOPLE_DATA_SOURCE_ID": "ds-people",
+    "NOTION_INTERACTIONS_DATA_SOURCE_ID": "ds-interactions",
+    "SLACK_EVENT_TYPE": "slash_command",
+    "SLACK_COMMAND": "/people",
+    "SLACK_TEXT": "suggest Bjørn Ågård",
+    "SLACK_CHANNEL_ID": "C-TASKS",
+    "SLACK_CHANNEL_TYPE": "channel",
+    "SLACK_USER_ID": "U-AUTH",
+    "SLACK_RESPONSE_URL": "https://hooks.slack.com/commands/CANARY-RESPONSE-URL"
+  },
+  "http": [
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "ok": true,
+          "ts": "403.001"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/data_sources/ds-people/query"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "object": "list",
+          "results": [
+            {
+              "id": "p-bjorn",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Bjørn Ågård"
+                    }
+                  ]
+                },
+                "Contact cadence": {
+                  "type": "select",
+                  "select": {
+                    "name": "3 months"
+                  }
+                }
+              }
+            }
+          ],
+          "has_more": false,
+          "next_cursor": null
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/data_sources/ds-interactions/query"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "object": "list",
+          "results": [],
+          "has_more": false,
+          "next_cursor": null
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "GET",
+        "url": "https://api.notion.com/v1/data_sources/ds-interactions"
+      },
+      "response": {
+        "status": 503,
+        "json": {
+          "object": "error",
+          "status": 503
+        },
+        "headers": {
+          "Retry-After": "1.5"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "GET",
+        "url": "https://api.notion.com/v1/data_sources/ds-interactions"
+      },
+      "response": {
+        "status": 503,
+        "json": {
+          "object": "error",
+          "status": 503
+        },
+        "headers": {
+          "Retry-After": "0"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "GET",
+        "url": "https://api.notion.com/v1/data_sources/ds-interactions"
+      },
+      "response": {
+        "status": 503,
+        "json": {
+          "object": "error",
+          "status": 503
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "ok": true,
+          "ts": "403.002"
+        }
+      }
+    }
+  ],
+  "gemini": [
+    {
+      "output_text": "- Ingen tidligere interaktioner er registreret."
+    },
+    {
+      "output_text": "Hej Bjørn, længe siden!"
+    }
+  ]
+}

@@ -33,7 +33,7 @@ Slack
 → Vercel webhook
 → GitHub repository_dispatch
 → GitHub Action
-→ Python
+→ TypeScript (Node.js)
 → Gemini / external services
 → Slack
 
@@ -41,7 +41,7 @@ The Vercel endpoint should remain a thin transport layer.
 Vercel may return a fixed, generic acknowledgement in its HTTP response to Slack: no user data, no Gemini output, no authorization decisions.
 As one narrow exception, Vercel may also POST one fixed, generic acknowledgement to an interaction's Slack `response_url` (currently only the Suggest message button), under the same constraints: constant content, no request data, no authorization decisions.
 
-Application logic belongs in Python unless existing repository conventions clearly indicate otherwise.
+Application logic belongs in TypeScript (Node.js) unless existing repository conventions clearly indicate otherwise.
 
 Do not introduce new architectural layers, persistent state, or external infrastructure without explicit approval.
 
@@ -66,7 +66,7 @@ Gemini must not directly execute arbitrary external API operations.
 For external write operations:
 
 1. Gemini may produce a constrained structured intent.
-2. Python must validate the intent.
+2. Application code must validate the intent.
 3. Application code performs the external side effect.
 
 Do not allow model-generated text to determine arbitrary API endpoints, commands, credentials, or unrestricted parameters.

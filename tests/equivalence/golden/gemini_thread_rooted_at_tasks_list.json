@@ -1,0 +1,39 @@
+{
+  "exit": {
+    "code": 0
+  },
+  "gemini_calls": [],
+  "http_calls": [
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN"
+      },
+      "json": null,
+      "method": "GET",
+      "params": {
+        "channel": "C-GENERAL",
+        "ts": "600.001"
+      },
+      "timeout": 10,
+      "url": "https://slack.com/api/conversations.replies"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN",
+        "Content-Type": "application/json"
+      },
+      "json": {
+        "channel": "C-GENERAL",
+        "mrkdwn": true,
+        "text": "Task-list follow-ups are not supported. Run /tasks list.",
+        "thread_ts": "600.001"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://slack.com/api/chat.postMessage"
+    }
+  ],
+  "sleeps": [],
+  "stdout": []
+}

@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+# Read-only, no secrets, independent of the Slack workflows.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run JavaScript and TypeScript tests
+        run: npm test
+
+      # The Slack workflows install with --omit=dev. Check that both entry
+      # points still load without dev dependencies (importing does not run
+      # them: their import.meta.main guard is false).
+      - name: Check the entry points load from a production install
+        run: |
+          npm ci --omit=dev
+          node --input-type=module -e "await import('./src/main.ts'); await import('./src/attention-summary.ts');"

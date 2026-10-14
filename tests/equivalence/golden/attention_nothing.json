@@ -1,0 +1,88 @@
+{
+  "exit": {
+    "code": 0
+  },
+  "gemini_calls": [],
+  "http_calls": [
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "filter": {
+          "property": "Status",
+          "status": {
+            "does_not_equal": "F\u00e6rdig"
+          }
+        },
+        "page_size": 100
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-tasks/query"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "filter": {
+          "property": "Contact cadence",
+          "select": {
+            "is_not_empty": true
+          }
+        },
+        "page_size": 100
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-people/query"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "filter": {
+          "and": [
+            {
+              "date": {
+                "is_not_empty": true
+              },
+              "property": "Date"
+            },
+            {
+              "date": {
+                "on_or_before": "2026-10-13"
+              },
+              "property": "Date"
+            }
+          ]
+        },
+        "page_size": 100,
+        "sorts": [
+          {
+            "direction": "descending",
+            "property": "Date"
+          }
+        ]
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-interactions/query"
+    }
+  ],
+  "sleeps": [],
+  "stdout": [
+    "Nothing needs attention; no DM sent"
+  ]
+}

@@ -11,12 +11,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-node@v7
         with:
-          python-version: "3.12"
+          node-version: "24"
+          cache: npm
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: npm ci --omit=dev
 
       - name: Prepare Slack response URL and mask sensitive payload fields
         run: |
@@ -54,7 +55,7 @@ jobs:
             fi
           done
 
-      - name: Run Python bot
+      - name: Run bot
         env:
           SLACK_COMMAND: ${{ github.event.client_payload.command }}
           SLACK_TEXT: ${{ github.event.client_payload.text }}
@@ -80,4 +81,4 @@ jobs:
           NOTION_TASKS_DATA_SOURCE_ID: ${{ secrets.NOTION_TASKS_DATA_SOURCE_ID }}
           NOTION_TRACKS_DATA_SOURCE_ID: ${{ secrets.NOTION_TRACKS_DATA_SOURCE_ID }}
           TASKS_SLACK_CHANNEL_ID: ${{ secrets.TASKS_SLACK_CHANNEL_ID }}
-        run: python main.py
+        run: node src/main.ts

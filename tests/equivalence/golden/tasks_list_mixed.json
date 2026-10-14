@@ -1,0 +1,135 @@
+{
+  "exit": {
+    "code": 0
+  },
+  "gemini_calls": [],
+  "http_calls": [
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN",
+        "Content-Type": "application/json"
+      },
+      "json": {
+        "channel": "C-TASKS",
+        "mrkdwn": true,
+        "text": "/tasks list"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://slack.com/api/chat.postMessage"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": {
+        "filter": {
+          "property": "Status",
+          "status": {
+            "does_not_equal": "F\u00e6rdig"
+          }
+        },
+        "page_size": 100
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/data_sources/ds-tasks/query"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": null,
+      "method": "GET",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/pages/track-ai"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": null,
+      "method": "GET",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/pages/track-gone"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": null,
+      "method": "GET",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/pages/track-oresund"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": null,
+      "method": "GET",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/pages/track-net"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": null,
+      "method": "GET",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/pages/track-x1"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer secret_CANARY_NOTION_KEY",
+        "Content-Type": "application/json",
+        "Notion-Version": "2025-09-03"
+      },
+      "json": null,
+      "method": "GET",
+      "params": null,
+      "timeout": 10,
+      "url": "https://api.notion.com/v1/pages/track-x2"
+    },
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN",
+        "Content-Type": "application/json"
+      },
+      "json": {
+        "channel": "C-TASKS",
+        "mrkdwn": true,
+        "text": "\u2022 <https://www.notion.so/task-overdue|Svar p\u00e5 \u00c5ses mail> \u2014 Priority: Low \u2014 Track: L\u00e6ring om AI \u2014 Overdue: 2026-10-01\n\u2022 <https://www.notion.so/task-today-high-b|bestil \u00e6bler> \u2014 Priority: High \u2014 Track: No track \u2014 Follow-up: today\n\u2022 <https://www.notion.so/task-today-high|\u00d8v pr\u00e6sentation> \u2014 Priority: High \u2014 Track: No track \u2014 Follow-up: today\n\u2022 <https://www.notion.so/task-today-medium|Ring til S\u00f8ren> \u2014 Priority: Medium \u2014 Track: L\u00e6ring om AI, Track unavailable \u2014 Follow-up: today\n\u2022 <https://www.notion.so/task-week-edge|Skriv rapport> \u2014 Priority: Medium \u2014 Track: No track \u2014 Follow-up: 2026-10-20\n\u2022 <https://www.notion.so/task-soon|Forbered workshop> \u2014 Priority: No priority \u2014 Track: Bestyrelse, Netv\u00e6rk, \u00c6r\u00f8-samarbejde, +1 more \u2014 Follow-up: 2026-10-20\n\u2022 <https://www.notion.so/task-undated-high|Aftal frokost> \u2014 Priority: High \u2014 Track: No track \u2014 No follow-up\n\u2022 <https://www.notion.so/task-undated|L\u00e6s bog om \u00e6stetik> \u2014 Priority: No priority \u2014 Track: No track \u2014 No follow-up\n\nSkipped 2 malformed tasks.",
+        "thread_ts": "200.001"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://slack.com/api/chat.postMessage"
+    }
+  ],
+  "sleeps": [],
+  "stdout": [
+    "Task command handled"
+  ]
+}

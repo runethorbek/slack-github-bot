@@ -1,0 +1,182 @@
+{
+  "name": "interaction_stale_track",
+  "description": "Add Interaction with a Track id not among the live Tracks (S4): invalid message, no create.",
+  "entrypoint": "main",
+  "today": "2026-10-13",
+  "env": {
+    "SLACK_BOT_TOKEN": "xoxb-CANARY-SLACK-TOKEN",
+    "AUTHORIZED_SLACK_USER_ID": "U-AUTH",
+    "TASKS_SLACK_CHANNEL_ID": "C-TASKS",
+    "GEMINI_API_KEY": "CANARY-GEMINI-KEY",
+    "NOTION_API_KEY": "secret_CANARY_NOTION_KEY",
+    "NOTION_TASKS_DATA_SOURCE_ID": "ds-tasks",
+    "NOTION_PEOPLE_DATA_SOURCE_ID": "ds-people",
+    "NOTION_INTERACTIONS_DATA_SOURCE_ID": "ds-interactions",
+    "NOTION_TRACKS_DATA_SOURCE_ID": "ds-tracks",
+    "SLACK_EVENT_TYPE": "view_submission",
+    "SLACK_TEXT": "",
+    "SLACK_CHANNEL_ID": "C-TASKS",
+    "SLACK_CHANNEL_TYPE": "channel",
+    "SLACK_USER_ID": "U-AUTH",
+    "SLACK_THREAD_TS": "500.001",
+    "SLACK_PERSON": "{\"page_id\": \"p-aase\", \"name\": \"\\u00c5se \\u00d8rsted\"}",
+    "SLACK_VIEW_CALLBACK_ID": "add_interaction_modal",
+    "SLACK_INTERACTION_TYPE": "Kaffe",
+    "SLACK_INTERACTION_NOTES": "Aftalte at sende AI-artiklen fredag. CANARY-PRIVATE",
+    "SLACK_INTERACTION_DATE": "2026-10-12",
+    "SLACK_INTERACTION_TRACK_ID": "track-deleted"
+  },
+  "http": [
+    {
+      "expect": {
+        "method": "GET",
+        "url": "https://api.notion.com/v1/data_sources/ds-interactions"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "object": "data_source",
+          "properties": {
+            "Navn": {
+              "id": "title",
+              "type": "title",
+              "title": {}
+            },
+            "Type": {
+              "type": "select",
+              "select": {
+                "options": [
+                  {
+                    "name": "Kaffe"
+                  },
+                  {
+                    "name": "Møde"
+                  },
+                  {
+                    "name": "Opkald"
+                  }
+                ]
+              }
+            },
+            "Date": {
+              "type": "date",
+              "date": {}
+            },
+            "Notes": {
+              "type": "rich_text",
+              "rich_text": {}
+            },
+            "People": {
+              "type": "relation",
+              "relation": {}
+            },
+            "Track": {
+              "type": "relation",
+              "relation": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/data_sources/ds-tracks/query"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "object": "list",
+          "results": [
+            {
+              "id": "track-ai",
+              "object": "page",
+              "properties": {
+                "Navn": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Læring om AI"
+                    }
+                  ]
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": {
+                    "name": "High"
+                  }
+                }
+              }
+            },
+            {
+              "id": "track-net",
+              "object": "page",
+              "properties": {
+                "Navn": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Netværk"
+                    }
+                  ]
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": {
+                    "name": "Medium"
+                  }
+                }
+              }
+            },
+            {
+              "id": "track-oresund",
+              "object": "page",
+              "properties": {
+                "Navn": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Øresund-projekt"
+                    }
+                  ]
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": null
+                }
+              }
+            },
+            {
+              "id": "track-broken",
+              "properties": {
+                "Navn": {
+                  "type": "title",
+                  "title": []
+                }
+              }
+            }
+          ],
+          "has_more": false,
+          "next_cursor": null
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "ok": true,
+          "ts": "500.002"
+        }
+      }
+    }
+  ],
+  "gemini": []
+}

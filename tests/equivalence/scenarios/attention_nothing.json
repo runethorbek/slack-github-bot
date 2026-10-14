@@ -1,0 +1,158 @@
+{
+  "name": "attention_nothing",
+  "description": "Attention summary with only a >7-day task and a not-due Person: nothing needs attention, no DM, exit 0.",
+  "entrypoint": "attention_summary",
+  "today": "2026-10-13",
+  "env": {
+    "SLACK_BOT_TOKEN": "xoxb-CANARY-SLACK-TOKEN",
+    "AUTHORIZED_SLACK_USER_ID": "U-AUTH",
+    "NOTION_API_KEY": "secret_CANARY_NOTION_KEY",
+    "NOTION_TASKS_DATA_SOURCE_ID": "ds-tasks",
+    "NOTION_PEOPLE_DATA_SOURCE_ID": "ds-people",
+    "NOTION_INTERACTIONS_DATA_SOURCE_ID": "ds-interactions"
+  },
+  "http": [
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/data_sources/ds-tasks/query"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "object": "list",
+          "results": [
+            {
+              "id": "task-later",
+              "url": "https://www.notion.so/task-later",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Planlæg næste kvartal"
+                    }
+                  ]
+                },
+                "Status": {
+                  "type": "status",
+                  "status": {
+                    "name": "Ikke startet"
+                  }
+                },
+                "Priority": {
+                  "type": "select",
+                  "select": {
+                    "name": "High"
+                  }
+                },
+                "Follow-up": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-10-25"
+                  }
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            }
+          ],
+          "has_more": false,
+          "next_cursor": null
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/data_sources/ds-people/query"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "object": "list",
+          "results": [
+            {
+              "id": "p-erik",
+              "properties": {
+                "Name": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": "Erik Nielsen"
+                    }
+                  ]
+                },
+                "Contact cadence": {
+                  "type": "select",
+                  "select": {
+                    "name": "1 month"
+                  }
+                }
+              }
+            }
+          ],
+          "has_more": false,
+          "next_cursor": null
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/data_sources/ds-interactions/query"
+      },
+      "response": {
+        "status": 200,
+        "json": {
+          "object": "list",
+          "results": [
+            {
+              "id": "i-1",
+              "properties": {
+                "Navn": {
+                  "id": "title",
+                  "type": "title",
+                  "title": [
+                    {
+                      "plain_text": ""
+                    }
+                  ]
+                },
+                "Date": {
+                  "type": "date",
+                  "date": {
+                    "start": "2026-10-01"
+                  }
+                },
+                "People": {
+                  "type": "relation",
+                  "relation": [
+                    {
+                      "id": "p-erik"
+                    }
+                  ]
+                },
+                "Type": {
+                  "type": "select",
+                  "select": null
+                },
+                "Track": {
+                  "type": "relation",
+                  "relation": []
+                }
+              }
+            }
+          ],
+          "has_more": false,
+          "next_cursor": null
+        }
+      }
+    }
+  ],
+  "gemini": []
+}

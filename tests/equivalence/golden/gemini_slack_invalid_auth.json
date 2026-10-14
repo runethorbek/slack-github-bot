@@ -1,0 +1,29 @@
+{
+  "exit": {
+    "code": 1,
+    "uncaught": {
+      "message": "Slack authentication failed (invalid_auth).",
+      "type": "RuntimeError"
+    }
+  },
+  "gemini_calls": [],
+  "http_calls": [
+    {
+      "headers": {
+        "Authorization": "Bearer xoxb-CANARY-SLACK-TOKEN",
+        "Content-Type": "application/json"
+      },
+      "json": {
+        "channel": "C-GENERAL",
+        "mrkdwn": true,
+        "text": "\ud83d\udcac Hvad betyder \u00e6\u00f8\u00e5? CANARY-PRIVATE"
+      },
+      "method": "POST",
+      "params": null,
+      "timeout": 10,
+      "url": "https://slack.com/api/chat.postMessage"
+    }
+  ],
+  "sleeps": [],
+  "stdout": []
+}

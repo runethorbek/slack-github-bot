@@ -1,0 +1,37 @@
+{
+  "name": "ephemeral_refusal_response_url_500",
+  "description": "/tasks from a non-configured channel where the response_url POST returns 500: 'Slack response delivery failed.' escapes uncaught without the response URL.",
+  "entrypoint": "main",
+  "today": "2026-10-13",
+  "env": {
+    "SLACK_BOT_TOKEN": "xoxb-CANARY-SLACK-TOKEN",
+    "AUTHORIZED_SLACK_USER_ID": "U-AUTH",
+    "TASKS_SLACK_CHANNEL_ID": "C-TASKS",
+    "GEMINI_API_KEY": "CANARY-GEMINI-KEY",
+    "NOTION_API_KEY": "secret_CANARY_NOTION_KEY",
+    "NOTION_TASKS_DATA_SOURCE_ID": "ds-tasks",
+    "NOTION_PEOPLE_DATA_SOURCE_ID": "ds-people",
+    "NOTION_INTERACTIONS_DATA_SOURCE_ID": "ds-interactions",
+    "NOTION_TRACKS_DATA_SOURCE_ID": "ds-tracks",
+    "SLACK_EVENT_TYPE": "slash_command",
+    "SLACK_COMMAND": "/tasks",
+    "SLACK_TEXT": "list",
+    "SLACK_CHANNEL_ID": "C-OTHER",
+    "SLACK_CHANNEL_TYPE": "channel",
+    "SLACK_USER_ID": "U-AUTH",
+    "SLACK_RESPONSE_URL": "https://hooks.slack.com/commands/CANARY-RESPONSE-URL"
+  },
+  "http": [
+    {
+      "expect": {
+        "method": "POST",
+        "url": "https://hooks.slack.com/commands/CANARY-RESPONSE-URL"
+      },
+      "response": {
+        "status": 500,
+        "text": "internal error CANARY-PRIVATE"
+      }
+    }
+  ],
+  "gemini": []
+}

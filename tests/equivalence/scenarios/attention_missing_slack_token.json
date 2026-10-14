@@ -1,0 +1,15 @@
+{
+  "name": "attention_missing_slack_token",
+  "description": "Attention summary without SLACK_BOT_TOKEN: the config ::error:: line and exit 1, with no outbound call.",
+  "entrypoint": "attention_summary",
+  "today": "2026-10-13",
+  "env": {
+    "AUTHORIZED_SLACK_USER_ID": "U-AUTH",
+    "NOTION_API_KEY": "secret_CANARY_NOTION_KEY",
+    "NOTION_TASKS_DATA_SOURCE_ID": "ds-tasks",
+    "NOTION_PEOPLE_DATA_SOURCE_ID": "ds-people",
+    "NOTION_INTERACTIONS_DATA_SOURCE_ID": "ds-interactions"
+  },
+  "http": [],
+  "gemini": []
+}
