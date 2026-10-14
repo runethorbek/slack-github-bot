@@ -6,6 +6,9 @@ import { inspect } from "node:util";
 import {
   KeyError,
   OverflowError,
+  PY_JSON_MAX_DEPTH,
+  PY_RE_SPACE_CLASS,
+  RecursionError,
   ValueError,
   assertHashable,
   casefold,
@@ -21,6 +24,7 @@ import {
   pyInt,
   pyIsSpace,
   pyJsonDumps,
+  pyJsonLoads,
   pyLen,
   pySlice,
   pySplitWhitespace,
@@ -189,6 +193,110 @@ test("pyJsonDumps writes non-finite numbers as Python does", () => {
   assert.equal(pyJsonDumps([NaN, Infinity, -Infinity]), "[NaN, Infinity, -Infinity]");
 });
 
+// The golden json_loads rows tag numbers ({"int": "1"}, {"float": "nan"}) and
+// dicts ({"dict": [[key, value], ...]}), because JSON.parse cannot read NaN or
+// keep duplicate-key order. Both sides are compared in this canonical form.
+// null | boolean | string | ["num", text] | ["list", ...items] | ["dict", ...[key, item]]
+type Canonical = null | boolean | string | unknown[];
+
+function canonicalNumber(value: number): ["num", string] {
+  return ["num", Object.is(value, -0) ? "-0" : String(value)];
+}
+
+// A plain JS object iterates array-index keys first, in ascending order, then
+// the other keys in insertion order. Python's order is reordered the same way
+// (the documented JS difference); everything else must match exactly.
+function jsKeyOrder<T>(pairs: [string, T][]): [string, T][] {
+  const isIndex = (key: string) => /^(?:0|[1-9][0-9]*)$/.test(key) && Number(key) < 2 ** 32 - 1;
+  const indexes = pairs.filter(([key]) => isIndex(key)).sort((a, b) => Number(a[0]) - Number(b[0]));
+  return [...indexes, ...pairs.filter(([key]) => !isIndex(key))];
+}
+
+function canonicalFromGolden(value: unknown): Canonical {
+  if (value === null || typeof value === "boolean" || typeof value === "string") return value;
+  if (Array.isArray(value)) return ["list", ...value.map(canonicalFromGolden)];
+  const tagged = value as { int?: string; float?: string; dict?: [string, unknown][] };
+  if (tagged.int !== undefined) return canonicalNumber(Number(tagged.int));
+  if (tagged.float !== undefined) return canonicalNumber(parseFloatRepr(tagged.float));
+  return [
+    "dict",
+    ...jsKeyOrder((tagged.dict as [string, unknown][]).map(([key, item]): [string, Canonical] => [key, canonicalFromGolden(item)])),
+  ];
+}
+
+function canonicalFromJs(value: JsonValue): Canonical {
+  if (value === null || typeof value === "boolean" || typeof value === "string") return value;
+  if (typeof value === "number") return canonicalNumber(value);
+  if (Array.isArray(value)) return ["list", ...value.map(canonicalFromJs)];
+  return ["dict", ...Object.entries(value).map(([key, item]): [string, Canonical] => [key, canonicalFromJs(item)])];
+}
+
+test("pyJsonLoads matches json.loads, including what raises", () => {
+  type LoadsRow = { input: string; output?: unknown; raises?: string };
+  const errorClasses: Record<string, Function> = { JSONDecodeError: ValueError, ValueError, RecursionError };
+  const failures = mismatches(golden.json_loads as LoadsRow[], (row) => {
+    let got: JsonValue;
+    try {
+      got = pyJsonLoads(row.input);
+    } catch (error) {
+      const expected = row.raises ? errorClasses[row.raises] : undefined;
+      return expected && error instanceof expected ? undefined : { input: row.input.slice(0, 80), threw: String(error) };
+    }
+    if (row.raises) return { input: row.input.slice(0, 80), expectedRaise: row.raises };
+    try {
+      assert.deepStrictEqual(canonicalFromJs(got), canonicalFromGolden(row.output));
+      return undefined;
+    } catch {
+      return { input: row.input.slice(0, 80), got: JSON.stringify(canonicalFromJs(got)).slice(0, 200) };
+    }
+  });
+  assert.deepEqual(failures, []);
+  assert.ok((golden.json_loads as LoadsRow[]).length > 100);
+});
+
+test("pyJsonLoads: RecursionError is not a ValueError, and the depth limit is PY_JSON_MAX_DEPTH (CPython 3.12 on Linux)", () => {
+  assert.equal(PY_JSON_MAX_DEPTH, 9997);
+  // Deep but allowed nesting is parsed without exhausting the JS stack.
+  let value = pyJsonLoads("[".repeat(PY_JSON_MAX_DEPTH) + "]".repeat(PY_JSON_MAX_DEPTH));
+  let depth = 0;
+  while (Array.isArray(value)) {
+    depth += 1;
+    value = (value[0] ?? null) as JsonValue;
+  }
+  assert.equal(depth, PY_JSON_MAX_DEPTH);
+  // Arrays and objects count alike: 9996 containers.
+  assert.doesNotThrow(() => pyJsonLoads('[{"a": '.repeat(4998) + "1" + "}]".repeat(4998)));
+  for (const tooDeep of [
+    "[".repeat(PY_JSON_MAX_DEPTH + 1) + "]".repeat(PY_JSON_MAX_DEPTH + 1),
+    '{"a": '.repeat(PY_JSON_MAX_DEPTH + 1) + "1" + "}".repeat(PY_JSON_MAX_DEPTH + 1),
+    "[".repeat(PY_JSON_MAX_DEPTH + 1),
+  ]) {
+    assert.throws(
+      () => pyJsonLoads(tooDeep),
+      (error: unknown) => error instanceof RecursionError && !(error instanceof ValueError),
+    );
+  }
+  // An earlier syntax error wins over a later depth problem, as in Python's scanner.
+  assert.throws(() => pyJsonLoads("[1 " + "[".repeat(PY_JSON_MAX_DEPTH + 1)), ValueError);
+});
+
+test("pyJsonLoads: an own __proto__ key is an ordinary member, and repeated keys keep their first position", () => {
+  const value = pyJsonLoads('{"__proto__": {"name": "x"}, "b": 1, "__proto__": 2}') as Record<string, unknown>;
+  assert.equal(Object.getPrototypeOf(value), Object.prototype);
+  assert.deepEqual(Object.keys(value), ["__proto__", "b"]);
+  assert.equal(Object.getOwnPropertyDescriptor(value, "__proto__")?.value, 2);
+  assert.equal(dictGet(value, "name"), null);
+});
+
+test("PY_RE_SPACE_CLASS is exactly the code points of Python's re \\s", () => {
+  const pattern = new RegExp(`[${PY_RE_SPACE_CLASS}]`, "u");
+  const matched: number[] = [];
+  for (let cp = 0; cp < 0x110000; cp += 1) {
+    if (pattern.test(String.fromCodePoint(cp))) matched.push(cp);
+  }
+  assert.deepEqual(matched, golden.regex_space);
+});
+
 function parseFloatRepr(text: string): number {
   if (text === "inf") return Infinity;
   if (text === "-inf") return -Infinity;
@@ -261,7 +369,7 @@ test("truthy matches bool() for JSON values", () => {
   for (const value of [null, undefined, false, 0, -0, "", [], {}]) {
     assert.equal(truthy(value), false, JSON.stringify(value));
   }
-  for (const value of [true, 1, -1, 0.5, "0", " ", "false", [0], [null], { a: null }]) {
+  for (const value of [true, 1, -1, 0.5, NaN, Infinity, "0", " ", "false", [0], [null], { a: null }]) {
     assert.equal(truthy(value), true, JSON.stringify(value));
   }
 });

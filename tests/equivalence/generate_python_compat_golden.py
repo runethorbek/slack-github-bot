@@ -622,6 +622,173 @@ NEXT_STEP_MARKER_LINES = [
 ]
 
 
+# json.loads inputs (followup_task parses Gemini output and the SLACK_TASK
+# payload with it): NaN/Infinity, whitespace (JSON allows only space, \t, \n,
+# \r), a BOM, trailing data, duplicate keys, raw control characters, \u
+# escapes including lone surrogates, numbers, the int digit limit, and
+# nesting depths on which every platform agrees (the RecursionError depth is
+# platform dependent; see PY_JSON_MAX_DEPTH in src/python-compat.ts).
+JSON_LOADS_CASES = [
+    "NaN",
+    "-NaN",
+    "Infinity",
+    "-Infinity",
+    "+Infinity",
+    "nan",
+    "inf",
+    "infinity",
+    "[NaN, -Infinity, Infinity]",
+    '{"task": {"name": "x", "description": NaN}}',
+    '{"task": {"name": NaN}}',
+    '{"task": {"name": "x", "follow_up": Infinity}}',
+    '{"a": -Infinity}',
+    "NaNx",
+    "Infinityy",
+    "-Infinity1",
+    "[NaN,]",
+    ' {"a": 1} ',
+    '\t\n\r {"a": 1}\t\n\r ',
+    '\x0b{"a": 1}',
+    '\x0c{"a": 1}',
+    '{"a": 1}\x0b',
+    '\x1c{"a": 1}',
+    '\x85{"a": 1}',
+    ' {"a": 1}',
+    '{"a": 1} ',
+    ' {"a": 1}',
+    '　{"a": 1}',
+    '{"a": 1}',
+    '[1, 2]',
+    '﻿{"a": 1}',
+    '{"a": 1}﻿',
+    ' ﻿{"a": 1}',
+    '"﻿"',
+    '{"a": 1} x',
+    '{"a": 1}{',
+    '{"a": 1}}',
+    '{"a": 1}\n```',
+    "[1] [2]",
+    '{"a": 1, "a": 2}',
+    '{"a": 1, "b": 2, "a": 3}',
+    '{"task": {"name": "x"}, "task": null}',
+    '{"task": null, "task": {"name": "x"}}',
+    '{"__proto__": {"name": "x"}}',
+    '{"1": "one", "a": "x", "0": "zero"}',
+    '"a\x00b"',
+    '"a\x01b"',
+    '"a\nb"',
+    '"a\tb"',
+    '"a\x1fb"',
+    '"a\x7fb"',
+    '"a\x85b"',
+    '"a b"',
+    '"\\u0000"',
+    '"\\ud800"',
+    '"\\udc00"',
+    '"\\ud83d\\ude00"',
+    '"\\ude00\\ud83d"',
+    '"\\ud83dx\\ude00"',
+    '"\\ud800\\ud800"',
+    '"\\uD83D\\uDE00"',
+    '"\\u00e9\\u00C9"',
+    '"\\ud800\\uZZZZ"',
+    '"\\uZZZZ"',
+    '"\\u12"',
+    '"\\u12',
+    '"\\U00e9"',
+    '"\\x41"',
+    '"\\a"',
+    '"\\/\\"\\\\\\b\\f\\n\\r\\t"',
+    '"\\',
+    '"abc',
+    '"\ud800"',
+    '"\U0001f600"',
+    '{"\\u0000": 1}',
+    "'a'",
+    "{'a': 1}",
+    "[1,]",
+    '{"a": 1,}',
+    "[,1]",
+    "{,}",
+    "{1: 2}",
+    '{"a" 1}',
+    '{"a"}',
+    "[1 2]",
+    "[1, 2",
+    '{"a": 1',
+    "",
+    " ",
+    "\n",
+    "true",
+    "True",
+    "false",
+    "null",
+    "None",
+    "nul",
+    "0",
+    "-0",
+    "01",
+    "-01",
+    "1.",
+    ".5",
+    "-.5",
+    "1e5",
+    "1E+5",
+    "1e-5",
+    "1.5e",
+    "1.0e-",
+    "-",
+    "1_000",
+    "0x10",
+    "１",
+    "١",
+    "0.0",
+    "-0.0",
+    "0e0",
+    "1e400",
+    "-1e400",
+    "1e-400",
+    "1.7976931348623157e308",
+    "9007199254740993",
+    "1" * 4300,
+    "1" * 4301,
+    "-" + "1" * 4300,
+    "-" + "1" * 4301,
+    "1" * 4301 + ".5",
+    "1" * 4301 + "e1",
+    "[" + "1" * 4301 + "]",
+    "[" * 500 + "]" * 500,
+    '{"a": ' * 500 + "1" + "}" * 500,
+    "[" * 20000 + "]" * 20000,
+    '{"a": ' * 20000 + "1" + "}" * 20000,
+    "[" * 20000,
+    "[" * 1000 + "x",
+    "{}",
+    "[]",
+    "{ }",
+    "[ ]",
+    '{"a": [], "b": {}}',
+]
+
+
+def tag_json_value(value):
+    """A NaN-free, type-preserving JSON encoding of a json.loads result.
+
+    The golden file is read with JSON.parse, which cannot represent NaN,
+    Infinity, the int/float distinction or dict key order with duplicates, so
+    numbers and dicts are tagged.
+    """
+    if value is None or isinstance(value, (bool, str)):
+        return value
+    if isinstance(value, int):
+        return {"int": str(value)}
+    if isinstance(value, float):
+        return {"float": repr(value)}
+    if isinstance(value, list):
+        return [tag_json_value(item) for item in value]
+    return {"dict": [[key, tag_json_value(item)] for key, item in value.items()]}
+
+
 def regex_code_points(pattern, flags=0):
     """Every code point that `pattern` matches as a single character."""
     every_code_point = "".join(chr(code_point) for code_point in range(0x110000))
@@ -720,6 +887,10 @@ def build_table():
         ],
         "compare": [{"a": a, "b": b, "output": py_compare(a, b)} for a, b in COMPARE_CASES],
         "json_dumps": [{"input": value, "output": json.dumps(value)} for value in JSON_CASES],
+        "json_loads": [
+            row_or_raises({"input": s}, json.loads, s, convert=tag_json_value)
+            for s in JSON_LOADS_CASES
+        ],
         "float": [row_or_raises({"input": s}, float, s, convert=repr) for s in FLOAT_CASES],
         "int": [row_or_raises({"input": s}, int, s) for s in INT_CASES],
         "date_fromisoformat": [

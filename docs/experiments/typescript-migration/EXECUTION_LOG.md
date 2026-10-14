@@ -162,3 +162,24 @@ Phase 2 started 2026-10-13 12:20, on branch `experiment/typescript-migration`.
 - **Outcome: ACCEPTED** at 16:35.
   - Totals: 1 implementation attempt, 1 review round. Findings: 0 blocking, 1 should-fix (fixed by the Orchestrator), 0 nit.
   - 0 human interventions.
+
+### S6 — followup-task (second Notion write path; second Gemini boundary)
+
+- Started 16:40 (2026-10-13).
+- **Implementation attempt 1 interrupted**: the Implementer stopped with "session limit reached" (HTTP 429, the account usage limit) while writing the TEST-MAPPING section. Its last message: "Now I'll write the mapping section and update the G6/TD tables."
+- **Human intervention #3**: the user asked to continue after the limit reset (2026-10-14). This is an environment interruption.
+- **Implementation attempt 1, resumed** (~2 min after the resume; ~25 min of work before the interruption): DONE.
+  - 53/53 tests ported plus 29 TS-only tests; 707/707 overall.
+  - New `pyJsonLoads`: a port of the CPython 3.12 JSON scanner, iterative so deep input can't exhaust the JS stack, plus ~140 golden rows. New Python-generated follow-up fixture with `--check`, added to CI by the Implementer.
+  - 11 mutations, each caught.
+  - Unverified assumption: `PY_JSON_MAX_DEPTH = 9997` on Linux, derived from the CPython headers; only Windows was measured (2997).
+- The Orchestrator re-ran everything: typecheck 0, 707/707, 358 OK, all 4 generator `--check` runs OK, mapping OK.
+  - The Orchestrator tried to verify the Linux depth limit via Docker, but Docker Desktop and WSL were stopped. **It decided not to start applications on the user's machine** for an edge case (JSON nested about 10,000 levels deep), and recorded the limit as an unverified assumption.
+- **Review 1** (~7.5 min): **PASS**, 0 blocking, 0 should-fix, 1 nit.
+  - The Reviewer reviewed `pyJsonLoads` as a parser port, confirmed S3, S4, S5, S7, S9, S10 and S11, and checked that the `truthy(NaN)` change is safe across ~45 callers.
+  - R1 (nit): the Python generators contain raw invisible characters instead of escapes. Accepted: the generators are removed with Python in S9.
+  - Questions: the depth assumption (to go in RESULTS.md), and the RecursionError raised after the write (recorded as TECH-DEBT **TD11**).
+- **The Orchestrator spot-checked the key S9 mutation** (Task create also retries a 5xx): 6 tests fail; file restored, 0 fail.
+- **Outcome: ACCEPTED** at 09:11 (2026-10-14).
+  - Totals: 1 implementation attempt (interrupted and resumed), 1 review round. Findings: 0 blocking, 0 should-fix, 1 nit (accepted).
+  - 1 human intervention (the post-limit "continue").

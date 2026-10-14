@@ -26,6 +26,17 @@ export class OverflowError extends Error {
 }
 
 /**
+ * Mirrors Python's RecursionError. It is not a ValueError, so `except
+ * ValueError` does not catch it (pyJsonLoads on deeply nested input).
+ */
+export class RecursionError extends Error {
+  constructor(message = "maximum recursion depth exceeded") {
+    super(message);
+    this.name = "RecursionError";
+  }
+}
+
+/**
  * Mirrors Python's KeyError for a missing mapping key, for example a missing
  * `environment["NOTION_API_KEY"]`. `key` is Python's `error.args[0]`. The
  * message is the key in single quotes, as `str(KeyError("NAME"))` is for a
@@ -136,6 +147,14 @@ const PY_SPACE_CODE_POINTS = new Set<number>([
   0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009,
   0x200a, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000,
 ]);
+
+/**
+ * The body of a regex character class (for a `u`-flag RegExp) that matches
+ * exactly what Python's `re` `\s` matches in a str pattern: the code points
+ * for which str.isspace() is true (golden "regex_space"). The characters are
+ * inserted literally; none of them is special inside a class.
+ */
+export const PY_RE_SPACE_CLASS = String.fromCodePoint(...PY_SPACE_CODE_POINTS);
 
 /** `ch.isspace()` for a single code point. An empty string returns false, as in Python. */
 export function pyIsSpace(ch: string): boolean {
@@ -434,6 +453,269 @@ export function pyJsonDumps(value: JsonValue): string {
 }
 
 // ---------------------------------------------------------------------------
+// json.loads
+// ---------------------------------------------------------------------------
+
+/**
+ * The deepest container nesting `json.loads` accepts before it raises
+ * RecursionError. CPython 3.12's C scanner enters a C recursion level for each
+ * `[` and `{` (Modules/_json.c), and the C recursion limit is platform
+ * dependent (Include/cpython/pystate.h: 10000 on Linux, 3000 on Windows).
+ * On Windows, `py -3.12` accepts 2997 nested containers and rejects 2998: the
+ * json.loads call path itself uses 3 levels. The reference is CI (Linux), so
+ * this is 10000 - 3. Assumption: the call path uses the same 3 levels there.
+ * The golden table only records depths on which both platforms agree.
+ */
+export const PY_JSON_MAX_DEPTH = 9997;
+
+/** Python's default `sys.get_int_max_str_digits()`: a longer int literal raises ValueError. */
+const PY_INT_MAX_STR_DIGITS = 4300;
+
+const JSON_NUMBER = /-?(?:0|[1-9][0-9]*)(\.[0-9]+)?([eE][-+]?[0-9]+)?/y;
+const JSON_HEX4 = /^[0-9a-fA-F]{4}$/;
+
+const JSON_SIMPLE_ESCAPES: Readonly<Record<string, string>> = {
+  '"': '"',
+  "/": "/",
+  b: "\b",
+  f: "\f",
+  n: "\n",
+  r: "\r",
+  t: "\t",
+};
+
+function jsonDecodeError(what: string): ValueError {
+  // json.JSONDecodeError is a ValueError. The message never quotes the input.
+  return new ValueError(`JSONDecodeError: ${what}`);
+}
+
+/**
+ * Sets a JSON object member the way a dict assignment does: a repeated key
+ * keeps its first position and takes the last value. defineProperty, unlike
+ * `obj[key] = value`, also stores "__proto__" as an ordinary own key, as
+ * JSON.parse does.
+ */
+function setMember(target: Dict, key: string, value: JsonValue): void {
+  Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+}
+
+type OpenContainer =
+  | { readonly kind: "array"; readonly value: JsonValue[] }
+  | { readonly kind: "object"; readonly value: { [key: string]: JsonValue }; key: string };
+
+class PyJsonScanner {
+  readonly #s: string;
+  #i = 0;
+
+  constructor(s: string) {
+    this.#s = s;
+  }
+
+  // json.decoder.WHITESPACE: only space, \t, \n and \r.
+  #skipWhitespace(): void {
+    const s = this.#s;
+    while (this.#i < s.length) {
+      const ch = s[this.#i];
+      if (ch !== " " && ch !== "\t" && ch !== "\n" && ch !== "\r") return;
+      this.#i += 1;
+    }
+  }
+
+  // py_scanstring / scanstring_unicode with strict=True. Each \uXXXX escape
+  // is appended as its UTF-16 unit, so an escaped surrogate pair becomes the
+  // pair (Python joins it into one code point, which a JS string represents
+  // the same way) and an unpaired escaped surrogate stays a lone surrogate.
+  #scanString(): string {
+    const s = this.#s;
+    let out = "";
+    let j = this.#i + 1;
+    for (;;) {
+      if (j >= s.length) throw jsonDecodeError("Unterminated string");
+      const unit = s.charCodeAt(j);
+      if (unit === 0x22) {
+        this.#i = j + 1;
+        return out;
+      }
+      if (unit === 0x5c) {
+        const escape = s[j + 1];
+        if (escape === undefined) throw jsonDecodeError("Unterminated string");
+        if (escape === "u") {
+          const hex = s.slice(j + 2, j + 6);
+          if (!JSON_HEX4.test(hex)) throw jsonDecodeError("Invalid \\uXXXX escape");
+          out += String.fromCharCode(parseInt(hex, 16));
+          j += 6;
+        } else if (escape === String.fromCharCode(0x5c)) {
+          out += escape;
+          j += 2;
+        } else if (Object.hasOwn(JSON_SIMPLE_ESCAPES, escape)) {
+          out += JSON_SIMPLE_ESCAPES[escape] as string;
+          j += 2;
+        } else {
+          throw jsonDecodeError("Invalid escape");
+        }
+        continue;
+      }
+      if (unit < 0x20) throw jsonDecodeError("Invalid control character");
+      out += s[j];
+      j += 1;
+    }
+  }
+
+  // A scalar at the current position, or null when the position opens a
+  // container (the caller handles those). Throws "Expecting value" otherwise.
+  #scanScalar(): { value: JsonValue } | null {
+    const s = this.#s;
+    const i = this.#i;
+    const ch = s[i];
+    if (ch === '"') return { value: this.#scanString() };
+    if (ch === "{" || ch === "[") return null;
+    const constants: Array<[string, JsonValue]> = [
+      ["null", null],
+      ["true", true],
+      ["false", false],
+      ["NaN", NaN],
+      ["Infinity", Infinity],
+      ["-Infinity", -Infinity],
+    ];
+    for (const [text, value] of constants) {
+      if (s.startsWith(text, i)) {
+        this.#i = i + text.length;
+        return { value };
+      }
+    }
+    JSON_NUMBER.lastIndex = i;
+    const match = JSON_NUMBER.exec(s);
+    if (!match) throw jsonDecodeError("Expecting value");
+    const text = match[0];
+    this.#i = i + text.length;
+    if (match[1] !== undefined || match[2] !== undefined) {
+      // float(text): JS and Python both round correctly, and overflow to ±inf.
+      return { value: Number(text) };
+    }
+    // int(text). JS numbers lose precision beyond 2**53; no caller depends on it.
+    const digits = text.startsWith("-") ? text.length - 1 : text.length;
+    if (digits > PY_INT_MAX_STR_DIGITS) {
+      throw new ValueError("Exceeds the limit (4300 digits) for integer string conversion");
+    }
+    const value = Number(text);
+    return { value: Object.is(value, -0) ? 0 : value };
+  }
+
+  // The member name after `{` or `,`, and the `:` after it.
+  #scanMemberName(): string {
+    if (this.#s[this.#i] !== '"') {
+      throw jsonDecodeError("Expecting property name enclosed in double quotes");
+    }
+    const key = this.#scanString();
+    this.#skipWhitespace();
+    if (this.#s[this.#i] !== ":") throw jsonDecodeError("Expecting ':' delimiter");
+    this.#i += 1;
+    this.#skipWhitespace();
+    return key;
+  }
+
+  // scan_once, iteratively: nesting depth is limited by PY_JSON_MAX_DEPTH
+  // (RecursionError, as in Python), not by the JS call stack.
+  scanDocument(): JsonValue {
+    const s = this.#s;
+    const open: OpenContainer[] = [];
+    this.#skipWhitespace();
+    for (;;) {
+      // Scan one value: a scalar, an empty container, or the start of a
+      // container whose first member is scanned next.
+      let value: JsonValue;
+      const scalar = this.#scanScalar();
+      if (scalar !== null) {
+        value = scalar.value;
+      } else {
+        if (open.length + 1 > PY_JSON_MAX_DEPTH) {
+          throw new RecursionError("maximum recursion depth exceeded while decoding a JSON document");
+        }
+        const isObject = s[this.#i] === "{";
+        this.#i += 1;
+        this.#skipWhitespace();
+        if (isObject) {
+          if (s[this.#i] === "}") {
+            this.#i += 1;
+            value = {};
+          } else {
+            open.push({ kind: "object", value: {}, key: this.#scanMemberName() });
+            continue;
+          }
+        } else if (s[this.#i] === "]") {
+          this.#i += 1;
+          value = [];
+        } else {
+          open.push({ kind: "array", value: [] });
+          continue;
+        }
+      }
+
+      // Attach the value to the innermost open container, closing every
+      // container that ends here, until one expects another member.
+      for (;;) {
+        const container = open.at(-1);
+        if (container === undefined) return value;
+        if (container.kind === "array") {
+          container.value.push(value);
+        } else {
+          setMember(container.value, container.key, value);
+        }
+        this.#skipWhitespace();
+        const close = container.kind === "array" ? "]" : "}";
+        if (s[this.#i] === close) {
+          this.#i += 1;
+          open.pop();
+          value = container.value;
+          continue;
+        }
+        if (s[this.#i] !== ",") throw jsonDecodeError("Expecting ',' delimiter");
+        this.#i += 1;
+        this.#skipWhitespace();
+        if (container.kind === "object") container.key = this.#scanMemberName();
+        break;
+      }
+    }
+  }
+
+  get position(): number {
+    return this.#i;
+  }
+
+  skipTrailingWhitespace(): void {
+    this.#skipWhitespace();
+  }
+}
+
+/**
+ * `json.loads(s)` for a str, as in CPython 3.12 (the C scanner):
+ *
+ * - Throws ValueError (json.JSONDecodeError) for invalid JSON, including a
+ *   leading U+FEFF, any whitespace other than space, \t, \n and \r, trailing
+ *   data, raw control characters (U+0000-U+001F) inside strings, and an
+ *   unknown escape. U+007F and lone surrogates are allowed in strings.
+ * - Accepts NaN, Infinity and -Infinity, which JSON.parse rejects.
+ * - Throws ValueError for an int literal of more than 4300 digits.
+ * - Throws RecursionError (not a ValueError) for nesting deeper than
+ *   PY_JSON_MAX_DEPTH.
+ * - A repeated object key keeps its first position and takes the last value.
+ *
+ * Python ints and floats both become JS numbers, so `1` and `1.0` are the
+ * same value here, and an int beyond 2**53 loses precision. Objects are
+ * plain objects, so integer-like keys iterate first (as with JSON.parse).
+ */
+export function pyJsonLoads(s: string): JsonValue {
+  if (s.startsWith(String.fromCharCode(0xfeff))) {
+    throw jsonDecodeError("Unexpected UTF-8 BOM (decode using utf-8-sig)");
+  }
+  const scanner = new PyJsonScanner(s);
+  const value = scanner.scanDocument();
+  scanner.skipTrailingWhitespace();
+  if (scanner.position !== s.length) throw jsonDecodeError("Extra data");
+  return value;
+}
+
+// ---------------------------------------------------------------------------
 // Untrusted JSON: Python-semantics accessors
 // ---------------------------------------------------------------------------
 //
@@ -459,12 +741,13 @@ export function isDict(value: unknown): value is Dict {
 
 /**
  * Python truthiness of a JSON value: None, False, 0, "", [] and {} are false.
- * (NaN, which Python treats as true, cannot come from JSON.parse.)
+ * NaN (which pyJsonLoads can return) is true, as `bool(float("nan"))` is.
  */
 export function truthy(value: unknown): boolean {
   if (value === null || value === undefined) return false;
   if (Array.isArray(value)) return value.length > 0;
   if (typeof value === "object") return Object.keys(value).length > 0;
+  if (typeof value === "number") return value !== 0;
   return Boolean(value);
 }
 

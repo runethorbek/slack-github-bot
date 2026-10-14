@@ -54,3 +54,7 @@ jobs:
       - name: Check the /people suggest prompt fixture is current
         if: hashFiles('requirements.txt') != ''
         run: python tests/equivalence/generate_people_suggest_prompts.py --check
+
+      - name: Check the follow-up Task fixture is current
+        if: hashFiles('requirements.txt') != ''
+        run: python tests/equivalence/generate_followup_task_fixture.py --check

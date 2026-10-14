@@ -558,6 +558,145 @@ Also added in S5:
   `` Python's re \s is exactly str.isspace() (the people-suggest marker pattern
   relies on it) ``.
 
+## tests/test_followup_task.py → tests/followup-task.test.ts (S6)
+
+| Python test | TS test title |
+| --- | --- |
+| `FollowupTaskButtonTests.test_value_carries_person_priorities_tracks_and_default` | `test_value_carries_person_priorities_tracks_and_default` |
+| `FollowupTaskButtonTests.test_empty_options_are_omitted` | `test_empty_options_are_omitted` |
+| `FollowupTaskButtonTests.test_build_resolves_live_priorities_and_tracks_with_interaction_track_default` | `test_build_resolves_live_priorities_and_tracks_with_interaction_track_default` |
+| `FollowupTaskButtonTests.test_build_without_interaction_track_has_no_default` | `test_build_without_interaction_track_has_no_default` |
+| `FollowupTaskButtonTests.test_build_returns_no_buttons_when_priority_schema_fails` | `test_build_returns_no_buttons_when_priority_schema_fails` |
+| `FollowupTaskButtonTests.test_build_returns_no_buttons_when_tracks_fail` | `test_build_returns_no_buttons_when_tracks_fail` |
+| `FollowupTaskButtonTests.test_build_returns_no_buttons_on_notion_credential_failure` | `test_build_returns_no_buttons_on_notion_credential_failure (S11: degrades)` |
+| `FollowupTaskButtonTests.test_build_returns_no_buttons_when_the_button_value_is_too_long_for_slack` | `test_build_returns_no_buttons_when_the_button_value_is_too_long_for_slack (S10: 2000-char value)` |
+| `FollowupTaskButtonTests.test_missing_priority_property_still_offers_the_button_without_priorities` | `test_missing_priority_property_still_offers_the_button_without_priorities` |
+| `FollowupTaskButtonTests.test_build_returns_no_buttons_without_a_tasks_data_source` | `test_build_returns_no_buttons_without_a_tasks_data_source` |
+| `SuggestedFollowupTaskButtonTests.test_commitment_in_notes_offers_both_buttons_in_order` | `test_commitment_in_notes_offers_both_buttons_in_order` |
+| `SuggestedFollowupTaskButtonTests.test_prompt_contains_only_the_saved_interaction_and_today` | `test_prompt_contains_only_the_saved_interaction_and_today (S6)` |
+| `SuggestedFollowupTaskButtonTests.test_no_commitment_offers_only_the_existing_button` | `test_no_commitment_offers_only_the_existing_button` |
+| `SuggestedFollowupTaskButtonTests.test_empty_notes_make_no_gemini_call` | `test_empty_notes_make_no_gemini_call` |
+| `SuggestedFollowupTaskButtonTests.test_gemini_failure_offers_only_the_existing_button` | `test_gemini_failure_offers_only_the_existing_button` |
+| `SuggestedFollowupTaskButtonTests.test_invalid_gemini_output_offers_only_the_existing_button` | `test_invalid_gemini_output_offers_only_the_existing_button` |
+| `SuggestedFollowupTaskButtonTests.test_suggested_button_too_long_for_slack_is_omitted_alone` | `test_suggested_button_too_long_for_slack_is_omitted_alone (S10: 2000-char value)` |
+| `SuggestedFollowupTaskButtonTests.test_long_name_label_is_truncated_to_slack_button_text_limit` | `test_long_name_label_is_truncated_to_slack_button_text_limit (S10: 75-char text)` |
+| `SuggestedFollowupTaskButtonTests.test_label_at_exactly_the_limit_is_not_truncated` | `test_label_at_exactly_the_limit_is_not_truncated` |
+| `SuggestedFollowupTaskButtonTests.test_suggestion_without_optional_fields_omits_them_from_the_value` | `test_suggestion_without_optional_fields_omits_them_from_the_value` |
+| `ParseSuggestedTaskTests.test_full_valid_suggestion` | `test_full_valid_suggestion` |
+| `ParseSuggestedTaskTests.test_name_only_suggestion` | `test_name_only_suggestion` |
+| `ParseSuggestedTaskTests.test_a_single_json_code_fence_is_tolerated` | `test_a_single_json_code_fence_is_tolerated` |
+| `ParseSuggestedTaskTests.test_no_follow_up_yields_none` | `test_no_follow_up_yields_none` |
+| `ParseSuggestedTaskTests.test_unexpected_structure_yields_none` | `test_unexpected_structure_yields_none` |
+| `ParseSuggestedTaskTests.test_missing_blank_non_text_or_over_long_name_yields_none` | `test_missing_blank_non_text_or_over_long_name_yields_none (S5, S10: 150 chars)` |
+| `ParseSuggestedTaskTests.test_name_at_the_limit_is_accepted` | `test_name_at_the_limit_is_accepted` |
+| `ParseSuggestedTaskTests.test_over_long_or_non_text_description_is_dropped` | `test_over_long_or_non_text_description_is_dropped (S10: 500 chars)` |
+| `ParseSuggestedTaskTests.test_description_at_the_limit_is_kept` | `test_description_at_the_limit_is_kept` |
+| `ParseSuggestedTaskTests.test_invalid_past_or_too_distant_follow_up_is_dropped` | `test_invalid_past_or_too_distant_follow_up_is_dropped (S10: 365 days)` |
+| `ParseSuggestedTaskTests.test_follow_up_today_and_365_days_ahead_are_kept` | `test_follow_up_today_and_365_days_ahead_are_kept` |
+| `ParseSuggestedTaskTests.test_unrequested_fields_are_ignored` | `test_unrequested_fields_are_ignored (S5)` |
+| `InteractionConfirmationTests.test_successful_save_offers_the_followup_buttons` | `test_successful_save_offers_the_followup_buttons` |
+| `InteractionConfirmationTests.test_interaction_is_written_before_the_buttons_are_built` | `test_interaction_is_written_before_the_buttons_are_built` |
+| `InteractionConfirmationTests.test_unresolvable_options_still_confirm_without_the_button` | `test_unresolvable_options_still_confirm_without_the_button` |
+| `InteractionConfirmationTests.test_failed_interaction_save_never_builds_the_button` | `test_failed_interaction_save_never_builds_the_button` |
+| `ParseTaskPayloadTests.test_parses_bundled_fields` | `test_parses_bundled_fields` |
+| `ParseTaskPayloadTests.test_malformed_or_non_string_values_become_empty` | `test_malformed_or_non_string_values_become_empty` |
+| `AddFollowupTaskSubmissionTests.test_minimal_valid_submission_creates_exactly_one_task` | `test_minimal_valid_submission_creates_exactly_one_task` |
+| `AddFollowupTaskSubmissionTests.test_full_submission_writes_track_priority_and_follow_up` | `test_full_submission_writes_track_priority_and_follow_up` |
+| `AddFollowupTaskSubmissionTests.test_missing_person_writes_nothing_and_says_nothing` | `test_missing_person_writes_nothing_and_says_nothing (S3)` |
+| `AddFollowupTaskSubmissionTests.test_invalid_input_is_rejected_before_any_notion_call` | `test_invalid_input_is_rejected_before_any_notion_call` |
+| `AddFollowupTaskSubmissionTests.test_unknown_priority_is_rejected_without_a_write` | `test_unknown_priority_is_rejected_without_a_write (S4: Priority)` |
+| `AddFollowupTaskSubmissionTests.test_tampered_track_is_rejected_without_a_write` | `test_tampered_track_is_rejected_without_a_write (S4: Track)` |
+| `AddFollowupTaskSubmissionTests.test_missing_ikke_started_status_writes_nothing_and_reports` | `test_missing_ikke_started_status_writes_nothing_and_reports (S4: Status)` |
+| `AddFollowupTaskSubmissionTests.test_malformed_schema_is_a_failure_without_a_write` | `test_malformed_schema_is_a_failure_without_a_write` |
+| `AddFollowupTaskSubmissionTests.test_notion_write_failure_returns_a_concise_error` | `test_notion_write_failure_returns_a_concise_error` |
+| `AddFollowupTaskSubmissionTests.test_ambiguous_write_failures_are_not_retried` | `test_ambiguous_write_failures_are_not_retried (S9)` |
+| `AddFollowupTaskSubmissionTests.test_rate_limited_write_is_retried` | `test_rate_limited_write_is_retried (S9)` |
+| `AddFollowupTaskSubmissionTests.test_description_is_trimmed_and_written_as_rich_text` | `test_description_is_trimmed_and_written_as_rich_text` |
+| `AddFollowupTaskSubmissionTests.test_blank_or_whitespace_description_leaves_description_unset` | `test_blank_or_whitespace_description_leaves_description_unset` |
+| `AddFollowupTaskSubmissionTests.test_missing_or_non_text_description_property_still_creates_the_task` | `test_missing_or_non_text_description_property_still_creates_the_task` |
+| `AddFollowupTaskSubmissionTests.test_unconfigured_tasks_data_source_fails_without_notion_calls` | `test_unconfigured_tasks_data_source_fails_without_notion_calls` |
+
+Not applicable: none.
+
+Adapted (same assertions, different mechanism):
+
+- `Mock()` collaborators follow the S4 conventions: `Mock(return_value=Mock())`
+  as a Notion response is a 200 `HttpResponse`; `http_error(status)` is an
+  `HttpResponse` with that status, whose `raise_for_status()` throws the real
+  http.ts `HTTPError`; `requests.exceptions.Timeout()` is http.ts `Timeout`. A
+  bare `Mock()` that a test expects not to be called (`notion_post`,
+  `notion_get`, `generate_text`) rejects if it is called, which is stricter.
+- `SuggestedTask(name, description, follow_up)` is the readonly object
+  `{ name, description, followUp }`, compared with `deepEqual`; the absent
+  fields are `null`. `followup_task_button(id, name, tracks, default, priorities,
+  suggested_task=...)` takes its defaulted arguments as an options object
+  (`{ tracks, defaultTrackId, priorities, suggestedTask }`), and so does
+  `build_followup_task_buttons` (`{ generateText, today, sleep }`).
+- `submit(...)` and `build_buttons(...)` are the helpers `submit({...})` and
+  `buildButtons({...})`. `tasks_schema_response()` takes an `edit` hook in
+  place of the tests' `del schema.json.return_value["properties"][...]`.
+- `suggestion(**task)` and `json.dumps(...)` are `pyJsonDumps`.
+  `ParseSuggestedTaskTests.parse(None)` passes `null`.
+- `InteractionConfirmationTests` call `handleAddInteractionSubmission` from
+  people-interaction.ts, as the Python tests call
+  `people_interaction.handle_add_interaction_submission`;
+  `build.assert_called_once_with(...)` is `deepEqual` on the recorded call, and
+  `call.kwargs["blocks"][-1]` is `options.blocks.at(-1)`.
+- `len(label)` is `pyLen`.
+
+TS-only tests (no Python counterpart):
+
+- `fixture: generated by Python 3.12`
+- `fixture: every constant, message, id and bound equals Python's, byte for byte (S6, S10)` (includes the Gemini system instruction)
+- `fixture: built follow-up suggestion prompts equal Python's, byte for byte (S6)` (3 prompts)
+- `fixture: followupTaskButton equals Python's button, value strings byte for byte (Danish names, quotes, newlines, emoji)` (9 buttons)
+- `fixture: parseSuggestedTask equals Python on fences, json.loads edge cases (NaN, BOM, duplicates, depth) and bounds (S5)` (86 responses)
+- `fixture: parseSuggestedFollowUp and ISO_DATE_PATTERN equal Python on Unicode digits, a trailing newline and the range` (40 values)
+- `fixture: parseTaskPayload equals Python (json.loads semantics, non-str fields, a RecursionError propagates)`
+- `fixture: the confirmation equals str.format, with {task} and $ sequences in values left alone`
+- `S9: a 503, ReadTimeout or ConnectionError on Task create gives one create, no sleep and the uncertain message` (5 subtests: 503, 500, ReadTimeout, ConnectionError, an error without a status)
+- `S9: 429 then success gives two creates with one sleep and the confirmation`
+- `S9: a 400 gives the generic failure (one create, no sleep), and three 429s give three creates and the generic failure`
+- `S9: createTaskPage retries only a 429; the final error carries the request error as its cause`
+- `S9/S11: a 401 or 403 on Task create is a credential failure: one create, caught, the generic failure` (2 subtests)
+- `TD3 pin: the modal follow_up is parsed with date.fromisoformat, so 20261001 and 2026-W40-4 are accepted` (2 subtests)
+- `S3: a page id without a name, or a name without a page id, is a silent no-op` (2 subtests)
+- `S4: validation order is schema, Priority, Track, Status; nothing is written on any rejection` (5 subtests)
+- `S4: a full valid submission writes one page with Python's exact payload, headers and property order; Created is today`
+- `S5: Gemini output only prefills a button: Notion is only read, generateText is called once with the exact prompt`
+- `S5: NaN, Infinity and BOM-prefixed Gemini output are handled as json.loads does, not as JSON.parse does`
+- `S5: an absurdly deep Gemini response raises RecursionError out of buildFollowupTaskButtons, as in Python`
+- `S10: the 2000-character value limit is measured in Python json.dumps units, not JSON.stringify's`
+- `S10: names and descriptions are bounded in code points (an emoji counts once)`
+- `S11: a 401 on the Tracks listing degrades to no buttons; a 401 on the schema at submission posts the generic failure`
+- `fetchTasksSchema: 401 is a credential failure, 403 is not (credential codes are (401,))`
+- `fetchTasksSchema: a malformed schema is a FollowupTaskCommandError; a missing Priority or Description is not` (13 subtests)
+- `suggestFollowupTask: a synchronous throw or a rejection from generateText is no suggestion; the prompt is the exact one`
+- `a missing NOTION_API_KEY raises KeyError, as environment[...] does (not caught)`
+- `handleAddFollowupTaskSubmission: no threadTs passes threadTs undefined, as Python's thread_ts=None`
+- `action and callback ids equal the constants in api/slack-request.js`
+
+The fixture and golden rows these use are printed by Python 3.12:
+
+- `tests/equivalence/followup-task-fixture.json`, written by
+  `tests/equivalence/generate_followup_task_fixture.py` (`--check` verifies it,
+  also in `ci.yml`). It holds every constant and message, three built prompts,
+  nine complete buttons, and the results of `parse_suggested_task`,
+  `parse_suggested_follow_up` (with `ISO_DATE_PATTERN.match`),
+  `parse_task_payload` and the confirmation template for edge-case input.
+- A new `json_loads` section in `tests/equivalence/golden/python-compat.json`
+  (NaN/Infinity, whitespace including Unicode spaces, a BOM, trailing data,
+  duplicate keys, raw control characters, `\u` escapes and lone surrogates,
+  numbers and the 4300-digit int limit, and nesting depths 500 and 20000).
+
+Also added in S6 (tests/python-compat.test.ts):
+
+- `pyJsonLoads matches json.loads, including what raises`
+- `pyJsonLoads: RecursionError is not a ValueError, and the depth limit is PY_JSON_MAX_DEPTH (CPython 3.12 on Linux)`
+- `pyJsonLoads: an own __proto__ key is an ordinary member, and repeated keys keep their first position`
+- `` PY_RE_SPACE_CLASS is exactly the code points of Python's re \s ``
+- `truthy matches bool() for JSON values` gains NaN and Infinity (true, as in Python).
+
 ## Security-invariant evidence (G6)
 
 Filled in as slices land. Tests named here fail if the invariant breaks.
@@ -566,13 +705,14 @@ Filled in as slices land. Tests named here fail if the invariant breaks.
 | --- | --- |
 | S1 | `test_dm_authorization_uses_exact_user_id`, `test_missing_authorization_configuration_fails_closed`, `test_user_id_match_without_dm_identity_is_rejected` (slack-authorization.test.ts) |
 | S2 | **Deferred to S8**: the authorization-before-calls order lives in `main.ts` (PLAN.md §9 amendment). |
-| S3 (partial: Interaction write) | `test_missing_person_identity_is_ignored_rather_than_guessed`, `S3: a page id without a name, or a name without a page id, is a silent no-op` (people-interaction.test.ts). The Task write is evidenced in S6, `parse_person_payload` in S8. |
-| S4 (partial: Interaction Type and Track) | `test_unknown_type_is_rejected_before_any_notion_write`, `S4: an invalid Type is rejected before the Track is validated`, `test_a_track_id_that_is_not_a_live_track_is_rejected_before_any_write`, `test_a_track_id_with_no_tracks_data_source_configured_is_rejected`, `test_unconfigured_tracks_data_source_fails_closed`, `test_type_property_not_a_select_is_a_failure` (a malformed schema is not an empty allowlist), `validation order: date, then Type, then Track, then title property, then exactly one create` (people-interaction.test.ts). Task Priority and Status are evidenced in S6. |
-| S5 (partial: next step) | `test_unknown_or_inexact_kind_is_dropped (S5: kinds validated)`, `test_more_than_two_suggestions_are_truncated (S5: at most 2)`, `test_valid_next_steps_are_shown_alongside_recap_message_and_button (S5)`, `test_type_options_unavailable_means_no_next_step_requested_or_shown` (no live Types: no next step at all), `next-step fixture: splitRecapAndNextSteps equals Python on line boundaries, Unicode, bullets and markers (S5)`, `S5: Gemini output triggers no side effect: Notion is only read, and the only post after Gemini is the reply` (people-suggest.test.ts). The suggested Task is evidenced in S6. |
-| S6 (partial: `/people due`, `/people suggest` prompts) | `S6: /people due never calls generateText` (people-due.test.ts); `prompt fixture: every prompt constant, message and bound equals Python's, byte for byte (S6, S10)`, `prompt fixture: built recap and draft prompts equal Python's, byte for byte (S6)`, `test_person_with_no_tracks_gets_the_unchanged_prompts (S6: exact prompts)`, `test_gemini_receives_only_intended_person_and_interaction_context (S6)` (people-suggest.test.ts). `/tasks` is evidenced at the entry point in S8, and the follow-up suggestion prompt in S6. |
+| S3 (partial: Interaction and Task writes) | `test_missing_person_identity_is_ignored_rather_than_guessed`, `S3: a page id without a name, or a name without a page id, is a silent no-op` (people-interaction.test.ts). Task write: `test_missing_person_writes_nothing_and_says_nothing (S3)`, `S3: a page id without a name, or a name without a page id, is a silent no-op` (followup-task.test.ts). `parse_person_payload` is evidenced in S8. |
+| S4 | `test_unknown_type_is_rejected_before_any_notion_write`, `S4: an invalid Type is rejected before the Track is validated`, `test_a_track_id_that_is_not_a_live_track_is_rejected_before_any_write`, `test_a_track_id_with_no_tracks_data_source_configured_is_rejected`, `test_unconfigured_tracks_data_source_fails_closed`, `test_type_property_not_a_select_is_a_failure` (a malformed schema is not an empty allowlist), `validation order: date, then Type, then Track, then title property, then exactly one create` (people-interaction.test.ts). Task Priority, Track and Status: `test_unknown_priority_is_rejected_without_a_write (S4: Priority)`, `test_tampered_track_is_rejected_without_a_write (S4: Track)`, `test_missing_ikke_started_status_writes_nothing_and_reports (S4: Status)`, `test_malformed_schema_is_a_failure_without_a_write`, `S4: validation order is schema, Priority, Track, Status; nothing is written on any rejection`, `S4: a full valid submission writes one page with Python's exact payload, headers and property order; Created is today`, `fetchTasksSchema: a malformed schema is a FollowupTaskCommandError; a missing Priority or Description is not` (followup-task.test.ts). |
+| S5 | `test_unknown_or_inexact_kind_is_dropped (S5: kinds validated)`, `test_more_than_two_suggestions_are_truncated (S5: at most 2)`, `test_valid_next_steps_are_shown_alongside_recap_message_and_button (S5)`, `test_type_options_unavailable_means_no_next_step_requested_or_shown` (no live Types: no next step at all), `next-step fixture: splitRecapAndNextSteps equals Python on line boundaries, Unicode, bullets and markers (S5)`, `S5: Gemini output triggers no side effect: Notion is only read, and the only post after Gemini is the reply` (people-suggest.test.ts). Suggested Task: `test_missing_blank_non_text_or_over_long_name_yields_none (S5, S10: 150 chars)`, `test_unrequested_fields_are_ignored (S5)`, `fixture: parseSuggestedTask equals Python on fences, json.loads edge cases (NaN, BOM, duplicates, depth) and bounds (S5)`, `S5: Gemini output only prefills a button: Notion is only read, generateText is called once with the exact prompt`, `S5: NaN, Infinity and BOM-prefixed Gemini output are handled as json.loads does, not as JSON.parse does`, `S5: an absurdly deep Gemini response raises RecursionError out of buildFollowupTaskButtons, as in Python` (followup-task.test.ts); `pyJsonLoads matches json.loads, including what raises` (python-compat.test.ts). |
+| S6 (partial: `/people due`, `/people suggest` and follow-up suggestion prompts) | `S6: /people due never calls generateText` (people-due.test.ts); `prompt fixture: every prompt constant, message and bound equals Python's, byte for byte (S6, S10)`, `prompt fixture: built recap and draft prompts equal Python's, byte for byte (S6)`, `test_person_with_no_tracks_gets_the_unchanged_prompts (S6: exact prompts)`, `test_gemini_receives_only_intended_person_and_interaction_context (S6)` (people-suggest.test.ts). Follow-up suggestion: `fixture: every constant, message, id and bound equals Python's, byte for byte (S6, S10)`, `fixture: built follow-up suggestion prompts equal Python's, byte for byte (S6)`, `test_prompt_contains_only_the_saved_interaction_and_today (S6)`, `test_empty_notes_make_no_gemini_call` (followup-task.test.ts). `/tasks` is evidenced at the entry point in S8. |
 | S7 (partial: `raise … from`, generic failure text) | `withPyCause records __cause__ without Node printing it` (python-compat.test.ts); `callNotionWithRetries: the final TaskListCommandError carries the request error as its cause`; `test_exhausted_transient_failure_produces_a_safe_generic_message`, `test_malformed_query_response_produces_a_safe_message_without_raw_payload` (people-due.test.ts) |
-| S10 (partial: 500 scanned, 20 displayed, 3 Tracks shown, 25 Track options, 5 Interactions, 5 resolved Tracks, 500-char Purpose, 3000-char Slack section) | `test_stops_after_five_pages_and_avoids_a_false_empty_claim`, `test_renders_no_more_than_twenty_eligible_tasks`, `test_truncates_after_ordering_and_reports_the_remainder`, `test_only_displayed_tasks_trigger_track_resolution`; People and Interactions (people-due.test.ts): `test_people_scan_reaching_the_bound_marks_the_result_incomplete`, `test_interaction_scan_bound_flags_incomplete_instead_of_mislabeling`, `test_result_count_is_bounded_and_shows_a_remainder_indicator`, `test_build_due_people_blocks_bounds_to_the_display_limit_with_a_remainder_block`; 25 Track options (people-interaction.test.ts): `fetchAvailableTracks: one bounded query of page_size 25; at most 25 options; a malformed response is an AddInteractionCommandError`; people-suggest.test.ts: 5 Interactions `test_bounded_to_five_and_sorted_query`, `test_more_than_five_results_are_still_bounded_defensively`, `S10: the Interactions query asks for 5 and at most 5 summaries are used, even from a longer response`; 5 Tracks `test_person_tracks_take_precedence_within_the_track_cap (S10: 5 Tracks)`, `S10: the people-suggest bounds are Python's values`; 500-char Purpose `test_long_purpose_is_truncated_to_the_limit (S10: 500-char Purpose)`, `test_purpose_exactly_at_the_limit_is_kept_whole`, `S10: extractTrackPurpose truncates by code points to 499 + … and keeps exactly 500`; 3000-char section `test_an_oversized_gemini_draft_is_truncated_to_slacks_block_text_limit (S10: 3000-char section)`, `test_oversized_next_step_block_is_truncated (S10: 3000-char section)`, `S10: truncateForSlackSection keeps 3000 code points and cuts longer text to 2999 + … (astral characters count once)` |
-| S11 (partial: `/tasks list`, `/people due`, Interaction write, `/people suggest`) | `test_credential_failure_fails_with_a_safe_notion_specific_message`, `S11: a 401 on a Track lookup fails the run without a cause`, `test_terminal_track_permission_failure_is_isolated` (403 on a Track degrades); `test_notion_auth_failure_is_not_retried_and_propagates_uncaught` (people-due.test.ts); the Interaction write degrades (TD7): `test_notion_authentication_failure_produces_a_safe_message_without_a_partial_write` (401 on the schema read), `TD7 pin: a 401 on Interaction create posts the generic failure and does not throw`, `TD7 pin: a 403 on Interaction create is a credential failure too (not retried, caught)`; `fetchAvailableInteractionTypes: 401 is a credential failure, 403 is not (credential codes are (401,))` (people-interaction.test.ts); `/people suggest` fails on a Track page 401 and degrades on the best-effort reads: `S11: a 401 on a Track page fails the command before Gemini; a 403 only omits that Track`, `test_a_track_listing_credential_failure_does_not_break_the_rest_of_the_reply (S11: degrades)`, `S11: a 401 on the Type schema degrades: no button, no next step, and the unavailable note` (people-suggest.test.ts) |
+| S9 | `test_ambiguous_write_failures_are_not_retried (S9)`, `test_rate_limited_write_is_retried (S9)`, `S9: a 503, ReadTimeout or ConnectionError on Task create gives one create, no sleep and the uncertain message`, `S9: 429 then success gives two creates with one sleep and the confirmation`, `S9: a 400 gives the generic failure (one create, no sleep), and three 429s give three creates and the generic failure`, `S9: createTaskPage retries only a 429; the final error carries the request error as its cause`, `S9/S11: a 401 or 403 on Task create is a credential failure: one create, caught, the generic failure` (followup-task.test.ts) |
+| S10 (all bounds in BASELINE.md §6 S10 so far) | `test_stops_after_five_pages_and_avoids_a_false_empty_claim`, `test_renders_no_more_than_twenty_eligible_tasks`, `test_truncates_after_ordering_and_reports_the_remainder`, `test_only_displayed_tasks_trigger_track_resolution`; People and Interactions (people-due.test.ts): `test_people_scan_reaching_the_bound_marks_the_result_incomplete`, `test_interaction_scan_bound_flags_incomplete_instead_of_mislabeling`, `test_result_count_is_bounded_and_shows_a_remainder_indicator`, `test_build_due_people_blocks_bounds_to_the_display_limit_with_a_remainder_block`; 25 Track options (people-interaction.test.ts): `fetchAvailableTracks: one bounded query of page_size 25; at most 25 options; a malformed response is an AddInteractionCommandError`; people-suggest.test.ts: 5 Interactions `test_bounded_to_five_and_sorted_query`, `test_more_than_five_results_are_still_bounded_defensively`, `S10: the Interactions query asks for 5 and at most 5 summaries are used, even from a longer response`; 5 Tracks `test_person_tracks_take_precedence_within_the_track_cap (S10: 5 Tracks)`, `S10: the people-suggest bounds are Python's values`; 500-char Purpose `test_long_purpose_is_truncated_to_the_limit (S10: 500-char Purpose)`, `test_purpose_exactly_at_the_limit_is_kept_whole`, `S10: extractTrackPurpose truncates by code points to 499 + … and keeps exactly 500`; 3000-char section `test_an_oversized_gemini_draft_is_truncated_to_slacks_block_text_limit (S10: 3000-char section)`, `test_oversized_next_step_block_is_truncated (S10: 3000-char section)`, `S10: truncateForSlackSection keeps 3000 code points and cuts longer text to 2999 + … (astral characters count once)`; follow-up Task (followup-task.test.ts): 2000-char button value `test_build_returns_no_buttons_when_the_button_value_is_too_long_for_slack (S10: 2000-char value)`, `test_suggested_button_too_long_for_slack_is_omitted_alone (S10: 2000-char value)`, `S10: the 2000-character value limit is measured in Python json.dumps units, not JSON.stringify's`; 75-char button text `test_long_name_label_is_truncated_to_slack_button_text_limit (S10: 75-char text)`, `test_label_at_exactly_the_limit_is_not_truncated`; 150/500 chars and 365 days `test_missing_blank_non_text_or_over_long_name_yields_none (S5, S10: 150 chars)`, `test_name_at_the_limit_is_accepted`, `test_over_long_or_non_text_description_is_dropped (S10: 500 chars)`, `test_description_at_the_limit_is_kept`, `test_invalid_past_or_too_distant_follow_up_is_dropped (S10: 365 days)`, `test_follow_up_today_and_365_days_ahead_are_kept`, `S10: names and descriptions are bounded in code points (an emoji counts once)` |
+| S11 (partial: `/tasks list`, `/people due`, Interaction write, `/people suggest`, Task write, follow-up buttons) | `test_credential_failure_fails_with_a_safe_notion_specific_message`, `S11: a 401 on a Track lookup fails the run without a cause`, `test_terminal_track_permission_failure_is_isolated` (403 on a Track degrades); `test_notion_auth_failure_is_not_retried_and_propagates_uncaught` (people-due.test.ts); the Interaction write degrades (TD7): `test_notion_authentication_failure_produces_a_safe_message_without_a_partial_write` (401 on the schema read), `TD7 pin: a 401 on Interaction create posts the generic failure and does not throw`, `TD7 pin: a 403 on Interaction create is a credential failure too (not retried, caught)`; `fetchAvailableInteractionTypes: 401 is a credential failure, 403 is not (credential codes are (401,))` (people-interaction.test.ts); `/people suggest` fails on a Track page 401 and degrades on the best-effort reads: `S11: a 401 on a Track page fails the command before Gemini; a 403 only omits that Track`, `test_a_track_listing_credential_failure_does_not_break_the_rest_of_the_reply (S11: degrades)`, `S11: a 401 on the Type schema degrades: no button, no next step, and the unavailable note` (people-suggest.test.ts); the follow-up buttons degrade and the Task write posts the generic failure (followup-task.test.ts): `test_build_returns_no_buttons_on_notion_credential_failure (S11: degrades)`, `S11: a 401 on the Tracks listing degrades to no buttons; a 401 on the schema at submission posts the generic failure`, `S9/S11: a 401 or 403 on Task create is a credential failure: one create, caught, the generic failure`, `fetchTasksSchema: 401 is a credential failure, 403 is not (credential codes are (401,))` |
 
 TECH-DEBT pins (each fails if the preserved defect is fixed or changed):
 
@@ -580,5 +720,5 @@ TECH-DEBT pins (each fails if the preserved defect is fixed or changed):
 | --- | --- |
 | TD1 (Interaction create retries 5xx, timeouts, connection errors) | `TD1 pin: a 5xx on Interaction create is retried with the default policy (can duplicate)`, `TD1 pin: a ReadTimeout or ConnectionError on Interaction create is retried`, `TD1 pin: three 5xx on Interaction create give three creates, sleeps 1 and 2, and the generic failure` (people-interaction.test.ts) |
 | TD2 | `TD2: a Follow-up with a time is parsed with date.fromisoformat and skipped as malformed` (tasks-list.test.ts) |
-| TD3 (Interaction date) | `TD3 pin: the modal date is parsed with date.fromisoformat, so 20260922 and 2026-W39-2 are accepted` (people-interaction.test.ts). The Task `follow_up` is pinned in S6. |
+| TD3 (Interaction date, Task follow_up) | `TD3 pin: the modal date is parsed with date.fromisoformat, so 20260922 and 2026-W39-2 are accepted` (people-interaction.test.ts). `TD3 pin: the modal follow_up is parsed with date.fromisoformat, so 20261001 and 2026-W40-4 are accepted` (followup-task.test.ts). |
 | TD7 (credential failure on the Interaction write is caught) | `TD7 pin: a 401 on Interaction create posts the generic failure and does not throw`, `TD7 pin: a 403 on Interaction create is a credential failure too (not retried, caught)`, `test_notion_authentication_failure_produces_a_safe_message_without_a_partial_write` (people-interaction.test.ts) |

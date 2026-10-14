@@ -9,6 +9,11 @@ port must reproduce (see `docs/experiments/typescript-migration/ACCEPTANCE.md`).
   Gemini prompts, next-step splits and reply blocks, written by
   `generate_people_suggest_prompts.py`. It lives outside `golden/`, which
   holds only the recorder's scenario goldens and the compat table.
+- `followup-task-fixture.json`: `followup_task`'s constants (including the
+  Gemini system instruction), built follow-up suggestion prompts, Block Kit
+  buttons, and parser results for edge-case input, written by
+  `generate_followup_task_fixture.py`. It lives outside `golden/` for the same
+  reason.
 - `scenarios/<name>.json` and `golden/<name>.json`: end-to-end scenarios and
   the observables Python produced for them, written by `record_python.py`.
 
