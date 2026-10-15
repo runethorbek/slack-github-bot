@@ -16,6 +16,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import type { GeminiClient, GeminiRequest } from "../src/gemini.ts";
 import { HttpResponse, type GetOptions, type PostOptions } from "../src/http.ts";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -259,12 +260,41 @@ function notionCalls(http: RecordingHttp): string[] {
 }
 
 /** The real adapter and the real src/main.ts, with every output channel captured. */
-function capturedRunDirect(http: RecordingHttp, output: string[], loadApplication?: () => Promise<unknown>): RunDirect {
+type RecordingGemini = { clients: number; requests: GeminiRequest[]; create: () => GeminiClient };
+
+/** A fake genai.Client(): records every client and request; answers `reply` or throws `fail`. */
+function recordingGemini({ reply = "Gemini reply", fail }: { reply?: string; fail?: Error } = {}): RecordingGemini {
+  const gemini: RecordingGemini = {
+    clients: 0,
+    requests: [],
+    create: () => {
+      gemini.clients += 1;
+      return {
+        interactions: {
+          async create(request) {
+            gemini.requests.push(request);
+            if (fail) throw fail;
+            return { output_text: reply };
+          },
+        },
+      };
+    },
+  };
+  return gemini;
+}
+
+function capturedRunDirect(
+  http: RecordingHttp,
+  output: string[],
+  loadApplication?: () => Promise<unknown>,
+  gemini: RecordingGemini = recordingGemini(),
+): RunDirect {
   return (payload, label) =>
     runDirect(payload, label, {
       sourceEnvironment: VERCEL_ENVIRONMENT,
       entryPointDeps: {
         http,
+        createGeminiClient: gemini.create,
         sleep: async () => {},
         log: (line: string) => output.push(`main: ${line}`),
         writeStderr: (text: string) => output.push(`stderr: ${text}`),
@@ -302,113 +332,136 @@ test("a /tasks command from a DM keeps its DM identity in the direct payload", a
   assert.equal(handled.direct[0]?.[0]["channel_type"], "im");
 });
 
-test("every other request shape is handled exactly as before, with the direct runner present", async (t) => {
-  const json = "application/json";
-  const metadata = JSON.stringify({
-    channel_id: "C-allowed",
-    user_id: "U-user",
-    person_page_id: "person-page-id",
-    person_name: "Jane Doe",
-    thread_ts: "111.222",
-  });
-  const interaction = (payload: unknown) => new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
-  const buttonValue = JSON.stringify({ page_id: "person-page-id", name: "Jane Doe", types: ["Coffee"] });
-  const cases: Array<[string, () => Request]> = [
-    ["/people due", () => slackRequest(slashCommand("/people", "due"))],
-    ["/people suggest", () => slackRequest(slashCommand("/people", "suggest Jane Doe"))],
-    ["/testbot", () => slackRequest(slashCommand("/testbot", "hello"))],
-    ["a command that only starts with /tasks", () => slackRequest(slashCommand("/tasksx", "list"))],
-    ["an empty command", () => slackRequest(slashCommand("", "list"))],
-    [
-      "a thread reply event",
-      () =>
-        slackRequest(
-          JSON.stringify({
-            type: "event_callback",
-            event: { type: "message", text: "/tasks list", channel: "C1", user: "U1", ts: "2.0", thread_ts: "1.0" },
-          }),
-          json,
-        ),
-    ],
-    [
-      "a DM event",
-      () =>
-        slackRequest(
-          JSON.stringify({
-            type: "event_callback",
-            event: { type: "message", text: "hi", channel: "D1", user: "U1", ts: "2.0", channel_type: "im" },
-          }),
-          json,
-        ),
-    ],
-    ["url_verification", () => slackRequest(JSON.stringify({ type: "url_verification", challenge: "abc" }), json)],
-    [
-      "a Suggest button click",
-      () =>
-        slackRequest(
-          interaction({
-            type: "block_actions",
-            actions: [{ action_id: "people_suggest", value: "Jane Doe" }],
-            response_url: "https://hooks.slack.com/actions/x",
-            channel: { id: "C-allowed" },
-            user: { id: "U-user" },
-          }),
-          FORM,
-        ),
-    ],
-    [
-      "an Add interaction button click",
-      () =>
-        slackRequest(
-          interaction({
-            type: "block_actions",
-            trigger_id: "trigger",
-            actions: [{ action_id: "people_add_interaction", value: buttonValue }],
-            channel: { id: "C-allowed" },
-            user: { id: "U-user" },
-            message: { ts: "111.222" },
-          }),
-          FORM,
-        ),
-    ],
-    [
-      "an Add interaction modal submission",
-      () =>
-        slackRequest(
-          interaction({
-            type: "view_submission",
-            view: {
-              callback_id: "add_interaction_modal",
-              private_metadata: metadata,
-              state: {
-                values: {
-                  type_block: { type_select: { selected_option: { value: "Coffee" } } },
-                  date_block: { date_select: { selected_date: "2026-10-15" } },
-                },
-              },
-            },
-          }),
-          FORM,
-        ),
-    ],
-    [
-      "an Add follow-up task modal submission",
-      () =>
-        slackRequest(
-          interaction({
-            type: "view_submission",
-            view: {
-              callback_id: "add_followup_task_modal",
-              private_metadata: metadata,
-              state: { values: { name_block: { name_input: { value: "Send it" } } } },
-            },
-          }),
-          FORM,
-        ),
-    ],
-  ];
+// Every request shape api/slack-request.js handles (BASELINE.md §4). `label` is
+// the direct runner's fixed label for a migrated shape (#36, #38), or null for
+// a shape that still goes to GitHub Actions or never dispatches at all
+// (`vercelOnly`).
+type Shape = { name: string; request: () => Request; label: string | null; vercelOnly?: boolean };
 
-  for (const [name, request] of cases) {
+const JSON_TYPE = "application/json";
+const MODAL_METADATA = JSON.stringify({
+  channel_id: "C-allowed",
+  user_id: "U-user",
+  person_page_id: "person-page-id",
+  person_name: "Jane Doe",
+  thread_ts: "111.222",
+});
+
+function interactionRequest(payload: unknown, retry = false): Request {
+  return slackRequest(new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), FORM, undefined, retry);
+}
+
+function eventRequest(event: Record<string, unknown>, retry = false): Request {
+  return slackRequest(JSON.stringify({ type: "event_callback", event }), JSON_TYPE, undefined, retry);
+}
+
+const THREAD_REPLY = { type: "message", text: "/tasks list", channel: "C1", user: "U1", ts: "2.0", thread_ts: "1.0" };
+const DM_ROOT = { type: "message", text: "hi", channel: "D1", user: "U1", ts: "2.0", channel_type: "im" };
+const DM_REPLY = { ...DM_ROOT, ts: "3.0", thread_ts: "2.0" };
+const SUGGEST_CLICK = {
+  type: "block_actions",
+  actions: [{ action_id: "people_suggest", value: "Jane Doe" }],
+  response_url: "https://hooks.slack.com/actions/x",
+  channel: { id: "C-allowed" },
+  user: { id: "U-user" },
+};
+const ADD_INTERACTION_SUBMISSION = {
+  type: "view_submission",
+  view: {
+    callback_id: "add_interaction_modal",
+    private_metadata: MODAL_METADATA,
+    state: {
+      values: {
+        type_block: { type_select: { selected_option: { value: "Coffee" } } },
+        notes_block: { notes_input: { value: "Agreed to send the article." } },
+        date_block: { date_select: { selected_date: "2026-10-15" } },
+      },
+    },
+  },
+};
+const ADD_FOLLOWUP_TASK_SUBMISSION = {
+  type: "view_submission",
+  view: {
+    callback_id: "add_followup_task_modal",
+    private_metadata: MODAL_METADATA,
+    state: { values: { name_block: { name_input: { value: "Send it" } } } },
+  },
+};
+const BUTTON_VALUE = JSON.stringify({ page_id: "person-page-id", name: "Jane Doe", types: ["Coffee"] });
+
+const SHAPES: Shape[] = [
+  // Migrated in #36.
+  { name: "/tasks list", request: () => slackRequest(slashCommand("/tasks", "list")), label: "/tasks" },
+  // P5/P6: the whole /people family; its text is parsed in src/, not in api/.
+  { name: "/people due", request: () => slackRequest(slashCommand("/people", "due")), label: "/people" },
+  { name: "/people suggest", request: () => slackRequest(slashCommand("/people", "suggest Jane Doe")), label: "/people" },
+  { name: "/people (usage)", request: () => slackRequest(slashCommand("/people", "foo")), label: "/people" },
+  // P1: DM message events, root or reply. Retried events are not guarded today.
+  { name: "a root DM event", request: () => eventRequest(DM_ROOT), label: "DM message" },
+  { name: "a DM thread reply event", request: () => eventRequest(DM_REPLY), label: "DM message" },
+  { name: "a retried DM event", request: () => eventRequest(DM_ROOT, true), label: "DM message" },
+  // P7, P8, P9: Gemini paths.
+  { name: "a Suggest button click", request: () => interactionRequest(SUGGEST_CLICK), label: null },
+  { name: "a retried Suggest button click", request: () => interactionRequest(SUGGEST_CLICK, true), label: null },
+  { name: "/testbot", request: () => slackRequest(slashCommand("/testbot", "hello")), label: null },
+  { name: "a command that only starts with /tasks", request: () => slackRequest(slashCommand("/tasksx", "list")), label: null },
+  { name: "an empty command", request: () => slackRequest(slashCommand("", "list")), label: null },
+  { name: "a channel thread reply event", request: () => eventRequest(THREAD_REPLY), label: null },
+  { name: "a retried channel thread reply event", request: () => eventRequest(THREAD_REPLY, true), label: null },
+  // P2, P3: writes.
+  { name: "an Add interaction submission", request: () => interactionRequest(ADD_INTERACTION_SUBMISSION), label: null },
+  { name: "an Add follow-up task submission", request: () => interactionRequest(ADD_FOLLOWUP_TASK_SUBMISSION), label: null },
+  // Handled entirely in Vercel, before and after the migration.
+  { name: "url_verification", request: () => slackRequest(JSON.stringify({ type: "url_verification", challenge: "abc" }), JSON_TYPE), label: null, vercelOnly: true },
+  { name: "a top-level channel message", request: () => eventRequest({ type: "message", text: "hi", channel: "C1", user: "U1", ts: "2.0" }), label: null, vercelOnly: true },
+  { name: "a bot message", request: () => eventRequest({ ...THREAD_REPLY, bot_id: "B1" }), label: null, vercelOnly: true },
+  {
+    name: "an Add interaction button click (views.open)",
+    request: () =>
+      interactionRequest({
+        type: "block_actions",
+        trigger_id: "trigger",
+        actions: [{ action_id: "people_add_interaction", value: BUTTON_VALUE }],
+        channel: { id: "C-allowed" },
+        user: { id: "U-user" },
+        message: { ts: "111.222" },
+      }),
+    label: null,
+    vercelOnly: true,
+  },
+  {
+    name: "an unknown block action",
+    request: () => interactionRequest({ ...SUGGEST_CLICK, actions: [{ action_id: "other", value: "x" }] }),
+    label: null,
+    vercelOnly: true,
+  },
+  { name: "a retried Add interaction submission", request: () => interactionRequest(ADD_INTERACTION_SUBMISSION, true), label: null, vercelOnly: true },
+  { name: "a retried Add follow-up task submission", request: () => interactionRequest(ADD_FOLLOWUP_TASK_SUBMISSION, true), label: null, vercelOnly: true },
+];
+
+const MIGRATED = SHAPES.filter((shape) => shape.label !== null);
+
+test("every migrated shape runs directly once with the unchanged payload, never via GitHub", async (t) => {
+  for (const { name, request, label } of MIGRATED) {
+    await t.test(name, async () => {
+      const baseline = await handle(request(), { withDirect: false });
+      const handled = await handle(request());
+
+      assert.equal(baseline.dispatched.length, 1);
+      assert.deepEqual(handled.direct, [[baseline.dispatched[0], label]]);
+      assert.deepEqual(handled.dispatched, []);
+      // The same ack, modals and Suggest response_url ack as before.
+      assert.equal(handled.status, baseline.status);
+      assert.equal(handled.body, baseline.body);
+      assert.deepEqual(handled.modals, baseline.modals);
+      assert.deepEqual(handled.responseUrlPosts, baseline.responseUrlPosts);
+    });
+  }
+});
+
+test("every shape not migrated is handled exactly as before, with the direct runner present", async (t) => {
+  for (const { name, request, label } of SHAPES) {
+    if (label !== null) continue;
     await t.test(name, async () => {
       const baseline = await handle(request(), { withDirect: false });
       const handled = await handle(request());
@@ -419,6 +472,41 @@ test("every other request shape is handled exactly as before, with the direct ru
       assert.deepEqual(handled.dispatched, baseline.dispatched);
       assert.deepEqual(handled.modals, baseline.modals);
       assert.deepEqual(handled.responseUrlPosts, baseline.responseUrlPosts);
+    });
+  }
+});
+
+test("shapes handled entirely in Vercel run nothing, directly or via GitHub", async (t) => {
+  for (const { name, request, vercelOnly } of SHAPES) {
+    if (!vercelOnly) continue;
+    await t.test(name, async () => {
+      const handled = await handle(request());
+      assert.deepEqual(handled.direct, []);
+      assert.deepEqual(handled.dispatched, []);
+    });
+  }
+});
+
+test("for every migrated shape, runEntryPoint gets the environment slack-message.yml would produce", async (t) => {
+  for (const { name, request } of MIGRATED) {
+    await t.test(name, async () => {
+      const baseline = await handle(request(), { withDirect: false });
+      const received: Environment[] = [];
+      await handle(request(), {
+        runDirectImpl: (payload, label) =>
+          runDirect(payload, label, {
+            sourceEnvironment: VERCEL_ENVIRONMENT,
+            loadApplication: async () => ({
+              async runEntryPoint(environment: Environment) {
+                received.push(environment);
+                return 0;
+              },
+            }),
+            log: () => {},
+          }),
+      });
+
+      assert.deepEqual(received, [workflowEnvironment(baseline.dispatched[0] as Payload, SECRETS)]);
     });
   }
 });
@@ -546,6 +634,68 @@ test("an authorized /tasks list in the configured channel reaches Notion and pos
   ]);
 });
 
+const PEOPLE_REFUSAL = { response_type: "ephemeral", text: "The /people command is not available in this channel." };
+
+/** Unauthorized requests on migrated shapes, through the whole chain: no Notion call and no Gemini client. */
+const UNAUTHORIZED: Array<{ name: string; request: () => Request; label: string; posts: Array<[string, unknown]>; line: string }> = [
+  {
+    name: "/people due from another channel",
+    request: () => slackRequest(slashCommand("/people", "due", "C-other", "U-authorized")),
+    label: "/people",
+    posts: [["https://hooks.slack.test/response", PEOPLE_REFUSAL]],
+    line: "Unauthorized private-data command rejected",
+  },
+  {
+    name: "/people suggest from another channel",
+    request: () => slackRequest(slashCommand("/people", "suggest Jane Doe", "C-other", "U-authorized")),
+    label: "/people",
+    posts: [["https://hooks.slack.test/response", PEOPLE_REFUSAL]],
+    line: "Unauthorized private-data command rejected",
+  },
+  {
+    name: "/people due from another user's DM",
+    request: () => slackRequest(slashCommand("/people", "due", "D-private", "U-other")),
+    label: "/people",
+    posts: [],
+    line: "Unauthorized Slack DM command ignored",
+  },
+  {
+    name: "/people suggest from another user's DM",
+    request: () => slackRequest(slashCommand("/people", "suggest Jane Doe", "D-private", "U-other")),
+    label: "/people",
+    posts: [],
+    line: "Unauthorized Slack DM command ignored",
+  },
+  {
+    name: "a DM message from another user",
+    request: () => eventRequest({ ...DM_ROOT, channel: "D-private", user: "U-other" }),
+    label: "DM message",
+    posts: [],
+    line: "Unauthorized Slack DM ignored",
+  },
+];
+
+test("unauthorized requests on migrated shapes make no Notion call and create no Gemini client", async (t) => {
+  for (const { name, request, label, posts, line } of UNAUTHORIZED) {
+    await t.test(name, async () => {
+      const http = recordingHttp();
+      const gemini = recordingGemini();
+      const output: string[] = [];
+      await handle(request(), { runDirectImpl: capturedRunDirect(http, output, undefined, gemini) });
+
+      assert.deepEqual(notionCalls(http), []);
+      assert.deepEqual(http.gets, []);
+      assert.equal(gemini.clients, 0);
+      assert.deepEqual(http.posts, posts);
+      assert.deepEqual(output, [
+        `adapter: Direct runtime: executing ${label}`,
+        `main: ${line}`,
+        `adapter: Direct runtime: finished ${label} with exit code 0`,
+      ]);
+    });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Process hygiene and logging (AC7, AC8; V7, V11)
 // ---------------------------------------------------------------------------
@@ -648,6 +798,35 @@ test("success, an application error and an import failure log only constant text
       assert.deepEqual(output, expected);
       const logged = output.join("\n");
       for (const value of privateValues()) assert.ok(!logged.includes(value), `logged ${value}`);
+    });
+  }
+});
+
+test("every migrated shape logs only constant text when Slack, Notion and Gemini fail with private data", async (t) => {
+  // Distinctive request values from SHAPES, plus the leaky error's own text.
+  const shapeValues = [
+    "Jane Doe",
+    "suggest Jane Doe",
+    "Agreed to send the article.",
+    "Send it",
+    "person-page-id",
+    "https://hooks.slack.com/actions/x",
+    "https://hooks.slack.test/response",
+    "C-allowed",
+    "U-user",
+  ];
+  for (const { name, request, label } of MIGRATED) {
+    await t.test(name, async () => {
+      const leaky = new Error(`${PRIVATE_TEXT} Jane Doe https://hooks.slack.test/response fake-notion-token`);
+      const http = recordingHttp({ throwOnPost: leaky });
+      const gemini = recordingGemini({ fail: leaky });
+      const output: string[] = [];
+      await handle(request(), { runDirectImpl: capturedRunDirect(http, output, undefined, gemini) });
+
+      assert.equal(output[0], `adapter: Direct runtime: executing ${label}`);
+      assert.match(output.at(-1) as string, new RegExp(`^adapter: Direct runtime: finished ${label} with exit code [01]$`));
+      const logged = output.join("\n");
+      for (const value of [...privateValues(), ...shapeValues]) assert.ok(!logged.includes(value), `logged ${value}`);
     });
   }
 });
@@ -785,11 +964,13 @@ test("in the source tree, the default loader falls back to src/main.ts", async (
 // Lazy loading (AC9; V12)
 // ---------------------------------------------------------------------------
 
-test("loading api/slack.js and handling synchronous paths does not load src/main.ts or @google/genai", () => {
+test("loading api/slack.js and handling synchronous paths does not load the application module or @google/genai", () => {
   // A fresh process records every module it resolves while it imports the
   // Vercel entry point and handles url_verification, an Add interaction
-  // button click (views.open) and a /people command (GitHub dispatch). The
-  // last import is the positive control that the hook records src/main.ts.
+  // button click (views.open), an ignored top-level channel message and a
+  // retried modal submission: no src/ module at all, neither the compiled
+  // src/main.js nor the src/main.ts fallback. The last import is the
+  // positive control that the hook records src/main.ts.
   const script = `
     import { registerHooks } from "node:module";
     import { createHmac } from "node:crypto";
@@ -825,7 +1006,12 @@ test("loading api/slack.js and handling synchronous paths does not load src/main
       type: "block_actions", trigger_id: "t", actions: [{ action_id: "people_add_interaction", value: button }],
       channel: { id: "C1" }, user: { id: "U1" }, message: { ts: "1.0" },
     }) }).toString(), "application/x-www-form-urlencoded"), deps);
-    await handleSlackRequest(request(new URLSearchParams({ command: "/people", text: "due", channel_id: "C1" }).toString(), "application/x-www-form-urlencoded"), deps);
+    await handleSlackRequest(request(JSON.stringify({ type: "event_callback", event: { type: "message", text: "hi", channel: "C1", user: "U1", ts: "1.0" } }), "application/json"), deps);
+    const retried = request(new URLSearchParams({ payload: JSON.stringify({
+      type: "view_submission", view: { callback_id: "add_interaction_modal", private_metadata: "{}" },
+    }) }).toString(), "application/x-www-form-urlencoded");
+    retried.headers.set("x-slack-retry-num", "1");
+    await handleSlackRequest(retried, deps);
     await Promise.all(deferred);
     const before = resolved.filter((url) => url.includes("/src/") || url.includes("@google/genai"));
     await import("./src/main.ts");
