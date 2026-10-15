@@ -26,7 +26,10 @@ const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DIRECT_LABELS = {
   tasks: "/tasks",
   people: "/people",
+  slashCommand: "slash command",
   dmMessage: "DM message",
+  threadReply: "thread reply",
+  suggestButton: "Suggest button",
 };
 
 // Fixed, generic view that replaces the Add Interaction and Add follow-up
@@ -543,7 +546,7 @@ export async function handleSlackRequest(
 
                 slack_event_type: "message",
               },
-              isDirectMessage ? DIRECT_LABELS.dmMessage : null
+              isDirectMessage ? DIRECT_LABELS.dmMessage : DIRECT_LABELS.threadReply
             )
           );
         }
@@ -581,16 +584,19 @@ export async function handleSlackRequest(
         if (personName) {
           const channelId = body.channel?.id ?? "";
           defer(
-            triggerGitHub({
-              command: "/people",
-              text: `suggest ${personName}`,
-              response_url: body.response_url ?? "",
-              channel_id: channelId,
-              user_id: body.user?.id ?? "",
-              channel_type: commandChannelType(channelId),
-              thread_ts: "",
-              slack_event_type: "block_actions",
-            })
+            dispatch(
+              {
+                command: "/people",
+                text: `suggest ${personName}`,
+                response_url: body.response_url ?? "",
+                channel_id: channelId,
+                user_id: body.user?.id ?? "",
+                channel_type: commandChannelType(channelId),
+                thread_ts: "",
+                slack_event_type: "block_actions",
+              },
+              DIRECT_LABELS.suggestButton
+            )
           );
 
           // A retried delivery of the same click must not post a second
@@ -814,7 +820,7 @@ export async function handleSlackRequest(
 
     // Whole command families run directly (#36, #38); their text is parsed
     // and authorized in src/, not here.
-    let label = null;
+    let label = DIRECT_LABELS.slashCommand;
     if (command === "/tasks") {
       label = DIRECT_LABELS.tasks;
     } else if (command === "/people") {

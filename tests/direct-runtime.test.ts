@@ -217,8 +217,11 @@ type RecordingHttp = {
   gets: string[];
 };
 
-/** Answers Slack with ok, the Notion query with one Task, and the Track GET with one Track. */
-function recordingHttp({ throwOnPost }: { throwOnPost?: Error } = {}): RecordingHttp {
+/** Answers Slack with ok (a thread read with `threadMessages`), the Notion query with one Task, and the Track GET with one Track. */
+function recordingHttp({
+  throwOnPost,
+  threadMessages = [],
+}: { throwOnPost?: Error; threadMessages?: unknown[] } = {}): RecordingHttp {
   const posts: Array<[string, unknown]> = [];
   const gets: string[] = [];
   return {
@@ -245,6 +248,9 @@ function recordingHttp({ throwOnPost }: { throwOnPost?: Error } = {}): Recording
     },
     async get(url) {
       gets.push(url);
+      if (url === "https://slack.com/api/conversations.replies") {
+        return jsonResponse({ ok: true, messages: threadMessages });
+      }
       return jsonResponse({
         properties: {
           Navn: { type: "title", title: [{ plain_text: "Secret track name" }] },
@@ -401,13 +407,13 @@ const SHAPES: Shape[] = [
   { name: "a DM thread reply event", request: () => eventRequest(DM_REPLY), label: "DM message" },
   { name: "a retried DM event", request: () => eventRequest(DM_ROOT, true), label: "DM message" },
   // P7, P8, P9: Gemini paths.
-  { name: "a Suggest button click", request: () => interactionRequest(SUGGEST_CLICK), label: null },
-  { name: "a retried Suggest button click", request: () => interactionRequest(SUGGEST_CLICK, true), label: null },
-  { name: "/testbot", request: () => slackRequest(slashCommand("/testbot", "hello")), label: null },
-  { name: "a command that only starts with /tasks", request: () => slackRequest(slashCommand("/tasksx", "list")), label: null },
-  { name: "an empty command", request: () => slackRequest(slashCommand("", "list")), label: null },
-  { name: "a channel thread reply event", request: () => eventRequest(THREAD_REPLY), label: null },
-  { name: "a retried channel thread reply event", request: () => eventRequest(THREAD_REPLY, true), label: null },
+  { name: "a Suggest button click", request: () => interactionRequest(SUGGEST_CLICK), label: "Suggest button" },
+  { name: "a retried Suggest button click", request: () => interactionRequest(SUGGEST_CLICK, true), label: "Suggest button" },
+  { name: "/testbot", request: () => slackRequest(slashCommand("/testbot", "hello")), label: "slash command" },
+  { name: "a command that only starts with /tasks", request: () => slackRequest(slashCommand("/tasksx", "list")), label: "slash command" },
+  { name: "an empty command", request: () => slackRequest(slashCommand("", "list")), label: "slash command" },
+  { name: "a channel thread reply event", request: () => eventRequest(THREAD_REPLY), label: "thread reply" },
+  { name: "a retried channel thread reply event", request: () => eventRequest(THREAD_REPLY, true), label: "thread reply" },
   // P2, P3: writes.
   { name: "an Add interaction submission", request: () => interactionRequest(ADD_INTERACTION_SUBMISSION), label: null },
   { name: "an Add follow-up task submission", request: () => interactionRequest(ADD_FOLLOWUP_TASK_SUBMISSION), label: null },
@@ -667,6 +673,20 @@ const UNAUTHORIZED: Array<{ name: string; request: () => Request; label: string;
     line: "Unauthorized Slack DM command ignored",
   },
   {
+    name: "a Suggest click from another channel",
+    request: () => interactionRequest({ ...SUGGEST_CLICK, channel: { id: "C-other" }, user: { id: "U-authorized" } }),
+    label: "Suggest button",
+    posts: [["https://hooks.slack.com/actions/x", PEOPLE_REFUSAL]],
+    line: "Unauthorized private-data command rejected",
+  },
+  {
+    name: "a Suggest click from another user's DM",
+    request: () => interactionRequest({ ...SUGGEST_CLICK, channel: { id: "D-private" }, user: { id: "U-other" } }),
+    label: "Suggest button",
+    posts: [],
+    line: "Unauthorized Slack DM command ignored",
+  },
+  {
     name: "a DM message from another user",
     request: () => eventRequest({ ...DM_ROOT, channel: "D-private", user: "U-other" }),
     label: "DM message",
@@ -694,6 +714,49 @@ test("unauthorized requests on migrated shapes make no Notion call and create no
       ]);
     });
   }
+});
+
+test("/testbot runs the Gemini conversation directly: root, thread read, one Gemini request, reply", async () => {
+  const http = recordingHttp({ threadMessages: [{ text: "\u{1F4AC} hello", user: "U-user" }] });
+  const gemini = recordingGemini({ reply: "Hi there" });
+  const output: string[] = [];
+  await handle(slackRequest(slashCommand("/testbot", "hello")), {
+    runDirectImpl: capturedRunDirect(http, output, undefined, gemini),
+  });
+
+  assert.deepEqual(notionCalls(http), []);
+  assert.deepEqual(http.gets, ["https://slack.com/api/conversations.replies"]);
+  assert.equal(gemini.clients, 1);
+  assert.equal(gemini.requests.length, 1);
+  assert.deepEqual(
+    http.posts.map(([url, json]) => [url, (json as { text: string }).text]),
+    [
+      ["https://slack.com/api/chat.postMessage", "\u{1F4AC} hello"],
+      ["https://slack.com/api/chat.postMessage", "Hi there"],
+    ],
+  );
+  assert.deepEqual(output, [
+    "adapter: Direct runtime: executing slash command",
+    "main: Gemini response posted to Slack thread",
+    "adapter: Direct runtime: finished slash command with exit code 0",
+  ]);
+});
+
+test("a reply in a /tasks list thread gets the fixed follow-up text directly, without Gemini", async () => {
+  const http = recordingHttp({ threadMessages: [{ text: "/tasks list" }, { text: "/tasks list", user: "U1" }] });
+  const gemini = recordingGemini();
+  const output: string[] = [];
+  await handle(eventRequest(THREAD_REPLY), { runDirectImpl: capturedRunDirect(http, output, undefined, gemini) });
+
+  assert.equal(gemini.clients, 0);
+  assert.deepEqual(
+    http.posts.map(([url, json]) => [url, (json as { text: string }).text]),
+    [["https://slack.com/api/chat.postMessage", "Task-list follow-ups are not supported. Run /tasks list."]],
+  );
+  assert.deepEqual(output, [
+    "adapter: Direct runtime: executing thread reply",
+    "adapter: Direct runtime: finished thread reply with exit code 0",
+  ]);
 });
 
 // ---------------------------------------------------------------------------
