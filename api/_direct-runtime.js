@@ -63,6 +63,32 @@ export function directEnvironment(payload, sourceEnvironment) {
   return environment;
 }
 
+// Vercel's builder traces both imports below, compiles src/*.ts and ships each
+// file under its .js name, so a deployed function has src/main.js and no
+// src/main.ts. Locally (node, tests, CI) only src/main.ts exists.
+const COMPILED_MAIN_URL = new URL("../src/main.js", import.meta.url).href;
+
+/**
+ * src/main's module: the compiled src/main.js when it exists, else
+ * src/main.ts. Falls back only when src/main.js itself is the missing module
+ * (Node's error.url is exactly that module); any other failure, such as a
+ * missing dependency of src/main.js, is rethrown.
+ */
+export async function loadMain({
+  importCompiled = () => import("../src/main.js"),
+  importSource = () => import("../src/main.ts"),
+  compiledUrl = COMPILED_MAIN_URL,
+} = {}) {
+  try {
+    return await importCompiled();
+  } catch (error) {
+    if (error?.code === "ERR_MODULE_NOT_FOUND" && error.url === compiledUrl) {
+      return importSource();
+    }
+    throw error;
+  }
+}
+
 /**
  * Run main for one dispatch payload. `label` is a fixed string chosen by the
  * caller (never request data) and appears in the log lines. Never rejects.
@@ -76,7 +102,7 @@ export async function runDirect(
   label,
   {
     sourceEnvironment = process.env,
-    loadApplication = () => import("../src/main.ts"),
+    loadApplication = loadMain,
     entryPointDeps = {},
     log = console.log,
     logError = console.error,

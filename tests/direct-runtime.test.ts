@@ -10,10 +10,11 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHmac } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { HttpResponse, type GetOptions, type PostOptions } from "../src/http.ts";
 
@@ -45,10 +46,16 @@ type HandleSlackRequest = (request: Request, deps: SlackRequestDeps) => Promise<
 const { handleSlackRequest } = (await import(new URL("../api/slack-request.js", import.meta.url).href)) as {
   handleSlackRequest: HandleSlackRequest;
 };
-const { runDirect, directEnvironment, APPLICATION_SECRET_NAMES } = (await import(
+type LoadMainOptions = {
+  importCompiled?: () => Promise<unknown>;
+  importSource?: () => Promise<unknown>;
+  compiledUrl?: string;
+};
+const { runDirect, loadMain, directEnvironment, APPLICATION_SECRET_NAMES } = (await import(
   new URL("../api/_direct-runtime.js", import.meta.url).href
 )) as {
   runDirect: RunDirect;
+  loadMain: (options?: LoadMainOptions) => Promise<unknown>;
   directEnvironment: (payload: Payload, sourceEnvironment: Record<string, string | undefined>) => Environment;
   APPLICATION_SECRET_NAMES: string[];
 };
@@ -675,6 +682,103 @@ test("runDirect resolves even when logging itself throws", async () => {
       throw new Error("logError failed");
     },
   }).catch(() => assert.fail("runDirect rejected"));
+});
+
+// ---------------------------------------------------------------------------
+// Loading the application: Vercel ships src/main.ts compiled as src/main.js
+// ---------------------------------------------------------------------------
+
+/**
+ * Real modules on disk, so that the import errors are Node's own: each case
+ * directory holds (or lacks) a main.js, as a deployed function would.
+ */
+function loaderFixtures(t: { after: (fn: () => void) => void }) {
+  const root = mkdtempSync(path.join(tmpdir(), "direct-runtime-loader-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const mainJs: Record<string, string | null> = {
+    compiled: 'export const marker = "compiled";\n',
+    missing: null,
+    "missing-dependency": 'import "./gone.js";\nexport const marker = "unreachable";\n',
+    throwing: 'throw new Error("main.js failed to evaluate");\n',
+  };
+  const urls: Record<string, string> = {};
+  for (const [name, source] of Object.entries(mainJs)) {
+    const directory = path.join(root, name);
+    mkdirSync(directory);
+    if (source !== null) writeFileSync(path.join(directory, "main.js"), source);
+    urls[name] = pathToFileURL(path.join(directory, "main.js")).href;
+  }
+  return urls;
+}
+
+/** loadMain for one fixture; records whether the .ts fallback was taken. */
+function fixtureLoader(compiledUrl: string) {
+  const sourceImports: string[] = [];
+  const options: LoadMainOptions = {
+    importCompiled: () => import(compiledUrl),
+    importSource: async () => {
+      sourceImports.push(compiledUrl);
+      return { marker: "source" };
+    },
+    compiledUrl,
+  };
+  return { options, sourceImports };
+}
+
+test("loadMain prefers the compiled main.js when it exists", async (t) => {
+  const { options, sourceImports } = fixtureLoader(loaderFixtures(t)["compiled"] as string);
+  const application = (await loadMain(options)) as { marker: string };
+  assert.equal(application.marker, "compiled");
+  assert.deepEqual(sourceImports, []);
+});
+
+test("loadMain falls back to main.ts only when main.js itself is the missing module", async (t) => {
+  const { options, sourceImports } = fixtureLoader(loaderFixtures(t)["missing"] as string);
+  const application = (await loadMain(options)) as { marker: string };
+  assert.equal(application.marker, "source");
+  assert.equal(sourceImports.length, 1);
+});
+
+test("a missing dependency of main.js is a real failure, not a reason to fall back", async (t) => {
+  const fixtures = loaderFixtures(t);
+  const { options, sourceImports } = fixtureLoader(fixtures["missing-dependency"] as string);
+  await assert.rejects(loadMain(options), (error: { code?: string; url?: string }) => {
+    // Its message names main.js as the importer; only error.url tells them apart.
+    assert.equal(error.code, "ERR_MODULE_NOT_FOUND");
+    assert.ok(error.url?.endsWith("/missing-dependency/gone.js"));
+    return true;
+  });
+  assert.deepEqual(sourceImports, []);
+});
+
+test("any other failure of main.js is rethrown without falling back", async (t) => {
+  const { options, sourceImports } = fixtureLoader(loaderFixtures(t)["throwing"] as string);
+  await assert.rejects(loadMain(options), /main\.js failed to evaluate/);
+  assert.deepEqual(sourceImports, []);
+});
+
+test("a missing dependency of main.js reaches runDirect's constant load-failure line", async (t) => {
+  const { options } = fixtureLoader(loaderFixtures(t)["missing-dependency"] as string);
+  const output: string[] = [];
+  await runDirect({ command: "/tasks", text: PRIVATE_TEXT }, "/tasks", {
+    sourceEnvironment: {},
+    loadApplication: () => loadMain(options),
+    log: (line) => output.push(line),
+    logError: (line) => output.push(`error: ${line}`),
+  });
+  assert.deepEqual(output, [
+    "Direct runtime: executing /tasks",
+    "error: Direct runtime: failed to load the application",
+    "Direct runtime: finished /tasks with exit code 1",
+  ]);
+});
+
+test("in the source tree, the default loader falls back to src/main.ts", async () => {
+  // There is no compiled src/main.js locally; only a Vercel build has one.
+  assert.equal(existsSync(path.join(REPO_ROOT, "src", "main.js")), false);
+  const application = (await loadMain()) as { runEntryPoint?: unknown };
+  const sourceMain = await import("../src/main.ts");
+  assert.equal(application, sourceMain);
 });
 
 // ---------------------------------------------------------------------------
