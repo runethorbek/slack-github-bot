@@ -1,6 +1,6 @@
 // The direct Vercel runtime for /tasks (#36, docs/experiments/
 // vercel-runtime-migration ACCEPTANCE.md V1-V14): api/slack-request.js routes
-// the /tasks command family to api/direct-runtime.js, which runs src/main.ts
+// the /tasks command family to api/_direct-runtime.js, which runs src/main.ts
 // in-process instead of dispatching to GitHub Actions. Every other request
 // shape must still dispatch exactly as before.
 //
@@ -46,7 +46,7 @@ const { handleSlackRequest } = (await import(new URL("../api/slack-request.js", 
   handleSlackRequest: HandleSlackRequest;
 };
 const { runDirect, directEnvironment, APPLICATION_SECRET_NAMES } = (await import(
-  new URL("../api/direct-runtime.js", import.meta.url).href
+  new URL("../api/_direct-runtime.js", import.meta.url).href
 )) as {
   runDirect: RunDirect;
   directEnvironment: (payload: Payload, sourceEnvironment: Record<string, string | undefined>) => Environment;
@@ -699,7 +699,7 @@ test("loading api/slack.js and handling synchronous paths does not load src/main
     });
     const handler = (await import("./api/slack.js")).default;
     const { handleSlackRequest } = await import("./api/slack-request.js");
-    const { runDirect } = await import("./api/direct-runtime.js");
+    const { runDirect } = await import("./api/_direct-runtime.js");
     const sign = (body) => "v0=" + createHmac("sha256", "s").update("v0:" + Math.floor(Date.now() / 1000) + ":" + body).digest("hex");
     const request = (body, contentType) => new Request("https://example.test/api/slack", {
       method: "POST",

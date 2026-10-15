@@ -77,7 +77,7 @@ The application was migrated from Python. Its behavior was kept identical, inclu
 ├── api/
 │   ├── slack.js
 │   ├── slack-request.js
-│   └── direct-runtime.js
+│   └── _direct-runtime.js
 ├── .github/
 │   └── workflows/
 │       ├── attention-summary.yml
@@ -124,13 +124,13 @@ The application was migrated from Python. Its behavior was kept identical, inclu
 
 ### `api/slack.js`
 
-Vercel Function responsible for receiving requests from Slack. It delegates request handling to `api/slack-request.js` and triggers a GitHub `repository_dispatch` event with the parsed payload, except for `/tasks` (see `api/direct-runtime.js`). It also opens the "Add interaction" and "Add follow-up task" modals (Slack `views.open`) when their buttons are clicked.
+Vercel Function responsible for receiving requests from Slack. It delegates request handling to `api/slack-request.js` and triggers a GitHub `repository_dispatch` event with the parsed payload, except for `/tasks` (see `api/_direct-runtime.js`). It also opens the "Add interaction" and "Add follow-up task" modals (Slack `views.open`) when their buttons are clicked.
 
 The Vercel function deliberately contains very little application logic. Its primary responsibility is transporting events from Slack to the application.
 
-### `api/direct-runtime.js`
+### `api/_direct-runtime.js`
 
-Runs the application directly in the Vercel Function for the `/tasks` command family (list, usage and the unauthorized refusal), with no `repository_dispatch` and no GitHub Actions run. This is slice 1 of the [Vercel runtime migration](docs/experiments/vercel-runtime-migration/PLAN.md); every other request shape still goes through GitHub Actions.
+Runs the application directly in the Vercel Function for the `/tasks` command family (list, usage and the unauthorized refusal), with no `repository_dispatch` and no GitHub Actions run. This is slice 1 of the [Vercel runtime migration](docs/experiments/vercel-runtime-migration/PLAN.md); every other request shape still goes through GitHub Actions. The leading underscore keeps Vercel from exposing the module as its own `/api` route.
 
 After the acknowledgement, inside `waitUntil`, it builds `main`'s environment from the same dispatch payload exactly as `slack-message.yml` does, takes only the workflow's nine application secrets from Vercel's environment (an explicit allowlist, so `SLACK_SIGNING_SECRET` and `GITHUB_*` never reach `main`), lazily imports `src/main.ts` and calls `runEntryPoint`. Command parsing and authorization stay in `src/`. It logs only constant lines: `Direct runtime: executing /tasks` and `Direct runtime: finished /tasks with exit code <n>`, next to `main`'s own constant lines. As on the GitHub path, a failure after the acknowledgement is not reported in Slack.
 

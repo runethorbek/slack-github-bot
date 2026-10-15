@@ -1,5 +1,5 @@
 import { waitUntil } from "@vercel/functions";
-import { runDirect } from "./direct-runtime.js";
+import { runDirect } from "./_direct-runtime.js";
 import { handleSlackRequest } from "./slack-request.js";
 
 async function openModal(triggerId, view) {

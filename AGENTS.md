@@ -37,7 +37,7 @@ Slack
 → Gemini / external services
 → Slack
 
-Migrated paths (currently only the `/tasks` command family) skip `repository_dispatch` and GitHub Actions: Vercel runs `src/main.ts` in-process (`api/direct-runtime.js` → `runEntryPoint`), after the acknowledgement. For those paths Vercel is the execution host and holds the application secrets they need (Production environment only, passed to `main` through an explicit allowlist).
+Migrated paths (currently only the `/tasks` command family) skip `repository_dispatch` and GitHub Actions: Vercel runs `src/main.ts` in-process (`api/_direct-runtime.js` → `runEntryPoint`), after the acknowledgement. For those paths Vercel is the execution host and holds the application secrets they need (Production environment only, passed to `main` through an explicit allowlist).
 
 The Vercel endpoint (`api/`) should remain a thin transport layer. Hosting migrated paths does not change that: `api/` routes only on existing payload fields, makes no authorization decisions, parses no command text and contains no domain logic.
 Vercel may return a fixed, generic acknowledgement in its HTTP response to Slack: no user data, no Gemini output, no authorization decisions.
