@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository implements a Slack-based assistant using GitHub Actions as runtime.
+This repository implements a Slack-based assistant. Interactive Slack requests run in a Vercel Function; GitHub Actions runs the scheduled summary and CI, and remains the interactive rollback path until it is removed (#38).
 
 The system currently includes or is intended to include:
 
@@ -31,15 +31,13 @@ Current high-level flow:
 
 Slack
 → Vercel webhook
-→ GitHub repository_dispatch
-→ GitHub Action
-→ TypeScript (Node.js)
+→ TypeScript (Node.js) application, in the same Vercel Function after the acknowledgement
 → Gemini / external services
 → Slack
 
-Migrated paths (currently only the `/tasks` command family) skip `repository_dispatch` and GitHub Actions: Vercel runs `src/main.ts` in-process (`api/_direct-runtime.js` → `runEntryPoint`), after the acknowledgement. For those paths Vercel is the execution host and holds the application secrets they need (Production environment only, passed to `main` through an explicit allowlist).
+Every interactive request shape skips `repository_dispatch` and GitHub Actions: Vercel runs `src/main` in-process (`api/_direct-runtime.js` → `runEntryPoint`), after the acknowledgement. Vercel is the execution host and holds the application secrets (Production environment only, passed to `main` through an explicit allowlist). The GitHub path (`triggerGitHub` → `repository_dispatch` → `slack-message.yml`) stays in place, unused, for rollback until #38's removal phase.
 
-The Vercel endpoint (`api/`) should remain a thin transport layer. Hosting migrated paths does not change that: `api/` routes only on existing payload fields, makes no authorization decisions, parses no command text and contains no domain logic.
+The Vercel endpoint (`api/`) should remain a thin transport layer. Hosting the application does not change that: `api/` routes only on existing payload fields, makes no authorization decisions, parses no command text and contains no domain logic.
 Vercel may return a fixed, generic acknowledgement in its HTTP response to Slack: no user data, no Gemini output, no authorization decisions.
 As one narrow exception, Vercel may also POST one fixed, generic acknowledgement to an interaction's Slack `response_url` (currently only the Suggest message button), under the same constraints: constant content, no request data, no authorization decisions.
 

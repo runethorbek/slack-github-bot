@@ -21,8 +21,18 @@ const ADD_SUGGESTED_FOLLOWUP_TASK_ACTION_ID = "add_suggested_followup_task";
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-// The one slash command routed to the direct runner instead of GitHub (#36).
-const DIRECT_TASKS_COMMAND = "/tasks";
+// Fixed labels for the direct runner's log lines (#36, #38). Each is chosen by
+// comparing an existing payload field with a constant; never request data.
+const DIRECT_LABELS = {
+  tasks: "/tasks",
+  people: "/people",
+  slashCommand: "slash command",
+  dmMessage: "DM message",
+  threadReply: "thread reply",
+  suggestButton: "Suggest button",
+  addInteractionSubmission: "Add interaction submission",
+  addFollowupTaskSubmission: "Add follow-up task submission",
+};
 
 // Fixed, generic view that replaces the Add Interaction and Add follow-up
 // task modals once a submission is dispatched. It contains no request data;
@@ -463,6 +473,12 @@ export async function handleSlackRequest(
     now = Date.now,
   }
 ) {
+  // Runs the application once for a dispatch payload: directly in this
+  // function when a direct runner is wired (#36, #38), else through GitHub
+  // Actions, which stays in place for rollback until #38's removal phase.
+  const dispatch = (payload, label) =>
+    runDirect ? runDirect(payload, label) : triggerGitHub(payload);
+
   try {
     const rawBody = Buffer.from(await request.arrayBuffer());
 
@@ -519,18 +535,21 @@ export async function handleSlackRequest(
           }
 
           defer(
-            triggerGitHub({
-              text: event.text ?? "",
-              channel_id: event.channel ?? "",
-              user_id: event.user ?? "",
-              event_ts: event.ts ?? "",
+            dispatch(
+              {
+                text: event.text ?? "",
+                channel_id: event.channel ?? "",
+                user_id: event.user ?? "",
+                event_ts: event.ts ?? "",
 
-              // thread_ts peger på root-beskeden
-              thread_ts: event.thread_ts ?? "",
-              channel_type: channelType,
+                // thread_ts peger på root-beskeden
+                thread_ts: event.thread_ts ?? "",
+                channel_type: channelType,
 
-              slack_event_type: "message",
-            })
+                slack_event_type: "message",
+              },
+              isDirectMessage ? DIRECT_LABELS.dmMessage : DIRECT_LABELS.threadReply
+            )
           );
         }
 
@@ -567,16 +586,19 @@ export async function handleSlackRequest(
         if (personName) {
           const channelId = body.channel?.id ?? "";
           defer(
-            triggerGitHub({
-              command: "/people",
-              text: `suggest ${personName}`,
-              response_url: body.response_url ?? "",
-              channel_id: channelId,
-              user_id: body.user?.id ?? "",
-              channel_type: commandChannelType(channelId),
-              thread_ts: "",
-              slack_event_type: "block_actions",
-            })
+            dispatch(
+              {
+                command: "/people",
+                text: `suggest ${personName}`,
+                response_url: body.response_url ?? "",
+                channel_id: channelId,
+                user_id: body.user?.id ?? "",
+                channel_type: commandChannelType(channelId),
+                thread_ts: "",
+                slack_event_type: "block_actions",
+              },
+              DIRECT_LABELS.suggestButton
+            )
           );
 
           // A retried delivery of the same click must not post a second
@@ -677,30 +699,33 @@ export async function handleSlackRequest(
           // identity, to stay within GitHub's 10-property client_payload
           // limit. callback_id tells main.py which modal this came from.
           defer(
-            triggerGitHub({
-              channel_id: metadata.channel_id,
-              user_id: metadata.user_id,
-              channel_type: commandChannelType(metadata.channel_id),
-              thread_ts: metadata.thread_ts,
-              slack_event_type: "view_submission",
-              callback_id: ADD_FOLLOWUP_TASK_CALLBACK_ID,
-              person: JSON.stringify({
-                page_id: metadata.person_page_id,
-                name: metadata.person_name,
-              }),
-              task: JSON.stringify({
-                name: values.name_block?.name_input?.value ?? "",
-                description:
-                  values.description_block?.description_input?.value ?? "",
-                follow_up:
-                  values.follow_up_block?.follow_up_select?.selected_date ?? "",
-                priority:
-                  values.priority_block?.priority_select?.selected_option?.value ??
-                  "",
-                track_id:
-                  values.track_block?.track_select?.selected_option?.value ?? "",
-              }),
-            })
+            dispatch(
+              {
+                channel_id: metadata.channel_id,
+                user_id: metadata.user_id,
+                channel_type: commandChannelType(metadata.channel_id),
+                thread_ts: metadata.thread_ts,
+                slack_event_type: "view_submission",
+                callback_id: ADD_FOLLOWUP_TASK_CALLBACK_ID,
+                person: JSON.stringify({
+                  page_id: metadata.person_page_id,
+                  name: metadata.person_name,
+                }),
+                task: JSON.stringify({
+                  name: values.name_block?.name_input?.value ?? "",
+                  description:
+                    values.description_block?.description_input?.value ?? "",
+                  follow_up:
+                    values.follow_up_block?.follow_up_select?.selected_date ?? "",
+                  priority:
+                    values.priority_block?.priority_select?.selected_option?.value ??
+                    "",
+                  track_id:
+                    values.track_block?.track_select?.selected_option?.value ?? "",
+                }),
+              },
+              DIRECT_LABELS.addFollowupTaskSubmission
+            )
           );
 
           return Response.json({ response_action: "update", view: SAVING_VIEW });
@@ -747,21 +772,24 @@ export async function handleSlackRequest(
           // the button's own value) to make room for track_id without
           // exceeding that limit.
           defer(
-            triggerGitHub({
-              channel_id: metadata.channel_id,
-              user_id: metadata.user_id,
-              channel_type: commandChannelType(metadata.channel_id),
-              thread_ts: metadata.thread_ts,
-              slack_event_type: "view_submission",
-              person: JSON.stringify({
-                page_id: metadata.person_page_id,
-                name: metadata.person_name,
-              }),
-              interaction_type: interactionType,
-              notes,
-              track_id: trackId,
-              date: interactionDate,
-            })
+            dispatch(
+              {
+                channel_id: metadata.channel_id,
+                user_id: metadata.user_id,
+                channel_type: commandChannelType(metadata.channel_id),
+                thread_ts: metadata.thread_ts,
+                slack_event_type: "view_submission",
+                person: JSON.stringify({
+                  page_id: metadata.person_page_id,
+                  name: metadata.person_name,
+                }),
+                interaction_type: interactionType,
+                notes,
+                track_id: trackId,
+                date: interactionDate,
+              },
+              DIRECT_LABELS.addInteractionSubmission
+            )
           );
 
           return Response.json({ response_action: "update", view: SAVING_VIEW });
@@ -798,14 +826,15 @@ export async function handleSlackRequest(
       slack_event_type: "slash_command",
     };
 
-    // The whole /tasks command family runs src/main.ts directly in this
-    // function (#36); its text is parsed and authorized there, not here.
-    // Every other command still goes to GitHub Actions.
-    if (runDirect && command === DIRECT_TASKS_COMMAND) {
-      defer(runDirect(payload, DIRECT_TASKS_COMMAND));
-    } else {
-      defer(triggerGitHub(payload));
+    // Whole command families run directly (#36, #38); their text is parsed
+    // and authorized in src/, not here.
+    let label = DIRECT_LABELS.slashCommand;
+    if (command === "/tasks") {
+      label = DIRECT_LABELS.tasks;
+    } else if (command === "/people") {
+      label = DIRECT_LABELS.people;
     }
+    defer(dispatch(payload, label));
 
     // Acknowledge within Slack's three-second deadline with a fixed, generic
     // ephemeral message that contains no request data. Command-specific
