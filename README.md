@@ -164,7 +164,7 @@ Runs on every pull request (and manually): `npm ci`, `npm run typecheck` and `np
 
 Entry point and Slack transport glue. It authorizes and routes requests in this order, before any of them can reach the Gemini conversation path:
 
-1. Authorized-DM tracer — a deterministic acknowledgement for a root DM from the one authorized Slack user.
+1. Authorized-DM tracer — a deterministic acknowledgement for any message the one authorized Slack user sends in the bot's DM, including thread replies. A `/testbot` conversation started in the DM therefore cannot be continued there; use a channel.
 2. Modal submissions — authorized like `/tasks` and `/people`, then handed to [`src/followup-task.ts`](#srcfollowup-taskts) or [`src/people-interaction.ts`](#srcpeople-interactionts).
 3. `/tasks` and `/people` authorization — both command families are restricted to the configured Tasks channel or the authorized user's DM; unauthorized requests are refused without touching Notion.
 4. `/people` — delegates to [`src/people-due.ts`](#srcpeople-duets).
