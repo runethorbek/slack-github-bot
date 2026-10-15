@@ -1,4 +1,5 @@
 import { waitUntil } from "@vercel/functions";
+import { runDirect } from "./_direct-runtime.js";
 import { handleSlackRequest } from "./slack-request.js";
 
 async function openModal(triggerId, view) {
@@ -57,6 +58,7 @@ export default {
     return handleSlackRequest(request, {
       signingSecret: process.env.SLACK_SIGNING_SECRET,
       triggerGitHub,
+      runDirect,
       openModal,
       postToResponseUrl: fetch,
       defer: waitUntil,
