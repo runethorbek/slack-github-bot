@@ -112,6 +112,7 @@ The application was migrated from Python. Its behavior was kept identical, inclu
 │   └── specs/
 │       ├── tasks-list.md
 │       └── track-resolution.md
+├── index.html
 ├── package.json
 ├── package-lock.json
 ├── tsconfig.json
@@ -354,6 +355,8 @@ as:
 ```text
 https://<project>.vercel.app/api/slack
 ```
+
+`/` serves the static landing page in `index.html` at the repository root (no build step, no framework).
 
 Configure the following environment variables in Vercel:
 
