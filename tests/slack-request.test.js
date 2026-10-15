@@ -938,7 +938,7 @@ test("clicking Add Interaction opens a modal carrying the Person page id and thr
   const typeBlock = view.blocks.find((block) => block.block_id === "type_block");
   assert.equal(typeBlock.element.type, "static_select");
   // Rendered from the button's own "types", resolved from the live Notion
-  // schema by people_suggest.py - not a hardcoded list in this file.
+  // schema by src/people-suggest.ts - not a hardcoded list in this file.
   assert.deepEqual(typeBlock.element.options, [
     { text: { type: "plain_text", text: "Coffee" }, value: "Coffee" },
     { text: { type: "plain_text", text: "Walk" }, value: "Walk" },
@@ -1064,8 +1064,8 @@ test("an Add Interaction click without a trigger_id does not open a modal", asyn
 });
 
 test("an Add Interaction click carrying no Type options does not open a modal", async () => {
-  // people_suggest.py never builds this button without Type options (see
-  // build_suggestion_blocks), but a stale or tampered payload must still
+  // src/people-suggest.ts never builds this button without Type options (see
+  // buildSuggestionBlocks), but a stale or tampered payload must still
   // fail closed rather than open a modal Slack would reject anyway (a
   // static_select cannot have zero options).
   const body = addInteractionButtonClickBody({
