@@ -21,6 +21,9 @@ const ADD_SUGGESTED_FOLLOWUP_TASK_ACTION_ID = "add_suggested_followup_task";
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
+// The one slash command routed to the direct runner instead of GitHub (#36).
+const DIRECT_TASKS_COMMAND = "/tasks";
+
 // Fixed, generic view that replaces the Add Interaction and Add follow-up
 // task modals once a submission is dispatched. It contains no request data;
 // the actual result is posted in the thread later from Python.
@@ -453,6 +456,7 @@ export async function handleSlackRequest(
   {
     signingSecret,
     triggerGitHub,
+    runDirect,
     defer,
     openModal,
     postToResponseUrl,
@@ -779,22 +783,29 @@ export async function handleSlackRequest(
     const channelId = formData.get("channel_id") ?? "";
     const userId = formData.get("user_id") ?? "";
 
-    defer(
-      triggerGitHub({
-        command,
-        text,
-        response_url: responseUrl,
-        channel_id: channelId,
-        user_id: userId,
-        channel_type: commandChannelType(channelId),
+    const payload = {
+      command,
+      text,
+      response_url: responseUrl,
+      channel_id: channelId,
+      user_id: userId,
+      channel_type: commandChannelType(channelId),
 
-        // Slash command starter en NY samtale.
-        // Derfor er der endnu ikke noget thread_ts.
-        thread_ts: "",
+      // Slash command starter en NY samtale.
+      // Derfor er der endnu ikke noget thread_ts.
+      thread_ts: "",
 
-        slack_event_type: "slash_command",
-      })
-    );
+      slack_event_type: "slash_command",
+    };
+
+    // The whole /tasks command family runs src/main.ts directly in this
+    // function (#36); its text is parsed and authorized there, not here.
+    // Every other command still goes to GitHub Actions.
+    if (runDirect && command === DIRECT_TASKS_COMMAND) {
+      defer(runDirect(payload, DIRECT_TASKS_COMMAND));
+    } else {
+      defer(triggerGitHub(payload));
+    }
 
     // Acknowledge within Slack's three-second deadline with a fixed, generic
     // ephemeral message that contains no request data. Command-specific
