@@ -1,8 +1,9 @@
-// The direct Vercel runtime for /tasks (#36, docs/experiments/
+// The direct Vercel runtime (#36, #38 phase 1; docs/experiments/
 // vercel-runtime-migration ACCEPTANCE.md V1-V14): api/slack-request.js routes
-// the /tasks command family to api/_direct-runtime.js, which runs src/main.ts
-// in-process instead of dispatching to GitHub Actions. Every other request
-// shape must still dispatch exactly as before.
+// every interactive request shape to api/_direct-runtime.js, which runs
+// src/main in-process instead of dispatching to GitHub Actions, with the same
+// payload, ack and retry guards as before. Without a direct runner, every
+// shape still dispatches to GitHub exactly as before (the rollback path).
 //
 // The workflow mapping is read from slack-message.yml itself, as in
 // cross-layer-contract.test.ts, so the adapter cannot drift from it.

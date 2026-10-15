@@ -3,8 +3,8 @@
 A Slack bot that uses:
 
 * Slack as the user interface
-* Vercel as a lightweight webhook endpoint
-* GitHub Actions as the runtime/orchestration layer
+* Vercel as the webhook endpoint and the runtime for every interactive Slack request
+* GitHub Actions for the scheduled attention summary, CI, and (until it is removed) a rollback path for interactive requests
 * TypeScript on Node.js for the bot logic
 * Notion as the source of Tasks, Tracks, People, and Interactions data. The bot reads it, and creates Interactions and Tasks after validating what the user submitted in a Slack modal
 * Google Gemini for open-ended conversation, for drafting suggested messages, and for suggesting follow-up Tasks
@@ -22,14 +22,10 @@ Slack
 Vercel Function
 /api/slack
   │
-  ├── /tasks (whole command family): runEntryPoint from src/main.ts, in the Vercel Function
-  │
-  │ everything else: repository_dispatch
+  │ after the ack, in waitUntil: runEntryPoint from src/main
+  │ (rollback path until removal: repository_dispatch → GitHub Actions → node src/main.ts)
   ▼
-GitHub Actions
-  │
-  ▼
-node src/main.ts
+src/main
   │
   ├── /testbot, thread replies → Gemini conversation
   │
@@ -54,7 +50,7 @@ The bot creates a real Slack message and uses that message as the root of a new 
 
 An authorized root DM is itself the root of a new conversation. The bot replies beneath it with a deterministic acknowledgement; DM history is not loaded and Gemini is not invoked.
 
-Replies written by the user inside that thread are received through Slack Event Subscriptions. Each reply triggers another GitHub Action run.
+Replies written by the user inside that thread are received through Slack Event Subscriptions. Each reply runs the application again in the Vercel Function.
 
 The Node.js process is stateless. Instead of storing conversation state itself, it retrieves the Slack thread and uses it as the conversation history.
 
@@ -124,15 +120,15 @@ The application was migrated from Python. Its behavior was kept identical, inclu
 
 ### `api/slack.js`
 
-Vercel Function responsible for receiving requests from Slack. It delegates request handling to `api/slack-request.js` and triggers a GitHub `repository_dispatch` event with the parsed payload, except for `/tasks` (see `api/_direct-runtime.js`). It also opens the "Add interaction" and "Add follow-up task" modals (Slack `views.open`) when their buttons are clicked.
+Vercel Function responsible for receiving requests from Slack. It delegates request handling to `api/slack-request.js`, which runs the application for the parsed payload directly in the function (see `api/_direct-runtime.js`). The GitHub `repository_dispatch` path (`triggerGitHub`) is still wired in `api/slack-request.js` as the fallback when no direct runner is supplied, and is kept for rollback until the removal phase of #38. It also opens the "Add interaction" and "Add follow-up task" modals (Slack `views.open`) when their buttons are clicked.
 
 The Vercel function deliberately contains very little application logic. Its primary responsibility is transporting events from Slack to the application.
 
 ### `api/_direct-runtime.js`
 
-Runs the application directly in the Vercel Function for the `/tasks` command family (list, usage and the unauthorized refusal), with no `repository_dispatch` and no GitHub Actions run. This is slice 1 of the [Vercel runtime migration](docs/experiments/vercel-runtime-migration/PLAN.md); every other request shape still goes through GitHub Actions. The leading underscore keeps Vercel from exposing the module as its own `/api` route.
+Runs the application directly in the Vercel Function for every interactive request shape (`/tasks`, `/people`, other slash commands such as `/testbot`, thread replies, DMs, the Suggest button and both modal submissions), with no `repository_dispatch` and no GitHub Actions run. This is the [Vercel runtime migration](docs/experiments/vercel-runtime-migration/PLAN.md): `/tasks` moved in slice 1 (#36), the rest in #38. The leading underscore keeps Vercel from exposing the module as its own `/api` route.
 
-After the acknowledgement, inside `waitUntil`, it builds `main`'s environment from the same dispatch payload exactly as `slack-message.yml` does, takes only the workflow's nine application secrets from Vercel's environment (an explicit allowlist, so `SLACK_SIGNING_SECRET` and `GITHUB_*` never reach `main`), lazily imports `src/main` and calls `runEntryPoint`. Vercel's builder compiles `src/*.ts` and ships them as `.js`, so a deployment loads `src/main.js`; locally only `src/main.ts` exists, and the adapter falls back to it only when `src/main.js` itself is missing. Command parsing and authorization stay in `src/`. It logs only constant lines: `Direct runtime: executing /tasks` and `Direct runtime: finished /tasks with exit code <n>`, next to `main`'s own constant lines. As on the GitHub path, a failure after the acknowledgement is not reported in Slack.
+After the acknowledgement, inside `waitUntil`, it builds `main`'s environment from the same dispatch payload exactly as `slack-message.yml` does, takes only the workflow's nine application secrets from Vercel's environment (an explicit allowlist, so `SLACK_SIGNING_SECRET` and `GITHUB_*` never reach `main`), lazily imports `src/main` and calls `runEntryPoint`. Vercel's builder compiles `src/*.ts` and ships them as `.js`, so a deployment loads `src/main.js`; locally only `src/main.ts` exists, and the adapter falls back to it only when `src/main.js` itself is missing. Command parsing and authorization stay in `src/`. It logs only constant lines, `Direct runtime: executing <label>` and `Direct runtime: finished <label> with exit code <n>`, next to `main`'s own constant lines. The label is fixed per request shape (`/tasks`, `/people`, `slash command`, `thread reply`, `DM message`, `Suggest button`, `Add interaction submission`, `Add follow-up task submission`) and never contains request data. As on the GitHub path, a failure after the acknowledgement is not reported in Slack.
 
 ### `api/slack-request.js`
 
@@ -142,12 +138,14 @@ Before parsing or dispatching a request, it verifies Slack's `X-Slack-Signature`
 
 It handles these request shapes:
 
-1. **Slash commands** (`/testbot`, `/tasks`, `/people`) — preserves the command, text, and response URL in the dispatch payload, and immediately returns a fixed ephemeral acknowledgement (`Working on it…`) that is identical for every command and contains no request data. The final reply follows from the GitHub Actions run, or, for `/tasks`, from the direct run in Vercel. The application uses the response URL for ephemeral validation/refusal responses.
+1. **Slash commands** (`/testbot`, `/tasks`, `/people`) — preserves the command, text, and response URL in the dispatch payload, and immediately returns a fixed ephemeral acknowledgement (`Working on it…`) that is identical for every command and contains no request data. The final reply follows from the direct run in Vercel. The application uses the response URL for ephemeral validation/refusal responses.
 2. **Events API callbacks** (message events and URL verification) — forwards thread replies and authorized root DMs; ignores the bot's own messages and ordinary top-level channel messages.
 3. **Block Kit interactivity** (button clicks) — a "Suggest message" button attached to a `/people due` result is dispatched as if the user had typed `/people suggest <name>`, reusing the exact same Person-resolution and Gemini-drafting path as the typed command. Vercel also posts a fixed ephemeral acknowledgement (`Working on a suggestion… It will be posted as a new message.`) to the click's `https://hooks.slack.com/` response URL, in the background after the empty 200; it contains no request data, is skipped for Slack retries, leaves the `/people due` list unchanged, and is not replaced when the suggestion follows. The "Add interaction" and "Add follow-up task" buttons open their modal from the options carried in the button's value; no Notion access happens in Vercel.
-4. **Modal submissions** (`view_submission`) — the submitted "Add interaction" or "Add follow-up task" fields are dispatched to GitHub Actions, where they are validated and written.
+4. **Modal submissions** (`view_submission`) — the submitted "Add interaction" or "Add follow-up task" fields are run through the application in Vercel, where they are validated and written. A Slack retry of a submission (`X-Slack-Retry-Num`) runs nothing.
 
 ### `slack-message.yml`
+
+The former interactive runtime. While the direct runner is wired, no interactive request dispatches to it; it is kept for rollback until the removal phase of #38.
 
 GitHub Actions workflow triggered by:
 
@@ -378,16 +376,22 @@ GITHUB_REPO=slack-github-bot
 
 `SLACK_SIGNING_SECRET` must be stored as a secret and match the signing secret for the Slack app that sends requests to the endpoint.
 
-`SLACK_BOT_TOKEN` must be stored as a secret; `api/slack.js` uses it to open the "Add interaction" and "Add follow-up task" modals, and the direct `/tasks` path passes it to `main`.
+`SLACK_BOT_TOKEN` must be stored as a secret; `api/slack.js` uses it to open the "Add interaction" and "Add follow-up task" modals, and the direct runtime passes it to `main`.
 
-The direct `/tasks` path also needs these, in the **Production** environment only, with the same values as the GitHub secrets:
+The direct runtime also needs these, in the **Production** environment only, with the same values as the GitHub secrets:
 
 ```text
 NOTION_API_KEY
 NOTION_TASKS_DATA_SOURCE_ID
+NOTION_PEOPLE_DATA_SOURCE_ID
+NOTION_INTERACTIONS_DATA_SOURCE_ID
+NOTION_TRACKS_DATA_SOURCE_ID
 TASKS_SLACK_CHANNEL_ID
 AUTHORIZED_SLACK_USER_ID
+GEMINI_API_KEY
 ```
+
+`GITHUB_OWNER`, `GITHUB_REPO` and `GITHUB_TOKEN` stay in place for the rollback path until the removal phase of #38.
 
 The project's Node.js version must be 24.x (`engines` in `package.json`).
 
@@ -585,9 +589,7 @@ A working endpoint should return HTTP `200`.
 
 ```text
 Slack
-→ Vercel
-→ GitHub Action
-→ Node.js (src/main.ts)
+→ Vercel (src/main, in the function)
 → Gemini
 → Slack thread
 ```
@@ -602,9 +604,9 @@ Reply inside a `/testbot`-generated Slack thread:
 Can you elaborate?
 ```
 
-A second GitHub Action should start.
+The Vercel logs should show a second direct run (`Direct runtime: executing thread reply`), and no `Slack Message` GitHub Action should start.
 
-The bot does not print reconstructed conversations to GitHub Actions logs.
+The bot does not print reconstructed conversations to its logs.
 
 ### Run the automated test suite
 
@@ -673,13 +675,7 @@ The only Notion writes are the two modal submissions. Each is authorized the sam
 
 ## Current limitations
 
-The application currently relies on GitHub Actions for each interaction except `/tasks`, which runs directly in Vercel.
-
-That works well for experimentation, but it introduces latency because every Slack message starts a new Actions runner.
-
-For a production conversational bot, a persistent service or serverless execution environment would likely provide lower latency.
-
-The current design intentionally favors simplicity and visibility over response speed.
+Interactive requests run in the Vercel Function after the acknowledgement, so each one is bounded by the function's maximum duration (Vercel's default; not yet tuned, PLAN.md D5). Work cut off at that limit produces no Slack reply. A failure after the acknowledgement is visible only in the Vercel logs, not in Slack (#39).
 
 ## Possible next steps
 
