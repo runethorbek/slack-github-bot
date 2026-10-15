@@ -2,21 +2,21 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 const MAX_REQUEST_AGE_SECONDS = 5 * 60;
 
-// Matches PEOPLE_SUGGEST_ACTION_ID in people_due.py.
+// Matches PEOPLE_SUGGEST_ACTION_ID in src/people-due.ts.
 const PEOPLE_SUGGEST_ACTION_ID = "people_suggest";
 
 // Matches ADD_INTERACTION_ACTION_ID / ADD_INTERACTION_CALLBACK_ID in
-// people_interaction.py.
+// src/people-interaction.ts.
 const ADD_INTERACTION_ACTION_ID = "people_add_interaction";
 const ADD_INTERACTION_CALLBACK_ID = "add_interaction_modal";
 
 // Matches ADD_FOLLOWUP_TASK_ACTION_ID / ADD_FOLLOWUP_TASK_CALLBACK_ID in
-// followup_task.py.
+// src/followup-task.ts.
 const ADD_FOLLOWUP_TASK_ACTION_ID = "add_followup_task";
 const ADD_FOLLOWUP_TASK_CALLBACK_ID = "add_followup_task_modal";
 
-// Matches ADD_SUGGESTED_FOLLOWUP_TASK_ACTION_ID in followup_task.py. Opens
-// the same Task modal, prefilled with the suggestion Python validated.
+// Matches ADD_SUGGESTED_FOLLOWUP_TASK_ACTION_ID in src/followup-task.ts. Opens
+// the same Task modal, prefilled with the suggestion it validated.
 const ADD_SUGGESTED_FOLLOWUP_TASK_ACTION_ID = "add_suggested_followup_task";
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -36,7 +36,7 @@ const DIRECT_LABELS = {
 
 // Fixed, generic view that replaces the Add Interaction and Add follow-up
 // task modals once a submission is dispatched. It contains no request data;
-// the actual result is posted in the thread later from Python.
+// the actual result is posted in the thread later by src/main.
 const SAVING_VIEW = {
   type: "modal",
   title: { type: "plain_text", text: "Saving…" },
@@ -54,7 +54,7 @@ const SAVING_VIEW = {
 
 // Fixed, generic ephemeral acknowledgement posted to a Suggest click's
 // response_url. It contains no request data; the suggestion itself is posted
-// later from Python.
+// later by src/main.
 const SUGGEST_ACKNOWLEDGEMENT = {
   response_type: "ephemeral",
   replace_original: false,
@@ -150,7 +150,7 @@ function parseAddInteractionButtonValue(value) {
         pageId: parsed.page_id,
         name: parsed.name,
         // All of these are already resolved from Notion by
-        // people_suggest.py and carried forward opaquely, exactly like
+        // src/people-suggest.ts and carried forward opaquely, exactly like
         // page_id/name above - this handler never queries Notion itself.
         tracks: parseTrackOptions(parsed.tracks),
         defaultTrackId:
@@ -178,7 +178,7 @@ function parseAddFollowupTaskButtonValue(value) {
       return {
         pageId: parsed.page_id,
         name: parsed.name,
-        // Already resolved from Notion by followup_task.py and carried
+        // Already resolved from Notion by src/followup-task.ts and carried
         // forward opaquely - this handler never queries Notion itself.
         tracks: parseTrackOptions(parsed.tracks),
         defaultTrackId:
@@ -186,7 +186,7 @@ function parseAddFollowupTaskButtonValue(value) {
             ? parsed.default_track_id
             : null,
         priorities: parseStringOptions(parsed.priorities),
-        // A suggested Task already validated by followup_task.py; only
+        // A suggested Task already validated by src/followup-task.ts; only
         // ever used as editable initial values in the modal.
         prefill: {
           name: parseOptionalString(parsed.task_name),
@@ -257,10 +257,10 @@ function buildAddInteractionView(
       element: {
         type: "static_select",
         action_id: "type_select",
-        // Resolved from the live Notion Type schema by people_suggest.py
+        // Resolved from the live Notion Type schema by src/people-suggest.ts
         // and carried forward via the button's value - see
         // parseStringOptions above. This dropdown is only a
-        // usability guardrail; people_interaction.py independently
+        // usability guardrail; src/people-interaction.ts independently
         // re-validates the submitted value against Notion before any
         // write.
         options: interactionTypes.map((option) => ({
@@ -344,7 +344,7 @@ function buildAddFollowupTaskView(
   };
   const followUpElement = { type: "datepicker", action_id: "follow_up_select" };
   // Initial values are only suggestions the user can edit; the submission
-  // goes through the same Python validation as an empty modal's.
+  // goes through the same validation as an empty modal's.
   if (prefill.name) {
     nameElement.initial_value = prefill.name;
   }
@@ -386,7 +386,7 @@ function buildAddFollowupTaskView(
 
   // Slack rejects a static_select with an empty options array, so optional
   // selectors are only offered when there is something to choose from.
-  // followup_task.py re-validates both against Notion before any write.
+  // src/followup-task.ts re-validates both against Notion before any write.
   if (priorities.length > 0) {
     blocks.push({
       type: "input",
@@ -526,7 +526,7 @@ export async function handleSlackRequest(
           const isDirectMessage = channelType === "im";
 
           // Root messages in ordinary channels are still ignored. A root DM
-          // is forwarded so Python can authorize it and start a conversation
+          // is forwarded so src/main can authorize it and start a conversation
           // rooted at event.ts.
           if (!event.thread_ts && !isDirectMessage) {
             return new Response("", {
@@ -623,8 +623,8 @@ export async function handleSlackRequest(
         ) {
           const person = parseAddInteractionButtonValue(action.value ?? "");
           // Slack rejects a static_select with an empty options array, so a
-          // button value with no Type options (which people_suggest.py
-          // never produces - see build_suggestion_blocks) must not reach
+          // button value with no Type options (which src/people-suggest.ts
+          // never produces - see buildSuggestionBlocks) must not reach
           // openModal at all, rather than open a modal with a broken Type
           // field.
           if (person && person.types.length > 0 && openModal) {
@@ -697,7 +697,7 @@ export async function handleSlackRequest(
           const values = body.view?.state?.values ?? {};
           // Task fields are bundled into one JSON field, like the Person
           // identity, to stay within GitHub's 10-property client_payload
-          // limit. callback_id tells main.py which modal this came from.
+          // limit. callback_id tells src/main.ts which modal this came from.
           defer(
             dispatch(
               {
@@ -838,7 +838,7 @@ export async function handleSlackRequest(
 
     // Acknowledge within Slack's three-second deadline with a fixed, generic
     // ephemeral message that contains no request data. Command-specific
-    // responses are sent later from Python through the signed response_url.
+    // responses are sent later by src/main through the signed response_url.
     return Response.json({
       response_type: "ephemeral",
       text: "Working on it…",
