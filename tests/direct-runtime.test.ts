@@ -415,8 +415,8 @@ const SHAPES: Shape[] = [
   { name: "a channel thread reply event", request: () => eventRequest(THREAD_REPLY), label: "thread reply" },
   { name: "a retried channel thread reply event", request: () => eventRequest(THREAD_REPLY, true), label: "thread reply" },
   // P2, P3: writes.
-  { name: "an Add interaction submission", request: () => interactionRequest(ADD_INTERACTION_SUBMISSION), label: null },
-  { name: "an Add follow-up task submission", request: () => interactionRequest(ADD_FOLLOWUP_TASK_SUBMISSION), label: null },
+  { name: "an Add interaction submission", request: () => interactionRequest(ADD_INTERACTION_SUBMISSION), label: "Add interaction submission" },
+  { name: "an Add follow-up task submission", request: () => interactionRequest(ADD_FOLLOWUP_TASK_SUBMISSION), label: "Add follow-up task submission" },
   // Handled entirely in Vercel, before and after the migration.
   { name: "url_verification", request: () => slackRequest(JSON.stringify({ type: "url_verification", challenge: "abc" }), JSON_TYPE), label: null, vercelOnly: true },
   { name: "a top-level channel message", request: () => eventRequest({ type: "message", text: "hi", channel: "C1", user: "U1", ts: "2.0" }), label: null, vercelOnly: true },
@@ -687,6 +687,28 @@ const UNAUTHORIZED: Array<{ name: string; request: () => Request; label: string;
     line: "Unauthorized Slack DM command ignored",
   },
   {
+    name: "an Add interaction submission from another channel",
+    request: () =>
+      interactionRequest({
+        ...ADD_INTERACTION_SUBMISSION,
+        view: { ...ADD_INTERACTION_SUBMISSION.view, private_metadata: JSON.stringify({ ...JSON.parse(MODAL_METADATA), channel_id: "C-other" }) },
+      }),
+    label: "Add interaction submission",
+    posts: [],
+    line: "Unauthorized modal submission ignored",
+  },
+  {
+    name: "an Add follow-up task submission from another channel",
+    request: () =>
+      interactionRequest({
+        ...ADD_FOLLOWUP_TASK_SUBMISSION,
+        view: { ...ADD_FOLLOWUP_TASK_SUBMISSION.view, private_metadata: JSON.stringify({ ...JSON.parse(MODAL_METADATA), channel_id: "C-other" }) },
+      }),
+    label: "Add follow-up task submission",
+    posts: [],
+    line: "Unauthorized modal submission ignored",
+  },
+  {
     name: "a DM message from another user",
     request: () => eventRequest({ ...DM_ROOT, channel: "D-private", user: "U-other" }),
     label: "DM message",
@@ -756,6 +778,51 @@ test("a reply in a /tasks list thread gets the fixed follow-up text directly, wi
   assert.deepEqual(output, [
     "adapter: Direct runtime: executing thread reply",
     "adapter: Direct runtime: finished thread reply with exit code 0",
+  ]);
+});
+
+test("an authorized Add follow-up task submission writes exactly one Task directly, without Gemini", async () => {
+  // The Tasks schema for validation, then one page create and the confirmation.
+  const posts: Array<[string, unknown]> = [];
+  const gets: string[] = [];
+  const http: RecordingHttp = {
+    posts,
+    gets,
+    async post(url, options = {}) {
+      posts.push([url, options.json]);
+      return url === "https://api.notion.com/v1/pages" ? jsonResponse({ id: "new-task" }) : jsonResponse({ ok: true, ts: "1.2" });
+    },
+    async get(url) {
+      gets.push(url);
+      return jsonResponse({
+        properties: {
+          Navn: { id: "title", type: "title" },
+          Priority: { type: "select", select: { options: [{ name: "High" }] } },
+          Status: { type: "status", status: { options: [{ name: "Ikke startet" }] } },
+          Description: { type: "rich_text" },
+        },
+      });
+    },
+  };
+  const gemini = recordingGemini();
+  const output: string[] = [];
+  await handle(interactionRequest(ADD_FOLLOWUP_TASK_SUBMISSION), {
+    runDirectImpl: capturedRunDirect(http, output, undefined, gemini),
+  });
+
+  assert.equal(gemini.clients, 0);
+  assert.deepEqual(gets, ["https://api.notion.com/v1/data_sources/fake-tasks-id"]);
+  assert.deepEqual(
+    posts.map(([url]) => url),
+    ["https://api.notion.com/v1/pages", "https://slack.com/api/chat.postMessage"],
+  );
+  const reply = posts.at(-1)?.[1] as { text: string; thread_ts: string };
+  assert.equal(reply.text, "Follow-up task added for Jane Doe: Send it");
+  assert.equal(reply.thread_ts, "111.222");
+  assert.deepEqual(output, [
+    "adapter: Direct runtime: executing Add follow-up task submission",
+    "main: Add follow-up Task submission handled",
+    "adapter: Direct runtime: finished Add follow-up task submission with exit code 0",
   ]);
 });
 

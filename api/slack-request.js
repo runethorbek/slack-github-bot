@@ -30,6 +30,8 @@ const DIRECT_LABELS = {
   dmMessage: "DM message",
   threadReply: "thread reply",
   suggestButton: "Suggest button",
+  addInteractionSubmission: "Add interaction submission",
+  addFollowupTaskSubmission: "Add follow-up task submission",
 };
 
 // Fixed, generic view that replaces the Add Interaction and Add follow-up
@@ -472,10 +474,10 @@ export async function handleSlackRequest(
   }
 ) {
   // Runs the application once for a dispatch payload: directly in this
-  // function when a direct runner is wired and the shape is migrated (#36,
-  // #38), else through GitHub Actions, which stays in place for rollback.
+  // function when a direct runner is wired (#36, #38), else through GitHub
+  // Actions, which stays in place for rollback until #38's removal phase.
   const dispatch = (payload, label) =>
-    runDirect && label !== null ? runDirect(payload, label) : triggerGitHub(payload);
+    runDirect ? runDirect(payload, label) : triggerGitHub(payload);
 
   try {
     const rawBody = Buffer.from(await request.arrayBuffer());
@@ -697,30 +699,33 @@ export async function handleSlackRequest(
           // identity, to stay within GitHub's 10-property client_payload
           // limit. callback_id tells main.py which modal this came from.
           defer(
-            triggerGitHub({
-              channel_id: metadata.channel_id,
-              user_id: metadata.user_id,
-              channel_type: commandChannelType(metadata.channel_id),
-              thread_ts: metadata.thread_ts,
-              slack_event_type: "view_submission",
-              callback_id: ADD_FOLLOWUP_TASK_CALLBACK_ID,
-              person: JSON.stringify({
-                page_id: metadata.person_page_id,
-                name: metadata.person_name,
-              }),
-              task: JSON.stringify({
-                name: values.name_block?.name_input?.value ?? "",
-                description:
-                  values.description_block?.description_input?.value ?? "",
-                follow_up:
-                  values.follow_up_block?.follow_up_select?.selected_date ?? "",
-                priority:
-                  values.priority_block?.priority_select?.selected_option?.value ??
-                  "",
-                track_id:
-                  values.track_block?.track_select?.selected_option?.value ?? "",
-              }),
-            })
+            dispatch(
+              {
+                channel_id: metadata.channel_id,
+                user_id: metadata.user_id,
+                channel_type: commandChannelType(metadata.channel_id),
+                thread_ts: metadata.thread_ts,
+                slack_event_type: "view_submission",
+                callback_id: ADD_FOLLOWUP_TASK_CALLBACK_ID,
+                person: JSON.stringify({
+                  page_id: metadata.person_page_id,
+                  name: metadata.person_name,
+                }),
+                task: JSON.stringify({
+                  name: values.name_block?.name_input?.value ?? "",
+                  description:
+                    values.description_block?.description_input?.value ?? "",
+                  follow_up:
+                    values.follow_up_block?.follow_up_select?.selected_date ?? "",
+                  priority:
+                    values.priority_block?.priority_select?.selected_option?.value ??
+                    "",
+                  track_id:
+                    values.track_block?.track_select?.selected_option?.value ?? "",
+                }),
+              },
+              DIRECT_LABELS.addFollowupTaskSubmission
+            )
           );
 
           return Response.json({ response_action: "update", view: SAVING_VIEW });
@@ -767,21 +772,24 @@ export async function handleSlackRequest(
           // the button's own value) to make room for track_id without
           // exceeding that limit.
           defer(
-            triggerGitHub({
-              channel_id: metadata.channel_id,
-              user_id: metadata.user_id,
-              channel_type: commandChannelType(metadata.channel_id),
-              thread_ts: metadata.thread_ts,
-              slack_event_type: "view_submission",
-              person: JSON.stringify({
-                page_id: metadata.person_page_id,
-                name: metadata.person_name,
-              }),
-              interaction_type: interactionType,
-              notes,
-              track_id: trackId,
-              date: interactionDate,
-            })
+            dispatch(
+              {
+                channel_id: metadata.channel_id,
+                user_id: metadata.user_id,
+                channel_type: commandChannelType(metadata.channel_id),
+                thread_ts: metadata.thread_ts,
+                slack_event_type: "view_submission",
+                person: JSON.stringify({
+                  page_id: metadata.person_page_id,
+                  name: metadata.person_name,
+                }),
+                interaction_type: interactionType,
+                notes,
+                track_id: trackId,
+                date: interactionDate,
+              },
+              DIRECT_LABELS.addInteractionSubmission
+            )
           );
 
           return Response.json({ response_action: "update", view: SAVING_VIEW });
