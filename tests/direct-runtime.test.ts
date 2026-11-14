@@ -1,17 +1,17 @@
-// The direct Vercel runtime (#36, #38 phase 1; docs/experiments/
+// The direct Vercel runtime (#36, #38; docs/experiments/
 // vercel-runtime-migration ACCEPTANCE.md V1-V14): api/slack-request.js routes
 // every interactive request shape to api/_direct-runtime.js, which runs
-// src/main in-process instead of dispatching to GitHub Actions, with the same
-// payload, ack and retry guards as before. Without a direct runner, every
-// shape still dispatches to GitHub exactly as before (the rollback path).
+// src/main in-process, with the same payload, ack and retry guards as when
+// these shapes ran through GitHub Actions.
 //
-// The workflow mapping is read from slack-message.yml itself, as in
-// cross-layer-contract.test.ts, so the adapter cannot drift from it.
+// The expected payloads, acks and environment mapping are pinned below as they
+// were on the GitHub Actions path before its removal (#38 phase 4), so the
+// adapter cannot drift from that contract.
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHmac } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -21,7 +21,6 @@ import type { GeminiClient, GeminiRequest } from "../src/gemini.ts";
 import { HttpResponse, type GetOptions, type PostOptions } from "../src/http.ts";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const WORKFLOW_PATH = path.join(REPO_ROOT, ".github", "workflows", "slack-message.yml");
 
 type Payload = Record<string, unknown>;
 type Environment = Record<string, string>;
@@ -36,8 +35,7 @@ type RunDirect = (payload: Payload, label: string, options?: RunDirectOptions) =
 type SlackRequestDeps = {
   signingSecret: string;
   now: () => number;
-  triggerGitHub: (payload: Payload) => Promise<unknown>;
-  runDirect?: (payload: Payload, label: string) => Promise<unknown>;
+  runDirect: (payload: Payload, label: string) => Promise<unknown>;
   defer: (promise: Promise<unknown>) => void;
   openModal?: (triggerId: string, view: unknown) => Promise<void>;
   postToResponseUrl?: (url: string, init: RequestInit) => Promise<Response>;
@@ -94,18 +92,13 @@ function slashCommand(command: string, text: string, channelId = "C-allowed", us
 type Handled = {
   status: number;
   body: string;
-  dispatched: Payload[];
   direct: Array<[Payload, string]>;
   modals: unknown[];
   responseUrlPosts: unknown[];
 };
 
-/** Handle one request, with or without a direct runner, and record every effect. */
-async function handle(
-  request: Request,
-  { withDirect = true, runDirectImpl }: { withDirect?: boolean; runDirectImpl?: RunDirect } = {},
-): Promise<Handled> {
-  const dispatched: Payload[] = [];
+/** Handle one request and record every effect. */
+async function handle(request: Request, { runDirectImpl }: { runDirectImpl?: RunDirect } = {}): Promise<Handled> {
   const direct: Array<[Payload, string]> = [];
   const modals: unknown[] = [];
   const responseUrlPosts: unknown[] = [];
@@ -113,7 +106,10 @@ async function handle(
   const deps: SlackRequestDeps = {
     signingSecret: SIGNING_SECRET,
     now: () => TIMESTAMP * 1000,
-    triggerGitHub: async (payload) => dispatched.push(payload),
+    runDirect: async (payload, label) => {
+      direct.push([structuredClone(payload), label]);
+      if (runDirectImpl) await runDirectImpl(payload, label);
+    },
     defer: (promise) => deferred.push(promise),
     openModal: async (triggerId, view) => {
       modals.push([triggerId, view]);
@@ -123,57 +119,60 @@ async function handle(
       return new Response("ok");
     },
   };
-  if (withDirect) {
-    deps.runDirect = async (payload, label) => {
-      direct.push([structuredClone(payload), label]);
-      if (runDirectImpl) await runDirectImpl(payload, label);
-    };
-  }
   const response = await handleSlackRequest(request, deps);
   await Promise.all(deferred);
-  return { status: response.status, body: await response.text(), dispatched, direct, modals, responseUrlPosts };
+  return { status: response.status, body: await response.text(), direct, modals, responseUrlPosts };
 }
 
 // ---------------------------------------------------------------------------
-// The workflow mapping, read from slack-message.yml
+// The environment contract, pinned as slack-message.yml's `env:` mapping was
+// before its removal (#38 phase 4)
 // ---------------------------------------------------------------------------
 
-function workflowEnvMapping(): Array<[string, string]> {
-  const lines = readFileSync(WORKFLOW_PATH, "utf8").split(/\r?\n/);
-  const runBot = lines.indexOf("      - name: Run bot");
-  assert.ok(runBot >= 0, "the Run bot step");
-  assert.equal(lines[runBot + 1], "        env:");
-  const mapping: Array<[string, string]> = [];
-  for (const line of lines.slice(runBot + 2)) {
-    const match = /^ {10}([A-Z_]+): (.*)$/.exec(line);
-    if (match === null) break;
-    mapping.push([match[1] as string, match[2] as string]);
-  }
-  return mapping;
-}
+// Each environment variable and the payload field it comes from, in order.
+const EXPECTED_PAYLOAD_ENVIRONMENT: ReadonlyArray<readonly [string, string]> = [
+  ["SLACK_COMMAND", "command"],
+  ["SLACK_TEXT", "text"],
+  ["SLACK_CHANNEL_ID", "channel_id"],
+  ["SLACK_USER_ID", "user_id"],
+  ["SLACK_EVENT_TS", "event_ts"],
+  ["SLACK_THREAD_TS", "thread_ts"],
+  ["SLACK_CHANNEL_TYPE", "channel_type"],
+  ["SLACK_EVENT_TYPE", "slack_event_type"],
+  ["SLACK_PERSON", "person"],
+  ["SLACK_INTERACTION_TYPE", "interaction_type"],
+  ["SLACK_INTERACTION_NOTES", "notes"],
+  ["SLACK_INTERACTION_DATE", "date"],
+  ["SLACK_INTERACTION_TRACK_ID", "track_id"],
+  ["SLACK_VIEW_CALLBACK_ID", "callback_id"],
+  ["SLACK_TASK", "task"],
+];
 
-function workflowSecretNames(): string[] {
-  return workflowEnvMapping().flatMap(([, expression]) => {
-    const secret = /^\$\{\{ secrets\.([A-Z_]+) \}\}$/.exec(expression);
-    return secret === null ? [] : [secret[1] as string];
-  });
-}
+// The application secrets main receives, and nothing else.
+const EXPECTED_SECRET_NAMES = [
+  "SLACK_BOT_TOKEN",
+  "AUTHORIZED_SLACK_USER_ID",
+  "GEMINI_API_KEY",
+  "NOTION_API_KEY",
+  "NOTION_PEOPLE_DATA_SOURCE_ID",
+  "NOTION_INTERACTIONS_DATA_SOURCE_ID",
+  "NOTION_TASKS_DATA_SOURCE_ID",
+  "NOTION_TRACKS_DATA_SOURCE_ID",
+  "TASKS_SLACK_CHANNEL_ID",
+];
 
-/** main's environment for `payload`, as slack-message.yml builds it. */
-function workflowEnvironment(payload: Payload, secrets: Record<string, string>): Environment {
+/**
+ * main's expected environment for `payload`: a missing payload field or secret
+ * is "", and SLACK_RESPONSE_URL is set only from a non-empty string
+ * response_url.
+ */
+function expectedEnvironment(payload: Payload, secrets: Record<string, string>): Environment {
   const environment: Environment = {};
-  for (const [name, expression] of workflowEnvMapping()) {
-    const payloadField = /^\$\{\{ github\.event\.client_payload\.([a-z_]+) \}\}$/.exec(expression);
-    const secret = /^\$\{\{ secrets\.([A-Z_]+) \}\}$/.exec(expression);
-    if (payloadField !== null) {
-      const value = payload[payloadField[1] as string];
-      environment[name] = value === undefined || value === null ? "" : String(value);
-    } else if (secret !== null) {
-      environment[name] = secrets[secret[1] as string] ?? "";
-    } else {
-      assert.fail(`unexpected env expression ${expression}`);
-    }
+  for (const [name, field] of EXPECTED_PAYLOAD_ENVIRONMENT) {
+    const value = payload[field];
+    environment[name] = value === undefined || value === null ? "" : String(value);
   }
+  for (const name of EXPECTED_SECRET_NAMES) environment[name] = secrets[name] ?? "";
   const responseUrl = payload["response_url"];
   if (typeof responseUrl === "string" && responseUrl) environment["SLACK_RESPONSE_URL"] = responseUrl;
   return environment;
@@ -316,20 +315,40 @@ function capturedRunDirect(
 // Routing (AC1, AC2, AC5; V1, V2, V9, V14)
 // ---------------------------------------------------------------------------
 
-test("a signed /tasks command (any text) gets the same ack and runs directly once, never via GitHub", async (t) => {
+// The fixed acks, as before the removal.
+const WORKING_ON_IT = '{"response_type":"ephemeral","text":"Working on it…"}';
+const SAVING_ACK =
+  '{"response_action":"update","view":{"type":"modal","title":{"type":"plain_text","text":"Saving…"},' +
+  '"close":{"type":"plain_text","text":"Close"},"blocks":[{"type":"section","text":{"type":"plain_text",' +
+  '"text":"Saving… You can close this window. The result will be posted in the thread."}}]}}';
+
+/** A slash command's or Suggest click's payload, as GitHub received it before the removal. */
+function commandPayload(
+  command: string,
+  text: string,
+  { slackEventType = "slash_command", responseUrl = "https://hooks.slack.test/response" } = {},
+): Payload {
+  return {
+    command,
+    text,
+    response_url: responseUrl,
+    channel_id: "C-allowed",
+    user_id: "U-user",
+    channel_type: "channel",
+    thread_ts: "",
+    slack_event_type: slackEventType,
+  };
+}
+
+test("a signed /tasks command (any text) gets the fixed ack and runs directly once with the unchanged payload", async (t) => {
   for (const text of ["list", "foo", "", "  LIST  "]) {
     await t.test(JSON.stringify(text), async () => {
-      const body = slashCommand("/tasks", text);
-      const baseline = await handle(slackRequest(body), { withDirect: false });
-      const handled = await handle(slackRequest(body));
+      const handled = await handle(slackRequest(slashCommand("/tasks", text)));
 
       assert.equal(handled.status, 200);
-      assert.equal(handled.body, '{"response_type":"ephemeral","text":"Working on it…"}');
-      assert.equal(handled.body, baseline.body);
-      assert.deepEqual(handled.dispatched, []);
-      // The unchanged payload: exactly what GitHub received before.
-      assert.deepEqual(handled.direct, [[baseline.dispatched[0], "/tasks"]]);
-      assert.equal(baseline.dispatched.length, 1);
+      assert.equal(handled.body, WORKING_ON_IT);
+      // The unchanged payload: exactly what GitHub received before the removal.
+      assert.deepEqual(handled.direct, [[commandPayload("/tasks", text), "/tasks"]]);
     });
   }
 });
@@ -341,9 +360,11 @@ test("a /tasks command from a DM keeps its DM identity in the direct payload", a
 
 // Every request shape api/slack-request.js handles (BASELINE.md §4). `label` is
 // the direct runner's fixed label for a migrated shape (#36, #38), or null for
-// a shape that still goes to GitHub Actions or never dispatches at all
-// (`vercelOnly`).
-type Shape = { name: string; request: () => Request; label: string | null; vercelOnly?: boolean };
+// a shape that never dispatches at all (`vercelOnly`). `expected` pins a
+// migrated shape's payload, ack body and Suggest response_url posts exactly as
+// they were on the GitHub Actions path before its removal.
+type Expected = { payload: Payload; body: string; responseUrlPosts: string[] };
+type Shape = { name: string; request: () => Request; label: string | null; vercelOnly?: boolean; expected?: Expected };
 
 const JSON_TYPE = "application/json";
 const MODAL_METADATA = JSON.stringify({
@@ -396,28 +417,85 @@ const ADD_FOLLOWUP_TASK_SUBMISSION = {
 };
 const BUTTON_VALUE = JSON.stringify({ page_id: "person-page-id", name: "Jane Doe", types: ["Coffee"] });
 
+const slashExpected = (command: string, text: string): Expected => ({
+  payload: commandPayload(command, text),
+  body: WORKING_ON_IT,
+  responseUrlPosts: [],
+});
+const eventExpected = (event: { text: string; channel: string; user: string; ts: string; thread_ts?: string; channel_type?: string }): Expected => ({
+  payload: {
+    text: event.text,
+    channel_id: event.channel,
+    user_id: event.user,
+    event_ts: event.ts,
+    thread_ts: event.thread_ts ?? "",
+    channel_type: event.channel_type ?? "",
+    slack_event_type: "message",
+  },
+  body: "",
+  responseUrlPosts: [],
+});
+const suggestExpected = (responseUrlPosts: string[]): Expected => ({
+  payload: commandPayload("/people", "suggest Jane Doe", {
+    slackEventType: "block_actions",
+    responseUrl: "https://hooks.slack.com/actions/x",
+  }),
+  body: "",
+  responseUrlPosts,
+});
+const SUBMISSION_IDENTITY = {
+  channel_id: "C-allowed",
+  user_id: "U-user",
+  channel_type: "channel",
+  thread_ts: "111.222",
+  slack_event_type: "view_submission",
+  person: '{"page_id":"person-page-id","name":"Jane Doe"}',
+};
+
 const SHAPES: Shape[] = [
   // Migrated in #36.
-  { name: "/tasks list", request: () => slackRequest(slashCommand("/tasks", "list")), label: "/tasks" },
+  { name: "/tasks list", request: () => slackRequest(slashCommand("/tasks", "list")), label: "/tasks", expected: slashExpected("/tasks", "list") },
   // P5/P6: the whole /people family; its text is parsed in src/, not in api/.
-  { name: "/people due", request: () => slackRequest(slashCommand("/people", "due")), label: "/people" },
-  { name: "/people suggest", request: () => slackRequest(slashCommand("/people", "suggest Jane Doe")), label: "/people" },
-  { name: "/people (usage)", request: () => slackRequest(slashCommand("/people", "foo")), label: "/people" },
+  { name: "/people due", request: () => slackRequest(slashCommand("/people", "due")), label: "/people", expected: slashExpected("/people", "due") },
+  { name: "/people suggest", request: () => slackRequest(slashCommand("/people", "suggest Jane Doe")), label: "/people", expected: slashExpected("/people", "suggest Jane Doe") },
+  { name: "/people (usage)", request: () => slackRequest(slashCommand("/people", "foo")), label: "/people", expected: slashExpected("/people", "foo") },
   // P1: DM message events, root or reply. Retried events are not guarded today.
-  { name: "a root DM event", request: () => eventRequest(DM_ROOT), label: "DM message" },
-  { name: "a DM thread reply event", request: () => eventRequest(DM_REPLY), label: "DM message" },
-  { name: "a retried DM event", request: () => eventRequest(DM_ROOT, true), label: "DM message" },
+  { name: "a root DM event", request: () => eventRequest(DM_ROOT), label: "DM message", expected: eventExpected(DM_ROOT) },
+  { name: "a DM thread reply event", request: () => eventRequest(DM_REPLY), label: "DM message", expected: eventExpected(DM_REPLY) },
+  { name: "a retried DM event", request: () => eventRequest(DM_ROOT, true), label: "DM message", expected: eventExpected(DM_ROOT) },
   // P7, P8, P9: Gemini paths.
-  { name: "a Suggest button click", request: () => interactionRequest(SUGGEST_CLICK), label: "Suggest button" },
-  { name: "a retried Suggest button click", request: () => interactionRequest(SUGGEST_CLICK, true), label: "Suggest button" },
-  { name: "/testbot", request: () => slackRequest(slashCommand("/testbot", "hello")), label: "slash command" },
-  { name: "a command that only starts with /tasks", request: () => slackRequest(slashCommand("/tasksx", "list")), label: "slash command" },
-  { name: "an empty command", request: () => slackRequest(slashCommand("", "list")), label: "slash command" },
-  { name: "a channel thread reply event", request: () => eventRequest(THREAD_REPLY), label: "thread reply" },
-  { name: "a retried channel thread reply event", request: () => eventRequest(THREAD_REPLY, true), label: "thread reply" },
+  { name: "a Suggest button click", request: () => interactionRequest(SUGGEST_CLICK), label: "Suggest button", expected: suggestExpected(["https://hooks.slack.com/actions/x"]) },
+  { name: "a retried Suggest button click", request: () => interactionRequest(SUGGEST_CLICK, true), label: "Suggest button", expected: suggestExpected([]) },
+  { name: "/testbot", request: () => slackRequest(slashCommand("/testbot", "hello")), label: "slash command", expected: slashExpected("/testbot", "hello") },
+  { name: "a command that only starts with /tasks", request: () => slackRequest(slashCommand("/tasksx", "list")), label: "slash command", expected: slashExpected("/tasksx", "list") },
+  { name: "an empty command", request: () => slackRequest(slashCommand("", "list")), label: "slash command", expected: slashExpected("", "list") },
+  { name: "a channel thread reply event", request: () => eventRequest(THREAD_REPLY), label: "thread reply", expected: eventExpected(THREAD_REPLY) },
+  { name: "a retried channel thread reply event", request: () => eventRequest(THREAD_REPLY, true), label: "thread reply", expected: eventExpected(THREAD_REPLY) },
   // P2, P3: writes.
-  { name: "an Add interaction submission", request: () => interactionRequest(ADD_INTERACTION_SUBMISSION), label: "Add interaction submission" },
-  { name: "an Add follow-up task submission", request: () => interactionRequest(ADD_FOLLOWUP_TASK_SUBMISSION), label: "Add follow-up task submission" },
+  {
+    name: "an Add interaction submission",
+    request: () => interactionRequest(ADD_INTERACTION_SUBMISSION),
+    label: "Add interaction submission",
+    expected: {
+      payload: { ...SUBMISSION_IDENTITY, interaction_type: "Coffee", notes: "Agreed to send the article.", track_id: "", date: "2026-10-15" },
+      body: SAVING_ACK,
+      responseUrlPosts: [],
+    },
+  },
+  {
+    name: "an Add follow-up task submission",
+    request: () => interactionRequest(ADD_FOLLOWUP_TASK_SUBMISSION),
+    label: "Add follow-up task submission",
+    expected: {
+      payload: {
+        ...SUBMISSION_IDENTITY,
+        callback_id: "add_followup_task_modal",
+        task: '{"name":"Send it","description":"","follow_up":"","priority":"","track_id":""}',
+      },
+      body: SAVING_ACK,
+      responseUrlPosts: [],
+    },
+  },
   // Handled entirely in Vercel, before and after the migration.
   { name: "url_verification", request: () => slackRequest(JSON.stringify({ type: "url_verification", challenge: "abc" }), JSON_TYPE), label: null, vercelOnly: true },
   { name: "a top-level channel message", request: () => eventRequest({ type: "message", text: "hi", channel: "C1", user: "U1", ts: "2.0" }), label: null, vercelOnly: true },
@@ -448,56 +526,39 @@ const SHAPES: Shape[] = [
 
 const MIGRATED = SHAPES.filter((shape) => shape.label !== null);
 
-test("every migrated shape runs directly once with the unchanged payload, never via GitHub", async (t) => {
-  for (const { name, request, label } of MIGRATED) {
+test("every migrated shape runs directly once with the unchanged payload", async (t) => {
+  for (const { name, request, label, expected } of MIGRATED) {
     await t.test(name, async () => {
-      const baseline = await handle(request(), { withDirect: false });
+      assert.ok(expected, "a migrated shape pins its expectation");
       const handled = await handle(request());
 
-      assert.equal(baseline.dispatched.length, 1);
-      assert.deepEqual(handled.direct, [[baseline.dispatched[0], label]]);
-      assert.deepEqual(handled.dispatched, []);
-      // The same ack, modals and Suggest response_url ack as before.
-      assert.equal(handled.status, baseline.status);
-      assert.equal(handled.body, baseline.body);
-      assert.deepEqual(handled.modals, baseline.modals);
-      assert.deepEqual(handled.responseUrlPosts, baseline.responseUrlPosts);
+      assert.deepEqual(handled.direct, [[expected.payload, label]]);
+      // The same ack, no modal and the same Suggest response_url ack as before.
+      assert.equal(handled.status, 200);
+      assert.equal(handled.body, expected.body);
+      assert.deepEqual(handled.modals, []);
+      assert.deepEqual(
+        handled.responseUrlPosts.map((post) => (post as [string, unknown])[0]),
+        expected.responseUrlPosts,
+      );
     });
   }
 });
 
-test("every shape not migrated is handled exactly as before, with the direct runner present", async (t) => {
-  for (const { name, request, label } of SHAPES) {
-    if (label !== null) continue;
-    await t.test(name, async () => {
-      const baseline = await handle(request(), { withDirect: false });
-      const handled = await handle(request());
-
-      assert.deepEqual(handled.direct, []);
-      assert.equal(handled.status, baseline.status);
-      assert.equal(handled.body, baseline.body);
-      assert.deepEqual(handled.dispatched, baseline.dispatched);
-      assert.deepEqual(handled.modals, baseline.modals);
-      assert.deepEqual(handled.responseUrlPosts, baseline.responseUrlPosts);
-    });
-  }
-});
-
-test("shapes handled entirely in Vercel run nothing, directly or via GitHub", async (t) => {
+test("shapes handled entirely in Vercel run nothing", async (t) => {
   for (const { name, request, vercelOnly } of SHAPES) {
     if (!vercelOnly) continue;
     await t.test(name, async () => {
       const handled = await handle(request());
       assert.deepEqual(handled.direct, []);
-      assert.deepEqual(handled.dispatched, []);
     });
   }
 });
 
-test("for every migrated shape, runEntryPoint gets the environment slack-message.yml would produce", async (t) => {
-  for (const { name, request } of MIGRATED) {
+test("for every migrated shape, runEntryPoint gets the pinned environment", async (t) => {
+  for (const { name, request, expected } of MIGRATED) {
     await t.test(name, async () => {
-      const baseline = await handle(request(), { withDirect: false });
+      assert.ok(expected, "a migrated shape pins its expectation");
       const received: Environment[] = [];
       await handle(request(), {
         runDirectImpl: (payload, label) =>
@@ -513,7 +574,7 @@ test("for every migrated shape, runEntryPoint gets the environment slack-message
           }),
       });
 
-      assert.deepEqual(received, [workflowEnvironment(baseline.dispatched[0] as Payload, SECRETS)]);
+      assert.deepEqual(received, [expectedEnvironment(expected.payload, SECRETS)]);
     });
   }
 });
@@ -522,18 +583,17 @@ test("an invalid signature on a /tasks request runs nothing", async () => {
   const handled = await handle(slackRequest(slashCommand("/tasks", "list"), FORM, "v0=0000"));
   assert.equal(handled.status, 401);
   assert.deepEqual(handled.direct, []);
-  assert.deepEqual(handled.dispatched, []);
 });
 
 // ---------------------------------------------------------------------------
 // The environment (AC3, AC6; V4, V8)
 // ---------------------------------------------------------------------------
 
-test("the application secret allowlist is exactly slack-message.yml's secrets", () => {
-  assert.deepEqual([...APPLICATION_SECRET_NAMES].sort(), workflowSecretNames().sort());
+test("the application secret allowlist is exactly the pinned secrets", () => {
+  assert.deepEqual([...APPLICATION_SECRET_NAMES].sort(), [...EXPECTED_SECRET_NAMES].sort());
 });
 
-test("the environment passed to runEntryPoint equals what slack-message.yml would produce", async (t) => {
+test("the environment passed to runEntryPoint equals the pinned mapping", async (t) => {
   const cases: Array<[string, string]> = [
     ["a channel /tasks list", slashCommand("/tasks", "list")],
     ["a DM /tasks with other text", slashCommand("/tasks", "foo bar", "D-private", "U-authorized")],
@@ -559,7 +619,7 @@ test("the environment passed to runEntryPoint equals what slack-message.yml woul
 
       const payload = handled.direct[0]?.[0] as Payload;
       assert.equal(received.length, 1);
-      assert.deepEqual(received[0]?.[0], workflowEnvironment(payload, SECRETS));
+      assert.deepEqual(received[0]?.[0], expectedEnvironment(payload, SECRETS));
     });
   }
 });
@@ -1127,7 +1187,6 @@ test("loading api/slack.js and handling synchronous paths does not load the appl
     const deferred = [];
     const deps = {
       signingSecret: "s",
-      triggerGitHub: async () => {},
       runDirect,
       defer: (promise) => deferred.push(promise),
       openModal: async () => {},

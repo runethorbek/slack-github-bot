@@ -1,16 +1,16 @@
-// Runs src/main.ts directly inside the Vercel Function for the request shapes
-// migrated off GitHub Actions (docs/experiments/vercel-runtime-migration,
-// PLAN.md §3). Today that is only the /tasks command family (#36).
+// Runs src/main.ts directly inside the Vercel Function for every interactive
+// request shape (docs/experiments/vercel-runtime-migration, PLAN.md §3; #36,
+// #38).
 //
 // This module is transport and runtime adaptation only: it turns the dispatch
-// payload that api/slack-request.js already builds into main's environment,
-// exactly as .github/workflows/slack-message.yml does, and calls
-// runEntryPoint. Routing, authorization and every Notion/Slack call stay in
-// src/. It logs only constant text: never the payload, the environment, Slack
-// text, Notion data, URLs or tokens.
+// payload that api/slack-request.js builds into main's environment and calls
+// runEntryPoint. The mapping below is that environment's contract. Routing,
+// authorization and every Notion/Slack call stay in src/. It logs only
+// constant text: never the payload, the environment, Slack text, Notion data,
+// URLs or tokens.
 
-// slack-message.yml's `env:` mapping from client_payload fields. A missing
-// field is "" there, so it is "" here.
+// main's environment variables, each from one dispatch payload field. A
+// missing field is "".
 const PAYLOAD_ENVIRONMENT = [
   ["SLACK_COMMAND", "command"],
   ["SLACK_TEXT", "text"],
@@ -29,9 +29,8 @@ const PAYLOAD_ENVIRONMENT = [
   ["SLACK_TASK", "task"],
 ];
 
-// The application secrets slack-message.yml passes, and nothing else: the
-// signing secret, GITHUB_* and every other Vercel variable never reach main.
-// An unset secret is "", as GitHub's expression gives.
+// The application secrets main receives, and nothing else: the signing secret
+// and every other Vercel variable never reach main. An unset secret is "".
 export const APPLICATION_SECRET_NAMES = [
   "SLACK_BOT_TOKEN",
   "AUTHORIZED_SLACK_USER_ID",
@@ -44,7 +43,7 @@ export const APPLICATION_SECRET_NAMES = [
   "TASKS_SLACK_CHANNEL_ID",
 ];
 
-/** main's environment for `payload`, as slack-message.yml builds it. */
+/** main's environment for `payload`. */
 export function directEnvironment(payload, sourceEnvironment) {
   const environment = {};
   for (const [name, field] of PAYLOAD_ENVIRONMENT) {
@@ -55,7 +54,7 @@ export function directEnvironment(payload, sourceEnvironment) {
     const value = sourceEnvironment[name];
     environment[name] = typeof value === "string" ? value : "";
   }
-  // The workflow's masking step exports this only when it is non-empty.
+  // Set only when the payload carries a non-empty response URL.
   const responseUrl = payload.response_url;
   if (typeof responseUrl === "string" && responseUrl) {
     environment.SLACK_RESPONSE_URL = responseUrl;
