@@ -465,7 +465,6 @@ export async function handleSlackRequest(
   request,
   {
     signingSecret,
-    triggerGitHub,
     runDirect,
     defer,
     openModal,
@@ -473,11 +472,9 @@ export async function handleSlackRequest(
     now = Date.now,
   }
 ) {
-  // Runs the application once for a dispatch payload: directly in this
-  // function when a direct runner is wired (#36, #38), else through GitHub
-  // Actions, which stays in place for rollback until #38's removal phase.
-  const dispatch = (payload, label) =>
-    runDirect ? runDirect(payload, label) : triggerGitHub(payload);
+  // Runs the application once for a dispatch payload, directly in this
+  // function (#36, #38).
+  const dispatch = (payload, label) => runDirect(payload, label);
 
   try {
     const rawBody = Buffer.from(await request.arrayBuffer());
@@ -513,7 +510,7 @@ export async function handleSlackRequest(
 
         // Ignorér beskeder fra botten selv.
         // Ellers kan vi ende i et loop:
-        // bot -> Slack event -> GitHub -> bot -> Slack event -> ...
+        // bot -> Slack event -> Vercel -> bot -> Slack event -> ...
         if (event?.bot_id || event?.subtype === "bot_message") {
           return new Response("", {
             status: 200,
@@ -696,8 +693,10 @@ export async function handleSlackRequest(
         if (metadata) {
           const values = body.view?.state?.values ?? {};
           // Task fields are bundled into one JSON field, like the Person
-          // identity, to stay within GitHub's 10-property client_payload
-          // limit. callback_id tells src/main.ts which modal this came from.
+          // identity. The bundling dates from the former 10-property
+          // dispatch limit and is kept so the payload shape src/main.ts
+          // reads stays unchanged. callback_id tells src/main.ts which modal
+          // this came from.
           defer(
             dispatch(
               {
@@ -765,12 +764,11 @@ export async function handleSlackRequest(
           const trackId =
             values.track_block?.track_select?.selected_option?.value ?? "";
 
-          // GitHub's repository_dispatch client_payload allows at most 10
-          // top-level properties. This dispatch already omits the
-          // command/text/response_url fields view_submission never uses,
-          // and bundles the Person identity into one JSON field (mirroring
-          // the button's own value) to make room for track_id without
-          // exceeding that limit.
+          // This dispatch omits the command/text/response_url fields
+          // view_submission never uses, and bundles the Person identity into
+          // one JSON field (mirroring the button's own value). The shape
+          // dates from the former 10-property dispatch limit and is kept so
+          // the payload src/main.ts reads stays unchanged.
           defer(
             dispatch(
               {

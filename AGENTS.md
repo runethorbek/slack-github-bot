@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository implements a Slack-based assistant. Interactive Slack requests run in a Vercel Function; GitHub Actions runs the scheduled summary and CI, and remains the interactive rollback path until it is removed (#38).
+This repository implements a Slack-based assistant. Interactive Slack requests run in a Vercel Function; GitHub Actions runs the scheduled summary and CI.
 
 The system currently includes or is intended to include:
 
@@ -35,7 +35,7 @@ Slack
 → Gemini / external services
 → Slack
 
-Every interactive request shape skips `repository_dispatch` and GitHub Actions: Vercel runs `src/main` in-process (`api/_direct-runtime.js` → `runEntryPoint`), after the acknowledgement. Vercel is the execution host and holds the application secrets (Production environment only, passed to `main` through an explicit allowlist). The GitHub path (`triggerGitHub` → `repository_dispatch` → `slack-message.yml`) stays in place, unused, for rollback until #38's removal phase.
+For every interactive request shape, Vercel runs `src/main` in-process (`api/_direct-runtime.js` → `runEntryPoint`), after the acknowledgement. Vercel is the execution host and holds the application secrets (Production environment only, passed to `main` through an explicit allowlist). The former GitHub Actions path for interactive requests (`repository_dispatch` → `slack-message.yml`) was removed in #38.
 
 The Vercel endpoint (`api/`) should remain a thin transport layer. Hosting the application does not change that: `api/` routes only on existing payload fields, makes no authorization decisions, parses no command text and contains no domain logic.
 Vercel may return a fixed, generic acknowledgement in its HTTP response to Slack: no user data, no Gemini output, no authorization decisions.

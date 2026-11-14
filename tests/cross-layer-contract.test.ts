@@ -1,46 +1,42 @@
 // Port of tests/test_cross_layer_contract.py (SlackToPythonContractTests),
-// plus the TS-only workflow-cutover test for slack-message.yml (ACCEPTANCE.md
-// G7, security invariant S8).
+// plus the S8 mapping check (ACCEPTANCE.md security invariant S8).
 //
 // Python ran each Slack request through the real Vercel handler in a `node`
-// subprocess and fed the captured dispatch into main.py. Here both layers run
-// in-process: `handleSlackRequest` is imported from api/slack-request.js
-// (unchanged), the request is signed exactly as the Python tests' Node
-// snippets sign it, and the captured `client_payload` becomes main's
-// environment the way .github/workflows/slack-message.yml maps it: each
-// `env:` entry read from the workflow file itself (a missing payload field or
-// secret is "", as GitHub's expression gives), plus SLACK_RESPONSE_URL, which
-// the masking step exports from `response_url`. The fakes follow
-// main-routing.test.ts's conventions (real HttpResponse objects).
+// subprocess and fed the captured dispatch into main.py. Here every layer runs
+// in-process: `handleSlackRequest` is imported from api/slack-request.js, the
+// request is signed exactly as the Python tests' Node snippets sign it, the
+// payload it hands the direct runner is captured, and the real adapter
+// mapping (`directEnvironment` in api/_direct-runtime.js) turns it into main's
+// environment, as in production. That mapping itself is pinned in
+// direct-runtime.test.ts. The fakes follow main-routing.test.ts's conventions
+// (real HttpResponse objects).
 
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 
 import type { GeminiClient, GeminiRequest, GeminiResponse } from "../src/gemini.ts";
 import { HttpResponse, type GetOptions, type PostOptions } from "../src/http.ts";
 import { main } from "../src/main.ts";
 
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const WORKFLOW_PATH = path.join(REPO_ROOT, ".github", "workflows", "slack-message.yml");
-
 type SlackRequestDeps = {
   signingSecret: string;
   now: () => number;
-  triggerGitHub: (payload: Record<string, unknown>) => Promise<unknown>;
+  runDirect: (payload: Record<string, unknown>, label: string) => Promise<unknown>;
   defer: (promise: Promise<unknown>) => void;
 };
 type HandleSlackRequest = (request: Request, deps: SlackRequestDeps) => Promise<Response>;
 
-// api/slack-request.js has no type declarations; it is imported as it is.
+// api/ has no type declarations; it is imported as it is.
 const SLACK_REQUEST_MODULE = new URL("../api/slack-request.js", import.meta.url).href;
 const { handleSlackRequest } = (await import(SLACK_REQUEST_MODULE)) as { handleSlackRequest: HandleSlackRequest };
+const DIRECT_RUNTIME_MODULE = new URL("../api/_direct-runtime.js", import.meta.url).href;
+const { directEnvironment } = (await import(DIRECT_RUNTIME_MODULE)) as {
+  directEnvironment: (payload: Record<string, unknown>, sourceEnvironment: Record<string, string>) => Record<string, string>;
+};
 
 // ---------------------------------------------------------------------------
-// The Vercel layer: a signed request in, the dispatched client_payload out
+// The Vercel layer: a signed request in, the dispatched payload out
 // ---------------------------------------------------------------------------
 
 const SIGNING_SECRET = "fake-signing-secret";
@@ -63,7 +59,7 @@ async function captureDispatch(body: string, contentType: string): Promise<Recor
   await handleSlackRequest(request, {
     signingSecret: SIGNING_SECRET,
     now: () => TIMESTAMP * 1000,
-    triggerGitHub: async (payload) => dispatched.push(payload),
+    runDirect: async (payload) => dispatched.push(payload),
     defer: (promise) => deferred.push(promise),
   });
   await Promise.all(deferred);
@@ -111,52 +107,15 @@ function captureJavascriptDispatch(): Promise<Record<string, unknown>> {
 }
 
 // ---------------------------------------------------------------------------
-// The workflow layer: client_payload and secrets to main's environment
+// The adapter layer: the payload and secrets to main's environment
 // ---------------------------------------------------------------------------
 
-function workflowLines(): string[] {
-  return readFileSync(WORKFLOW_PATH, "utf8").split(/\r?\n/);
-}
-
-/** The bot step's `env:` entries, in order, as [name, expression]. */
-function workflowEnvMapping(lines: readonly string[] = workflowLines()): Array<[string, string]> {
-  const runBot = lines.indexOf("      - name: Run bot");
-  assert.ok(runBot >= 0, "the Run bot step");
-  assert.equal(lines[runBot + 1], "        env:");
-  const mapping: Array<[string, string]> = [];
-  for (const line of lines.slice(runBot + 2)) {
-    const match = /^ {10}([A-Z_]+): (.*)$/.exec(line);
-    if (match === null) break;
-    mapping.push([match[1] as string, match[2] as string]);
+/** main's environment for `payload`, as api/_direct-runtime.js builds it. */
+function adapterEnvironment(payload: Record<string, unknown>, secrets: Record<string, string>): Record<string, string> {
+  for (const value of Object.values(payload)) {
+    assert.equal(typeof value, "string", "every dispatched payload field is a string");
   }
-  return mapping;
-}
-
-/** A GitHub expression's value as an environment variable: absent or null is "". */
-function expressionValue(value: unknown): string {
-  if (value === undefined || value === null) return "";
-  assert.equal(typeof value, "string", "every client_payload field is a string");
-  return value as string;
-}
-
-/** main's environment for `payload`, as slack-message.yml builds it. */
-function workflowEnvironment(payload: Record<string, unknown>, secrets: Record<string, string>): Record<string, string> {
-  const environment: Record<string, string> = {};
-  for (const [name, expression] of workflowEnvMapping()) {
-    const payloadField = /^\$\{\{ github\.event\.client_payload\.([a-z_]+) \}\}$/.exec(expression);
-    const secret = /^\$\{\{ secrets\.([A-Z_]+) \}\}$/.exec(expression);
-    if (payloadField !== null) {
-      environment[name] = expressionValue(payload[payloadField[1] as string]);
-    } else if (secret !== null) {
-      environment[name] = secrets[secret[1] as string] ?? "";
-    } else {
-      assert.fail(`unexpected env expression ${expression}`);
-    }
-  }
-  // The masking step exports the response URL through $GITHUB_ENV.
-  const responseUrl = payload["response_url"];
-  if (typeof responseUrl === "string" && responseUrl) environment["SLACK_RESPONSE_URL"] = responseUrl;
-  return environment;
+  return directEnvironment(payload, secrets);
 }
 
 // ---------------------------------------------------------------------------
@@ -286,7 +245,7 @@ test("test_signed_root_dm_reaches_authorized_python_route_with_transport_identit
   const post = fakeHttpMethod(jsonResponse({ ok: true }));
   const get = fakeHttpMethod([]);
   const Client = fakeClientFactory(null);
-  const environment = workflowEnvironment(payload, {
+  const environment = adapterEnvironment(payload, {
     SLACK_BOT_TOKEN: "fake-slack-token",
     AUTHORIZED_SLACK_USER_ID: "U-authorized",
   });
@@ -304,28 +263,30 @@ test("test_signed_root_dm_reaches_authorized_python_route_with_transport_identit
   assert.equal(Client.calls.length, 0);
 });
 
-test("test_workflow_maps_dm_identity_and_authorization_configuration (S8)", () => {
-  const workflow = readFileSync(WORKFLOW_PATH, "utf8");
+test("test_adapter_maps_dm_identity_and_authorization_configuration (S8)", () => {
+  const environment = directEnvironment(
+    {
+      user_id: "U-mapped",
+      event_ts: "100.001",
+      channel_type: "im",
+      callback_id: "add_followup_task_modal",
+      task: '{"name":"Send it"}',
+    },
+    { AUTHORIZED_SLACK_USER_ID: "U-authorized" },
+  );
 
-  const expectedMappings = [
-    "SLACK_USER_ID: ${{ github.event.client_payload.user_id }}",
-    "SLACK_EVENT_TS: ${{ github.event.client_payload.event_ts }}",
-    "SLACK_CHANNEL_TYPE: ${{ github.event.client_payload.channel_type }}",
-    "AUTHORIZED_SLACK_USER_ID: ${{ secrets.AUTHORIZED_SLACK_USER_ID }}",
-    "SLACK_VIEW_CALLBACK_ID: ${{ github.event.client_payload.callback_id }}",
-    "SLACK_TASK: ${{ github.event.client_payload.task }}",
-  ];
-  for (const mapping of expectedMappings) {
-    assert.ok(workflow.includes(mapping), mapping);
-  }
-  // The follow-up Task fields (task name) must be masked in the log.
-  assert.ok(workflow.includes('"notes", "task"]'));
+  assert.equal(environment["SLACK_USER_ID"], "U-mapped");
+  assert.equal(environment["SLACK_EVENT_TS"], "100.001");
+  assert.equal(environment["SLACK_CHANNEL_TYPE"], "im");
+  assert.equal(environment["AUTHORIZED_SLACK_USER_ID"], "U-authorized");
+  assert.equal(environment["SLACK_VIEW_CALLBACK_ID"], "add_followup_task_modal");
+  assert.equal(environment["SLACK_TASK"], '{"name":"Send it"}');
 });
 
 test("test_authenticated_tasks_dispatch_reaches_notion_and_slack_without_gemini (S6)", async () => {
   const payload = await captureJavascriptDispatch();
   const { requests, Client } = fakePythonModules();
-  const environment = workflowEnvironment(payload, {
+  const environment = adapterEnvironment(payload, {
     SLACK_BOT_TOKEN: "fake-slack-token",
     TASKS_SLACK_CHANNEL_ID: payload["channel_id"] as string,
     NOTION_API_KEY: "fake-notion-token",
@@ -377,7 +338,7 @@ test("test_authenticated_people_suggest_button_click_reaches_the_existing_sugges
   assert.equal(payload["channel_type"], "im");
 
   const { requests, Client } = fakePeopleSuggestModules();
-  const environment = workflowEnvironment(payload, {
+  const environment = adapterEnvironment(payload, {
     SLACK_BOT_TOKEN: "fake-slack-token",
     AUTHORIZED_SLACK_USER_ID: "U-authorized",
     TASKS_SLACK_CHANNEL_ID: "C-allowed",
@@ -394,134 +355,4 @@ test("test_authenticated_people_suggest_button_click_reaches_the_existing_sugges
     reply.text,
     "Context:\nHey Jane, been a while!\n\n" + "Suggested message for Jane Doe:\n\nHey Jane, been a while!",
   );
-});
-
-// ---------------------------------------------------------------------------
-// TS-only: the workflow cutover (ACCEPTANCE.md G7, S8)
-// ---------------------------------------------------------------------------
-
-// The masking step exactly as at the cutover's base commit (e455682), one
-// string per line, followed by the blank line before the next step.
-const BASE_MASKING_STEP_LINES = [
-  "      - name: Prepare Slack response URL and mask sensitive payload fields",
-  "        run: |",
-  "          # github.event.client_payload.* values are not secrets.* context,",
-  "          # so unlike SLACK_BOT_TOKEN etc. below, GitHub does not auto-mask",
-  "          # them - and it prints every step's resolved `env:` block into its",
-  "          # log. Without an explicit ::add-mask:: here, the \"Run Python bot\"",
-  "          # step's log would show these values (Slack text, person name,",
-  "          # interaction type, notes, follow-up task fields) in plaintext,",
-  "          # exactly like response_url would without the mask already applied",
-  "          # below.",
-  "          node -e '",
-  "            const fs = require(\"fs\");",
-  "            const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, \"utf8\"));",
-  "            const payload = event.client_payload || {};",
-  "            const out = [];",
-  "            if (typeof payload.response_url === \"string\" && payload.response_url) {",
-  "              out.push(\"RESPONSE_URL\\t\" + payload.response_url);",
-  "            }",
-  "            for (const field of [\"text\", \"person\", \"interaction_type\", \"notes\", \"task\"]) {",
-  "              const value = payload[field];",
-  "              if (typeof value === \"string\" && value) {",
-  "                for (const line of value.split(\"\\n\")) {",
-  "                  if (line) out.push(\"MASK\\t\" + line);",
-  "                }",
-  "              }",
-  "            }",
-  "            process.stdout.write(out.join(\"\\n\") + \"\\n\");",
-  "          ' | while IFS=$'\\t' read -r kind value; do",
-  "            if [ \"$kind\" = \"RESPONSE_URL\" ]; then",
-  "              echo \"::add-mask::$value\"",
-  "              echo \"SLACK_RESPONSE_URL=$value\" >> \"$GITHUB_ENV\"",
-  "            else",
-  "              echo \"::add-mask::$value\"",
-  "            fi",
-  "          done",
-  "",
-];
-
-// The `env:` mapping of the bot step at the base commit, in order.
-const BASE_ENV_MAPPING: ReadonlyArray<readonly [string, string]> = [
-  ["SLACK_COMMAND", "${{ github.event.client_payload.command }}"],
-  ["SLACK_TEXT", "${{ github.event.client_payload.text }}"],
-  ["SLACK_CHANNEL_ID", "${{ github.event.client_payload.channel_id }}"],
-  ["SLACK_USER_ID", "${{ github.event.client_payload.user_id }}"],
-  ["SLACK_EVENT_TS", "${{ github.event.client_payload.event_ts }}"],
-  ["SLACK_THREAD_TS", "${{ github.event.client_payload.thread_ts }}"],
-  ["SLACK_CHANNEL_TYPE", "${{ github.event.client_payload.channel_type }}"],
-  ["SLACK_EVENT_TYPE", "${{ github.event.client_payload.slack_event_type }}"],
-  ["SLACK_PERSON", "${{ github.event.client_payload.person }}"],
-  ["SLACK_INTERACTION_TYPE", "${{ github.event.client_payload.interaction_type }}"],
-  ["SLACK_INTERACTION_NOTES", "${{ github.event.client_payload.notes }}"],
-  ["SLACK_INTERACTION_DATE", "${{ github.event.client_payload.date }}"],
-  ["SLACK_INTERACTION_TRACK_ID", "${{ github.event.client_payload.track_id }}"],
-  ["SLACK_VIEW_CALLBACK_ID", "${{ github.event.client_payload.callback_id }}"],
-  ["SLACK_TASK", "${{ github.event.client_payload.task }}"],
-  ["SLACK_BOT_TOKEN", "${{ secrets.SLACK_BOT_TOKEN }}"],
-  ["AUTHORIZED_SLACK_USER_ID", "${{ secrets.AUTHORIZED_SLACK_USER_ID }}"],
-  ["GEMINI_API_KEY", "${{ secrets.GEMINI_API_KEY }}"],
-  ["NOTION_API_KEY", "${{ secrets.NOTION_API_KEY }}"],
-  ["NOTION_PEOPLE_DATA_SOURCE_ID", "${{ secrets.NOTION_PEOPLE_DATA_SOURCE_ID }}"],
-  ["NOTION_INTERACTIONS_DATA_SOURCE_ID", "${{ secrets.NOTION_INTERACTIONS_DATA_SOURCE_ID }}"],
-  ["NOTION_TASKS_DATA_SOURCE_ID", "${{ secrets.NOTION_TASKS_DATA_SOURCE_ID }}"],
-  ["NOTION_TRACKS_DATA_SOURCE_ID", "${{ secrets.NOTION_TRACKS_DATA_SOURCE_ID }}"],
-  ["TASKS_SLACK_CHANNEL_ID", "${{ secrets.TASKS_SLACK_CHANNEL_ID }}"],
-];
-
-test("G7: slack-message.yml runs node src/main.ts on Node 24 with the masking step and env mapping unchanged", () => {
-  const text = readFileSync(WORKFLOW_PATH, "utf8");
-  const lines = text.split(/\r?\n/);
-
-  // The trigger: repository_dispatch of slack_message, nothing else.
-  const onStart = lines.indexOf("on:");
-  const jobsStart = lines.indexOf("jobs:");
-  assert.ok(onStart >= 0 && jobsStart > onStart);
-  assert.deepEqual(
-    lines.slice(onStart, jobsStart).filter((line) => line.trim() !== ""),
-    ["on:", "  repository_dispatch:", "    types: [slack_message]"],
-  );
-
-  // The steps, in order: checkout, setup-node before the masking step (which
-  // runs `node -e`), the production install, the masking step, the bot.
-  const steps = lines.filter((line) => line.startsWith("      - "));
-  assert.deepEqual(steps, [
-    "      - uses: actions/checkout@v5",
-    "      - uses: actions/setup-node@v7",
-    "      - name: Install dependencies",
-    "      - name: Prepare Slack response URL and mask sensitive payload fields",
-    "      - name: Run bot",
-  ]);
-  const setupNode = lines.indexOf("      - uses: actions/setup-node@v7");
-  assert.deepEqual(lines.slice(setupNode + 1, setupNode + 4), [
-    "        with:",
-    '          node-version: "24"',
-    "          cache: npm",
-  ]);
-  const install = lines.indexOf("      - name: Install dependencies");
-  assert.equal(lines[install + 1], "        run: npm ci --omit=dev");
-
-  // The masking step, byte for byte as before the cutover (S8).
-  const maskingStart = lines.indexOf(BASE_MASKING_STEP_LINES[0] as string);
-  assert.deepEqual(lines.slice(maskingStart, maskingStart + BASE_MASKING_STEP_LINES.length), BASE_MASKING_STEP_LINES);
-  assert.equal(lines[maskingStart + BASE_MASKING_STEP_LINES.length], "      - name: Run bot");
-
-  // The env mapping: every key and expression of the base, in order, and no
-  // addition; then the TS entry point.
-  const mapping = workflowEnvMapping(lines);
-  assert.deepEqual(mapping, BASE_ENV_MAPPING);
-  const runBot = lines.indexOf("      - name: Run bot");
-  assert.equal(lines[runBot + 2 + mapping.length], "        run: node src/main.ts");
-  // The response URL is never an env: mapping (it goes through $GITHUB_ENV).
-  assert.ok(!mapping.some(([name, expression]) => name === "SLACK_RESPONSE_URL" || expression.includes("response_url")));
-
-  // Every run command; no Python left (the masking step's comment still names
-  // the old step, "Run Python bot", as it must stay unchanged).
-  const runs = lines.filter((line) => /^\s+run: /.test(line)).map((line) => line.trim());
-  assert.deepEqual(runs, ["run: npm ci --omit=dev", "run: |", "run: node src/main.ts"]);
-  assert.ok(!text.includes("setup-python"));
-  assert.ok(!text.includes("requirements.txt"));
-  assert.ok(!text.includes("pip "));
-  assert.ok(!/\bpython\b/.test(text));
-  assert.ok(!text.includes("main.py"));
 });

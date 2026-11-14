@@ -59,7 +59,7 @@ function testDependencies({ responseUrlReply = () => new Response("ok") } = {}) 
       },
       signingSecret: SIGNING_SECRET,
       now: () => NOW_SECONDS * 1000,
-      triggerGitHub: async (payload) => {
+      runDirect: async (payload) => {
         dispatched.push(payload);
       },
       defer: (promise) => {
@@ -909,7 +909,7 @@ function addInteractionButtonClickBody(overrides = {}) {
   }).toString();
 }
 
-test("clicking Add Interaction opens a modal carrying the Person page id and thread, without dispatching to GitHub", async () => {
+test("clicking Add Interaction opens a modal carrying the Person page id and thread, without dispatching", async () => {
   const body = addInteractionButtonClickBody();
   const dependencies = testDependencies();
 
@@ -1173,7 +1173,7 @@ async function assertSavingResponse(response) {
   assert.equal(await response.text(), SAVING_RESPONSE_BODY);
 }
 
-test("submitting the Add Interaction modal dispatches the structured write to GitHub, not the modal-open path", async () => {
+test("submitting the Add Interaction modal dispatches the structured write, not the modal-open path", async () => {
   const body = addInteractionSubmissionBody();
   const dependencies = testDependencies();
 
@@ -1236,10 +1236,9 @@ test("a selected Track is included in the dispatched write", async () => {
   assert.equal(dependencies.dispatched[0].track_id, "track-2");
 });
 
-test("the Add Interaction dispatch stays within GitHub's 10-property client_payload limit", async () => {
-  // repository_dispatch rejects a client_payload with more than 10
-  // top-level properties (HTTP 422); a regression here fails silently in
-  // production because the dispatch is fire-and-forget.
+test("the Add Interaction dispatch keeps its at most 10 top-level properties", async () => {
+  // The payload shape dates from the former repository_dispatch limit of 10
+  // top-level client_payload properties and is kept unchanged (#38).
   const body = addInteractionSubmissionBody();
   const dependencies = testDependencies();
 
@@ -1635,7 +1634,7 @@ function addFollowupTaskSubmissionBody(values) {
   }).toString();
 }
 
-test("submitting the Task modal dispatches the bundled Task fields to GitHub", async () => {
+test("submitting the Task modal dispatches the bundled Task fields", async () => {
   const body = addFollowupTaskSubmissionBody({
     name_block: { name_input: { value: "Send the article" } },
     description_block: {
